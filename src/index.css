@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+:root {
+  --sc-canvas: #f1f5f9;
+  --sc-ink: #0f172a;
+  --sc-primary: #0284c7;
+  --sc-primary-hover: #0369a1;
+  --sc-sidebar: #0f172a;
+
+  font-family: "Segoe UI", system-ui, sans-serif;
+  line-height: 1.5;
+  color: var(--sc-ink);
+  background-color: var(--sc-canvas);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: var(--sc-canvas);
+}
+
+#root {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+button:not(:disabled),
+a,
+[role='button'] {
+  cursor: pointer;
+}
