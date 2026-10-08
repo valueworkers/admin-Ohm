@@ -30,6 +30,27 @@ const useLive = (loader) => {
   return data
 }
 
+const fmtDate = (value) => {
+  if (!value) return '—'
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('en-IN')
+}
+
+const bookingStatusChip = (status) => {
+  const s = String(status || '').toUpperCase()
+  if (s === 'ACTIVE' || s === 'CONFIRMED') return 'bg-emerald-50 text-emerald-800'
+  if (s === 'PENDING') return 'bg-amber-50 text-amber-900'
+  if (s === 'EXPIRED' || s === 'CANCELLED') return 'bg-rose-50 text-rose-800'
+  if (s === 'COMPLETED') return 'bg-sky-50 text-sky-800'
+  return 'bg-slate-100 text-slate-700'
+}
+
+const patientDisplayName = (row) =>
+  [row.first_name, row.last_name].filter(Boolean).join(' ').trim() || row.name || '—'
+
+const employeeFullName = (row) =>
+  [row.first_name, row.middle_name, row.last_name].filter(Boolean).join(' ') || row.name || '—'
+
 const ReadOnlyTable = ({ columns, rows, emptyTitle, emptyHint }) => (
   <div className={tableWrapClass}>
     {rows.length === 0 ? (
@@ -40,7 +61,7 @@ const ReadOnlyTable = ({ columns, rows, emptyTitle, emptyHint }) => (
           <thead className={tableHeadClass}>
             <tr>
               {columns.map((c) => (
-                <th key={c.key} className="px-4 py-3">
+                <th key={c.key} className="px-3 py-3 whitespace-nowrap">
                   {c.label}
                 </th>
               ))}
@@ -50,7 +71,7 @@ const ReadOnlyTable = ({ columns, rows, emptyTitle, emptyHint }) => (
             {rows.map((row) => (
               <tr key={row.id} className="hover:bg-slate-50">
                 {columns.map((c) => (
-                  <td key={c.key} className="px-4 py-3 text-slate-700">
+                  <td key={c.key} className={`px-3 py-3 text-slate-700 ${c.cellClass || ''}`}>
                     {c.render ? c.render(row) : row[c.key] ?? '—'}
                   </td>
                 ))}
@@ -126,28 +147,117 @@ export const PlatformBookings = () => {
       />
       <ReadOnlyTable
         emptyTitle="No bookings"
-        emptyHint="Tenant owners create bookings inside their organizations."
+        emptyHint="Bookings appear from tenant demo data."
         rows={rows}
         columns={[
-          { key: 'tenant_name', label: 'Tenant' },
+          {
+            key: 'tenant_name',
+            label: 'Tenant',
+            cellClass: 'whitespace-nowrap font-medium text-slate-900',
+          },
+          {
+            key: 'order_id',
+            label: 'Order ID',
+            cellClass: 'whitespace-nowrap font-medium text-slate-900',
+            render: (r) => r.order_id || r.id,
+          },
           {
             key: 'patient_name',
-            label: 'Patient',
-            render: (r) => <span className="font-medium text-slate-900">{r.patient_name}</span>,
+            label: 'Patient name',
+            cellClass: 'whitespace-nowrap font-medium text-slate-900',
+            render: (r) => r.patient_name || '—',
           },
-          { key: 'service_name', label: 'Service' },
           {
-            key: 'scheduled_at',
-            label: 'When',
+            key: 'patient_id',
+            label: 'Patient ID',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => r.patient_id || '—',
+          },
+          {
+            key: 'phone',
+            label: 'Phone',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => r.phone || '—',
+          },
+          { key: 'age', label: 'Age', render: (r) => r.age ?? '—' },
+          {
+            key: 'package_name',
+            label: 'Package name',
+            cellClass: 'max-w-[160px]',
+            render: (r) => <span className="line-clamp-2">{r.package_name || '—'}</span>,
+          },
+          {
+            key: 'service_name',
+            label: 'Service name',
+            cellClass: 'max-w-[140px]',
+            render: (r) => <span className="line-clamp-2">{r.service_name || '—'}</span>,
+          },
+          {
+            key: 'location_type',
+            label: 'Location type',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => (r.location_type || '—').toString().replace(/_/g, ' '),
+          },
+          {
+            key: 'locality',
+            label: 'Locality',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => r.locality || '—',
+          },
+          {
+            key: 'location',
+            label: 'Location',
+            cellClass: 'max-w-[160px]',
+            render: (r) => <span className="line-clamp-2">{r.location || '—'}</span>,
+          },
+          {
+            key: 'starting_date',
+            label: 'Starting date',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => fmtDate(r.starting_date || r.scheduled_at),
+          },
+          {
+            key: 'ending_date',
+            label: 'Ending date',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => fmtDate(r.ending_date),
+          },
+          {
+            key: 'status',
+            label: 'Status',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => (
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase ${bookingStatusChip(r.status)}`}
+              >
+                {r.status || '—'}
+              </span>
+            ),
+          },
+          {
+            key: 'auto_renew',
+            label: 'Auto-renew',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => (r.auto_renew ? 'Yes' : 'No'),
+          },
+          {
+            key: 'emergency_contact',
+            label: 'Emergency contact',
+            cellClass: 'whitespace-nowrap',
             render: (r) =>
-              r.scheduled_at ? new Date(r.scheduled_at).toLocaleString('en-IN') : '—',
+              r.emergency_contact_name || r.emergency_contact_phone ? (
+                <div>
+                  <div className="font-medium text-slate-900">
+                    {r.emergency_contact_name || '—'}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {r.emergency_contact_phone || '—'}
+                  </div>
+                </div>
+              ) : (
+                '—'
+              ),
           },
-          {
-            key: 'amount',
-            label: 'Amount',
-            render: (r) => `₹${Number(r.amount || 0).toLocaleString('en-IN')}`,
-          },
-          { key: 'status', label: 'Status' },
         ]}
       />
     </div>
@@ -165,20 +275,113 @@ export const PlatformPatients = () => {
       />
       <ReadOnlyTable
         emptyTitle="No patients"
-        emptyHint="Patients appear when tenant owners add them."
+        emptyHint="Patients appear from tenant demo data."
         rows={rows}
         columns={[
-          { key: 'tenant_name', label: 'Tenant' },
           {
-            key: 'name',
-            label: 'Name',
-            render: (r) => <span className="font-medium text-slate-900">{r.name}</span>,
+            key: 'tenant_name',
+            label: 'Tenant',
+            cellClass: 'whitespace-nowrap font-medium text-slate-900',
           },
-          { key: 'age', label: 'Age' },
-          { key: 'phone', label: 'Phone' },
-          { key: 'city', label: 'City' },
-          { key: 'condition', label: 'Condition' },
-          { key: 'status', label: 'Status' },
+          {
+            key: 'patient_id',
+            label: 'Patient ID',
+            cellClass: 'whitespace-nowrap font-medium text-slate-900',
+            render: (r) => r.patient_id || r.id,
+          },
+          {
+            key: 'full_name',
+            label: 'Full name',
+            cellClass: 'whitespace-nowrap font-semibold text-slate-900',
+            render: (r) => patientDisplayName(r),
+          },
+          {
+            key: 'phone',
+            label: 'Phone',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => r.phone || '—',
+          },
+          { key: 'age', label: 'Age', render: (r) => r.age ?? '—' },
+          {
+            key: 'gender',
+            label: 'Gender',
+            cellClass: 'capitalize',
+            render: (r) => r.gender || '—',
+          },
+          {
+            key: 'location_type',
+            label: 'Location type',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => (r.location_type || '—').toString().replace(/_/g, ' '),
+          },
+          {
+            key: 'locality',
+            label: 'Locality',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => r.booking_locality || r.city || '—',
+          },
+          {
+            key: 'emergency_contact',
+            label: 'Emergency contact',
+            cellClass: 'whitespace-nowrap',
+            render: (r) =>
+              r.emergency_contact || r.emergency_phone ? (
+                <div>
+                  <div className="font-medium text-slate-900">{r.emergency_contact || '—'}</div>
+                  <div className="text-xs text-slate-500">{r.emergency_phone || '—'}</div>
+                </div>
+              ) : (
+                '—'
+              ),
+          },
+          {
+            key: 'onboarding',
+            label: 'Onboarding',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => fmtDate(r.onboading_date || r.onboarding_date),
+          },
+          {
+            key: 'emr_count',
+            label: 'EMR',
+            render: (r) => r.emr_count ?? 0,
+          },
+          {
+            key: 'flags',
+            label: 'Flags',
+            render: (r) => (
+              <div className="flex flex-wrap gap-1">
+                {r.is_probono ? (
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                    Pro bono
+                  </span>
+                ) : null}
+                {r.is_registration_fees_paid ? (
+                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                    Reg paid
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                    Reg unpaid
+                  </span>
+                )}
+              </div>
+            ),
+          },
+          {
+            key: 'is_active',
+            label: 'Active',
+            render: (r) => (
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                  r.is_active !== false
+                    ? 'bg-emerald-50 text-emerald-800'
+                    : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {r.is_active !== false ? 'Yes' : 'No'}
+              </span>
+            ),
+          },
         ]}
       />
     </div>
@@ -196,37 +399,106 @@ export const PlatformEmployees = () => {
       />
       <ReadOnlyTable
         emptyTitle="No employees"
-        emptyHint="Tenant owners manage their own staff lists."
+        emptyHint="Employees appear from tenant demo data."
         rows={rows}
         columns={[
-          { key: 'tenant_name', label: 'Tenant' },
           {
-            key: 'name',
-            label: 'Name',
-            render: (r) => (
-              <span className="font-medium text-slate-900">
-                {[r.first_name, r.middle_name, r.last_name].filter(Boolean).join(' ') ||
-                  r.name ||
-                  '—'}
-              </span>
-            ),
+            key: 'tenant_name',
+            label: 'Tenant',
+            cellClass: 'whitespace-nowrap font-medium text-slate-900',
           },
           {
             key: 'employee_id',
             label: 'Employee ID',
+            cellClass: 'whitespace-nowrap font-medium text-slate-900',
             render: (r) => r.employee_profile?.employee_id || r.id,
           },
-          { key: 'mobile_number', label: 'Mobile', render: (r) => r.mobile_number || r.phone || '—' },
+          {
+            key: 'name',
+            label: 'Name',
+            render: (r) => (
+              <div className="flex items-center gap-2">
+                {r.profile_pic ? (
+                  <img
+                    src={r.profile_pic}
+                    alt=""
+                    className="h-8 w-8 rounded-full object-cover"
+                  />
+                ) : (
+                  <span className="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500">
+                    {(r.first_name || 'E').slice(0, 1)}
+                  </span>
+                )}
+                <span className="font-semibold whitespace-nowrap text-slate-900">
+                  {employeeFullName(r)}
+                </span>
+              </div>
+            ),
+          },
+          {
+            key: 'mobile_number',
+            label: 'Mobile',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => r.mobile_number || r.phone || '—',
+          },
+          {
+            key: 'user_type',
+            label: 'User type',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => r.user_type || '—',
+          },
           {
             key: 'designation',
             label: 'Designation',
             render: (r) => r.employee_profile?.designation || r.role || '—',
           },
-          { key: 'user_type', label: 'User type' },
+          { key: 'city', label: 'City', render: (r) => r.city || '—' },
+          {
+            key: 'venues',
+            label: 'Venues',
+            render: (r) =>
+              (r.venues || []).length
+                ? (r.venues || []).map((v) => v.name).join(', ')
+                : '—',
+          },
+          {
+            key: 'services',
+            label: 'Services',
+            cellClass: 'max-w-[180px]',
+            render: (r) => (
+              <span className="line-clamp-2">
+                {(r.services || []).length
+                  ? (r.services || []).map((s) => s.name).join(', ')
+                  : '—'}
+              </span>
+            ),
+          },
+          {
+            key: 'reports_to',
+            label: 'Reports to',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => r.reports_to?.name || '—',
+          },
+          {
+            key: 'date_joined',
+            label: 'Joined',
+            cellClass: 'whitespace-nowrap',
+            render: (r) => r.date_joined || '—',
+          },
           {
             key: 'is_active',
             label: 'Active',
-            render: (r) => (r.is_active !== false ? 'Yes' : 'No'),
+            render: (r) => (
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                  r.is_active !== false
+                    ? 'bg-emerald-50 text-emerald-800'
+                    : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {r.is_active !== false ? 'Yes' : 'No'}
+              </span>
+            ),
           },
         ]}
       />

@@ -180,12 +180,12 @@ const PlatformPermissions = () => {
                         aria-checked={on}
                         aria-label={`${on ? 'Disable' : 'Enable'} ${feature.label}`}
                         onClick={() => toggle(feature.key, !on)}
-                        className={`relative h-7 w-12 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 ${
+                        className={`relative h-7 w-12 shrink-0 rounded-full transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 ${
                           on ? 'bg-sky-600' : 'bg-slate-300'
                         }`}
                       >
                         <span
-                          className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${
+                          className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform duration-200 ease-out ${
                             on ? 'translate-x-5' : 'translate-x-0'
                           }`}
                         />

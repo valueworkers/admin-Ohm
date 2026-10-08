@@ -18,32 +18,40 @@ const Modal = ({ open, title, onClose, children, footer, wide = false, xl = fals
 
   if (!open) return null
 
+  const widthClass = xl ? 'sm:max-w-4xl' : wide ? 'sm:max-w-3xl' : 'sm:max-w-lg'
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
       <button
         type="button"
-        className="absolute inset-0 bg-slate-900/40 transition-opacity"
+        className="sc-modal-backdrop absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]"
         aria-label="Close dialog"
         onClick={onClose}
       />
-      <div
-        className={`relative z-10 flex max-h-[90vh] w-full flex-col rounded-t-2xl border border-slate-200 bg-white shadow-xl sm:rounded-2xl ${
-          xl ? 'sm:max-w-4xl' : wide ? 'sm:max-w-3xl' : 'sm:max-w-lg'
-        }`}
-      >
-        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-          <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-            aria-label="Close"
-          >
-            <FiX className="h-4 w-4" />
-          </button>
+      <div className="absolute inset-0 flex items-end justify-center p-0 sm:items-start sm:justify-center sm:px-6 sm:pt-[8vh] sm:pb-6">
+        <div
+          className={`sc-modal-panel relative z-10 flex h-[min(92dvh,920px)] w-full flex-col overflow-hidden rounded-t-2xl border border-slate-200/80 bg-white shadow-2xl shadow-slate-900/15 sm:h-auto sm:max-h-[min(80dvh,820px)] sm:rounded-2xl ${widthClass}`}
+        >
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5">
+            <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl p-1.5 text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-95"
+              aria-label="Close"
+            >
+              <FiX className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+            {children}
+          </div>
+          {footer ? (
+            <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-3">
+              {footer}
+            </div>
+          ) : null}
         </div>
-        <div className="overflow-y-auto px-4 py-4">{children}</div>
-        {footer ? <div className="border-t border-slate-100 px-4 py-3">{footer}</div> : null}
       </div>
     </div>
   )

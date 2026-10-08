@@ -1,5 +1,5 @@
 import { FiAlertTriangle, FiInbox, FiLoader } from 'react-icons/fi'
-import { btnPrimary } from '../../utils/ui'
+import { btnPrimary, panelClass } from '../../utils/ui'
 
 export const LoadingState = ({ label = 'Loading…' }) => (
   <div className="flex items-center justify-center gap-2 py-16 text-sm text-slate-500">
@@ -20,7 +20,7 @@ export const EmptyState = ({
       bare ? '' : 'rounded-xl border border-dashed border-slate-200 bg-white'
     }`}
   >
-    <div className="inline-flex rounded-full bg-slate-100 p-3 text-slate-400">
+    <div className="inline-flex rounded-2xl bg-slate-100 p-3.5 text-slate-400 ring-1 ring-slate-200/80">
       <FiInbox className="h-7 w-7" aria-hidden />
     </div>
     <p className="mt-3 font-medium text-slate-800">{title}</p>
@@ -50,7 +50,5 @@ export const ErrorState = ({ message, onRetry, bare = false }) => (
 )
 
 export const Panel = ({ children, className = '' }) => (
-  <div className={`rounded-xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}>
-    {children}
-  </div>
+  <div className={`${panelClass} ${className}`}>{children}</div>
 )

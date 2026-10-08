@@ -17,6 +17,7 @@ import {
   PlatformSettings,
 } from './pages/platform/PlatformPages'
 import PlatformPermissions from './pages/platform/PlatformPermissions'
+import PlatformVendors from './pages/platform/PlatformVendors'
 
 const App = () => (
   <BrowserRouter>
@@ -33,6 +34,7 @@ const App = () => (
             <Route path="platform/bookings" element={<PlatformBookings />} />
             <Route path="platform/patients" element={<PlatformPatients />} />
             <Route path="platform/employees" element={<PlatformEmployees />} />
+            <Route path="platform/vendors" element={<PlatformVendors />} />
             <Route path="platform/owners" element={<PlatformOwners />} />
             <Route path="platform/offboarded" element={<PlatformOffboarded />} />
             <Route path="platform/permissions" element={<PlatformPermissions />} />

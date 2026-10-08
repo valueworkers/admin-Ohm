@@ -116,7 +116,7 @@ const EntityCrudPage = ({
           canWrite ? (
             <button type="button" className={btnPrimary} onClick={openCreate}>
               <FiPlus className="h-4 w-4" aria-hidden />
-              Add {title.replace(/s$/, '')}
+              {title === 'Vendors' ? 'Assign vendor' : `Add ${title.replace(/s$/, '')}`}
             </button>
           ) : (
             <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">

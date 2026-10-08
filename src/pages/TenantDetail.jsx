@@ -267,6 +267,16 @@ const TenantDetail = () => {
         <AttendancePage />
       ) : tab === 'staff-payouts' ? (
         <StaffPayoutsPage />
+      ) : module?.collection === 'vendors' ? (
+        <EntityCrudPage
+          key={module.collection}
+          {...module}
+          tenantId={tenant.id}
+          canWrite
+          eyebrow="Assign to tenant"
+          emptyTitle="No vendors assigned"
+          emptyHint="Assign a supplier or partner vendor to this organization."
+        />
       ) : module ? (
         <EntityCrudPage
           key={module.collection}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   FiActivity,
   FiCalendar,
@@ -11,6 +11,7 @@ import {
   FiSettings,
   FiShield,
   FiSidebar,
+  FiTruck,
   FiUserCheck,
   FiUserX,
   FiUsers,
@@ -25,17 +26,17 @@ const SIDEBAR_KEY = 'admin_sidebar_collapsed'
 const navClass =
   ({ collapsed }) =>
   ({ isActive }) =>
-    `flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium transition-colors ${
+    `sc-nav-item flex items-center gap-3 rounded-xl py-2.5 text-sm font-medium ${
       collapsed ? 'justify-center px-0' : 'px-3'
     } ${
       isActive
-        ? 'bg-sky-600 text-white'
+        ? 'bg-sky-600 text-white shadow-md shadow-sky-900/30'
         : 'text-white/70 hover:bg-white/10 hover:text-white'
     }`
 
 const SectionLabel = ({ collapsed, children }) =>
   collapsed ? null : (
-    <p className="px-3 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wide text-white/35">
+    <p className="px-3 pb-1 pt-4 text-[11px] font-bold uppercase tracking-wide text-white/35">
       {children}
     </p>
   )
@@ -49,6 +50,7 @@ const NavItem = ({ to, end, title, icon: Icon, collapsed, mobileOpen, linkClass,
 
 const Layout = () => {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAccess()
   const [logoutOpen, setLogoutOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -68,10 +70,11 @@ const Layout = () => {
     }
   }, [collapsed])
 
-  const displayName =
-    [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() ||
-    user?.email ||
-    'Super Admin'
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [location.pathname])
+
+  const displayName = 'Super Admin'
 
   const closeMobile = () => setMobileOpen(false)
   const linkClass = navClass({ collapsed: collapsed && !mobileOpen })
@@ -106,6 +109,7 @@ const Layout = () => {
       {item({ to: '/platform/bookings', title: 'All bookings', icon: FiCalendar })}
       {item({ to: '/platform/patients', title: 'All patients', icon: FiUsers })}
       {item({ to: '/platform/employees', title: 'All employees', icon: FiUserCheck })}
+      {item({ to: '/platform/vendors', title: 'Vendors', icon: FiTruck })}
 
       <SectionLabel collapsed={rail}>Directory</SectionLabel>
       {item({ to: '/platform/owners', title: 'Owners', icon: FiUsers })}
@@ -119,14 +123,14 @@ const Layout = () => {
       {mobileOpen ? (
         <button
           type="button"
-          className="fixed inset-0 z-30 bg-slate-900/50 md:hidden"
+          className="sc-fade-in fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-[1px] md:hidden"
           aria-label="Close menu"
           onClick={closeMobile}
         />
       ) : null}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-60 flex-col bg-slate-900 transition-transform duration-200 md:static md:translate-x-0 ${
+        className={`sc-sidebar-sheen fixed inset-y-0 left-0 z-40 flex w-60 flex-col transition-all duration-300 ease-out md:static md:translate-x-0 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         } ${collapsed ? 'md:w-16' : 'md:w-60'}`}
       >
@@ -143,11 +147,11 @@ const Layout = () => {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 md:px-4">
+        <header className="sc-glass-header sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-slate-200/80 px-3 md:px-4">
           <div className="flex min-w-0 items-center gap-2">
             <button
               type="button"
-              className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 md:hidden"
+              className="rounded-xl p-2 text-slate-500 transition-all duration-150 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 active:scale-95 md:hidden"
               onClick={() => setMobileOpen(true)}
               aria-label="Open menu"
             >
@@ -155,7 +159,7 @@ const Layout = () => {
             </button>
             <button
               type="button"
-              className="hidden rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 md:inline-flex"
+              className="hidden rounded-xl p-2 text-slate-500 transition-all duration-150 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 active:scale-95 md:inline-flex"
               onClick={() => setCollapsed((v) => !v)}
               aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
@@ -172,7 +176,7 @@ const Layout = () => {
             <button
               type="button"
               onClick={() => setLogoutOpen(true)}
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2 text-sm text-slate-500 transition-colors hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30 sm:min-h-0"
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-xl px-2.5 text-sm text-slate-500 transition-all duration-150 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30 active:scale-95 sm:min-h-0"
               aria-label="Logout"
             >
               <FiLogOut className="h-4 w-4" aria-hidden />
@@ -182,7 +186,7 @@ const Layout = () => {
         </header>
 
         <main className="min-w-0 flex-1 p-4 md:p-6">
-          <div className="mx-auto max-w-[1400px]">
+          <div key={location.pathname} className="sc-page-enter mx-auto max-w-[1400px]">
             <Outlet />
           </div>
         </main>

@@ -51,14 +51,16 @@ const Login = () => {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-900 px-4 py-10">
-      <div className="w-full max-w-md space-y-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xl sm:p-8">
+    <div className="sc-login-bg flex min-h-screen items-center justify-center px-4 py-10">
+      <div className="sc-page-enter w-full max-w-md space-y-4">
+        <div className="rounded-2xl border border-white/10 bg-white p-6 shadow-2xl shadow-black/30 sm:p-8">
           <p className="text-[11px] font-bold uppercase tracking-wide text-sky-700">
             Senior Care Platform
           </p>
-          <h1 className="mt-1 text-2xl font-bold text-slate-900">Super Admin sign in</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+            Super Admin sign in
+          </h1>
+          <p className="mt-1.5 text-sm leading-relaxed text-slate-500">
             Platform console only. Onboard tenants, set permissions, and inspect org data.
           </p>
 
@@ -91,7 +93,7 @@ const Login = () => {
                 />
                 <button
                   type="button"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-slate-400 hover:text-slate-700"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 transition-colors hover:text-slate-700"
                   onClick={() => setShowPassword((v) => !v)}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
@@ -101,7 +103,10 @@ const Login = () => {
             </div>
 
             {error ? (
-              <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
+              <p
+                className="sc-fade-in rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-sm text-rose-700"
+                role="alert"
+              >
                 {error}
               </p>
             ) : null}
@@ -119,21 +124,21 @@ const Login = () => {
           </form>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/80 backdrop-blur-sm">
           <p className="text-[11px] font-bold uppercase tracking-wide text-white/40">Demo account</p>
           <ul className="mt-2 space-y-2">
             {DEMO_LOGINS.map((demo) => (
               <li key={demo.email}>
                 <button
                   type="button"
-                  className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left transition-colors hover:bg-white/10"
+                  className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-left transition-all duration-200 hover:border-sky-400/30 hover:bg-white/10 active:scale-[0.99]"
                   onClick={() => fillDemo(demo)}
                 >
                   <span>
                     <span className="block font-medium text-white">{demo.label}</span>
                     <span className="text-xs text-white/50">{demo.email}</span>
                   </span>
-                  <span className="text-xs text-sky-300">Use</span>
+                  <span className="text-xs font-medium text-sky-300">Use</span>
                 </button>
               </li>
             ))}

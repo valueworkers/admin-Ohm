@@ -88,8 +88,8 @@ export const loginWithDummy = (email, password) => {
   const sessionUser = {
     id: found.id,
     email: found.email,
-    first_name: found.first_name,
-    last_name: found.last_name,
+    first_name: 'Super',
+    last_name: 'Admin',
     user_type: USER_TYPES.SUPER_ADMIN,
     tenant_id: null,
     organization_name: '',
