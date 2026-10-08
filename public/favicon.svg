@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Senior Care">
+  <!-- House -->
+  <path fill="#BFDBFE" stroke="#0F172A" stroke-width="3" stroke-linejoin="round"
+    d="M8 30 L32 10 L56 30 V54 H8 Z"/>
+  <!-- Roof edge -->
+  <path fill="none" stroke="#0F172A" stroke-width="3" stroke-linejoin="round"
+    d="M6 30 L32 8 L58 30"/>
+  <!-- Chimney -->
+  <path fill="#94A3B8" stroke="#0F172A" stroke-width="2.5" stroke-linejoin="round"
+    d="M46 18 H52 V28 H46 Z"/>
+  <!-- Medical badge -->
+  <circle cx="32" cy="14" r="7.5" fill="#FFFFFF" stroke="#0F172A" stroke-width="2.5"/>
+  <path fill="#EF4444" d="M30.2 10.4 H33.8 V13.2 H36.6 V16.8 H33.8 V19.6 H30.2 V16.8 H27.4 V13.2 H30.2 Z"/>
+  <!-- Man -->
+  <circle cx="24" cy="36" r="5.2" fill="#FDE68A" stroke="#0F172A" stroke-width="2"/>
+  <path fill="#FFFFFF" stroke="#0F172A" stroke-width="1.5" d="M18.8 34.2 Q24 30.5 29.2 34.2" />
+  <path fill="#DC2626" stroke="#0F172A" stroke-width="2" stroke-linejoin="round"
+    d="M16 42 Q24 39 32 42 V54 H16 Z"/>
+  <!-- Woman -->
+  <circle cx="40" cy="36" r="5.2" fill="#FDE68A" stroke="#0F172A" stroke-width="2"/>
+  <path fill="#F8FAFC" stroke="#0F172A" stroke-width="1.8" stroke-linejoin="round"
+    d="M36.2 31.5 Q40 27.5 43.8 31.5 Q42 34 40 34 Q38 34 36.2 31.5 Z"/>
+  <path fill="#94A3B8" stroke="#0F172A" stroke-width="2" stroke-linejoin="round"
+    d="M32 42 Q40 39 48 42 V54 H32 Z"/>
+</svg>
