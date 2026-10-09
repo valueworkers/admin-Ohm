@@ -1,11 +1,24 @@
 @import "tailwindcss";
 
+@theme {
+  --color-brand-50: #eef4f0;
+  --color-brand-100: #d7e6dc;
+  --color-brand-200: #b4cfbf;
+  --color-brand-500: #4d7a62;
+  --color-brand-600: #3b5f4c;
+  --color-brand-700: #2f4c3d;
+  --color-brand-800: #263d32;
+  --color-canvas: #f7f7f5;
+  --color-sidebar: #171c1a;
+  --color-sidebar-mid: #121614;
+}
+
 :root {
-  --sc-canvas: #f1f5f9;
-  --sc-ink: #0f172a;
-  --sc-primary: #0284c7;
-  --sc-primary-hover: #0369a1;
-  --sc-sidebar: #0f172a;
+  --sc-canvas: #f7f7f5;
+  --sc-ink: #1c1917;
+  --sc-primary: #3b5f4c;
+  --sc-primary-hover: #2f4c3d;
+  --sc-sidebar: #171c1a;
   --sc-ease: cubic-bezier(0.22, 1, 0.36, 1);
 
   font-family: "Segoe UI", system-ui, sans-serif;
@@ -17,22 +30,24 @@
   -webkit-font-smoothing: antialiased;
 }
 
+html,
 body {
   margin: 0;
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100%;
+  overflow: hidden;
   background-color: var(--sc-canvas);
 }
 
 #root {
-  min-height: 100vh;
+  height: 100%;
   min-height: 100dvh;
+  overflow: hidden;
 }
 
 @keyframes sc-fade-up {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -52,7 +67,7 @@ body {
 @keyframes sc-scale-in {
   from {
     opacity: 0;
-    transform: scale(0.98);
+    transform: scale(0.99);
   }
   to {
     opacity: 1;
@@ -63,7 +78,7 @@ body {
 @keyframes sc-slide-right {
   from {
     opacity: 0;
-    transform: translateX(-8px);
+    transform: translateX(-6px);
   }
   to {
     opacity: 1;
@@ -72,83 +87,73 @@ body {
 }
 
 .sc-page-enter {
-  animation: sc-fade-up 280ms var(--sc-ease) both;
+  animation: sc-fade-up 240ms var(--sc-ease) both;
 }
 
 .sc-fade-in {
-  animation: sc-fade-in 220ms var(--sc-ease) both;
-}
-
-.sc-modal-backdrop {
   animation: sc-fade-in 180ms var(--sc-ease) both;
 }
 
+.sc-modal-backdrop {
+  animation: sc-fade-in 160ms var(--sc-ease) both;
+}
+
 .sc-modal-panel {
-  animation: sc-scale-in 240ms var(--sc-ease) both;
+  animation: sc-scale-in 200ms var(--sc-ease) both;
 }
 
 .sc-stagger > *:nth-child(1) {
-  animation: sc-fade-up 320ms var(--sc-ease) both;
-  animation-delay: 40ms;
+  animation: sc-fade-up 280ms var(--sc-ease) both;
+  animation-delay: 30ms;
 }
 .sc-stagger > *:nth-child(2) {
-  animation: sc-fade-up 320ms var(--sc-ease) both;
-  animation-delay: 80ms;
+  animation: sc-fade-up 280ms var(--sc-ease) both;
+  animation-delay: 60ms;
 }
 .sc-stagger > *:nth-child(3) {
-  animation: sc-fade-up 320ms var(--sc-ease) both;
-  animation-delay: 120ms;
+  animation: sc-fade-up 280ms var(--sc-ease) both;
+  animation-delay: 90ms;
 }
 .sc-stagger > *:nth-child(4) {
-  animation: sc-fade-up 320ms var(--sc-ease) both;
-  animation-delay: 160ms;
+  animation: sc-fade-up 280ms var(--sc-ease) both;
+  animation-delay: 120ms;
 }
 .sc-stagger > *:nth-child(5) {
-  animation: sc-fade-up 320ms var(--sc-ease) both;
-  animation-delay: 200ms;
+  animation: sc-fade-up 280ms var(--sc-ease) both;
+  animation-delay: 150ms;
 }
 .sc-stagger > *:nth-child(6) {
-  animation: sc-fade-up 320ms var(--sc-ease) both;
-  animation-delay: 240ms;
+  animation: sc-fade-up 280ms var(--sc-ease) both;
+  animation-delay: 180ms;
 }
 .sc-stagger > *:nth-child(7) {
-  animation: sc-fade-up 320ms var(--sc-ease) both;
-  animation-delay: 280ms;
+  animation: sc-fade-up 280ms var(--sc-ease) both;
+  animation-delay: 210ms;
 }
 .sc-stagger > *:nth-child(8) {
-  animation: sc-fade-up 320ms var(--sc-ease) both;
-  animation-delay: 320ms;
+  animation: sc-fade-up 280ms var(--sc-ease) both;
+  animation-delay: 240ms;
 }
 
 .sc-nav-item {
   position: relative;
   transition:
-    background-color 180ms var(--sc-ease),
-    color 180ms var(--sc-ease),
-    transform 180ms var(--sc-ease);
-}
-
-.sc-nav-item:active:not([aria-current='page']) {
-  transform: scale(0.98);
+    background-color 160ms var(--sc-ease),
+    color 160ms var(--sc-ease);
 }
 
 .sc-glass-header {
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: #ffffff;
+  border-color: #ebebea;
 }
 
 .sc-sidebar-sheen {
-  background:
-    radial-gradient(120% 60% at 0% 0%, rgba(14, 165, 233, 0.18), transparent 55%),
-    linear-gradient(180deg, #0f172a 0%, #0b1220 100%);
+  background: linear-gradient(180deg, #1a211e 0%, #121614 100%);
 }
 
 .sc-login-bg {
   background:
-    radial-gradient(ellipse 80% 50% at 20% 20%, rgba(14, 165, 233, 0.22), transparent 50%),
-    radial-gradient(ellipse 70% 45% at 85% 75%, rgba(56, 189, 248, 0.12), transparent 45%),
-    linear-gradient(160deg, #020617 0%, #0f172a 45%, #082f49 100%);
+    linear-gradient(145deg, #101412 0%, #1a211e 55%, #243029 100%);
 }
 
 @media (prefers-reduced-motion: reduce) {

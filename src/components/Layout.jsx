@@ -1,27 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import {
-  FiActivity,
-  FiCalendar,
-  FiHome,
-  FiInbox,
-  FiLayers,
-  FiLogOut,
-  FiMenu,
-  FiSettings,
-  FiShield,
-  FiSidebar,
-  FiTruck,
-  FiUserCheck,
-  FiUserX,
-  FiUsers,
-} from 'react-icons/fi'
+import { FiLogOut, FiMenu, FiMinus, FiPlus, FiSidebar } from 'react-icons/fi'
 import ConfirmDialog from './ui/ConfirmDialog'
+import { NAV_ITEMS } from '../config/nav'
 import { useAccess } from '../hooks/useAccess'
+import { usePlatformTenants } from '../hooks/usePlatformTenants'
 import { clearAuthSession } from '../utils/auth'
-import { brandChipClass } from '../utils/ui'
+import { brandChipClass, fieldClass } from '../utils/ui'
 
 const SIDEBAR_KEY = 'admin_sidebar_collapsed'
+const NAV_OPEN_KEY = 'admin_nav_open_groups'
 
 const navClass =
   ({ collapsed }) =>
@@ -30,30 +18,36 @@ const navClass =
       collapsed ? 'justify-center px-0' : 'px-3'
     } ${
       isActive
-        ? 'bg-sky-600 text-white shadow-md shadow-sky-900/30'
-        : 'text-white/70 hover:bg-white/10 hover:text-white'
+        ? 'bg-brand-600 text-white'
+        : 'text-white/65 hover:bg-white/10 hover:text-white'
     }`
 
-const SectionLabel = ({ collapsed, children }) =>
-  collapsed ? null : (
-    <p className="px-3 pb-1 pt-4 text-[11px] font-bold uppercase tracking-wide text-white/35">
-      {children}
-    </p>
-  )
-
-const NavItem = ({ to, end, title, icon: Icon, collapsed, mobileOpen, linkClass, onClick }) => (
-  <NavLink to={to} end={end} className={linkClass} onClick={onClick} title={title}>
-    <Icon className="h-4 w-4 shrink-0" aria-hidden />
-    {!(collapsed && !mobileOpen) ? title : null}
-  </NavLink>
-)
+const loadOpenGroups = () => {
+  try {
+    const raw = localStorage.getItem(NAV_OPEN_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
 
 const Layout = () => {
   const navigate = useNavigate()
   const location = useLocation()
-  const { user } = useAccess()
+  const { hasTenantSelected, isSuperAdmin, isOpsAdmin, tenant, user, hasFeature } = useAccess()
+  const { tenants, selectedId, selectTenant } = usePlatformTenants()
+  const displayName = isSuperAdmin
+    ? 'Super Admin'
+    : [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() ||
+      user?.email ||
+      'Tenant Admin'
+  const roleLabel = isSuperAdmin
+    ? 'Platform · Super Admin'
+    : `${tenant?.name || 'Organization'} · ${isOpsAdmin ? 'Ops Admin' : 'Tenant Admin'}`
   const [logoutOpen, setLogoutOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [openGroups, setOpenGroups] = useState(loadOpenGroups)
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(SIDEBAR_KEY) === '1'
@@ -71,10 +65,28 @@ const Layout = () => {
   }, [collapsed])
 
   useEffect(() => {
+    try {
+      localStorage.setItem(NAV_OPEN_KEY, JSON.stringify(openGroups))
+    } catch {
+      // ignore
+    }
+  }, [openGroups])
+
+  useEffect(() => {
     setMobileOpen(false)
   }, [location.pathname])
 
-  const displayName = 'Super Admin'
+  useEffect(() => {
+    const match = NAV_ITEMS.find(
+      (item) =>
+        item.type === 'group' &&
+        item.children?.some(
+          (c) => location.pathname === c.to || location.pathname.startsWith(`${c.to}/`)
+        )
+    )
+    if (!match) return
+    setOpenGroups((prev) => (prev.includes(match.id) ? prev : [...prev, match.id]))
+  }, [location.pathname])
 
   const closeMobile = () => setMobileOpen(false)
   const linkClass = navClass({ collapsed: collapsed && !mobileOpen })
@@ -86,72 +98,163 @@ const Layout = () => {
     navigate('/login', { replace: true })
   }
 
-  const item = (props) => (
-    <NavItem
-      {...props}
-      collapsed={collapsed}
-      mobileOpen={mobileOpen}
-      linkClass={linkClass}
-      onClick={closeMobile}
-    />
+  const toggleGroup = (id) => {
+    setOpenGroups((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  const allowedForRole = (entry) => {
+    if (entry.superOnly && !isSuperAdmin) return false
+    if (isSuperAdmin) return true
+    if (!entry.featureKey) return true
+    return hasFeature(entry.featureKey)
+  }
+
+  const items = useMemo(
+    () =>
+      NAV_ITEMS.map((item) => {
+        if (!allowedForRole(item)) return null
+        if (item.type === 'group') {
+          const children = (item.children || []).filter(allowedForRole)
+          if (!children.length) return null
+          return { ...item, children }
+        }
+        return item
+      }).filter(Boolean),
+    [isSuperAdmin, hasFeature]
   )
 
+  const renderLink = (item, { nested = false } = {}) => {
+    const locked = isSuperAdmin && item.needsTenant && !hasTenantSelected
+    return (
+      <NavLink
+        key={item.to}
+        to={item.to}
+        end={item.end}
+        className={({ isActive }) =>
+          `${linkClass({ isActive })} ${nested && !rail ? 'pl-9' : ''} ${
+            locked && !isActive ? 'opacity-55' : ''
+          }`
+        }
+        onClick={closeMobile}
+        title={locked ? `${item.title} (select a tenant first)` : item.title}
+      >
+        <item.icon className="h-4 w-4 shrink-0" aria-hidden />
+        {!rail ? (
+          <span className="min-w-0 truncate">
+            {item.title}
+            {locked ? (
+              <span className="ml-1 text-[10px] font-normal text-white/40">tenant</span>
+            ) : null}
+          </span>
+        ) : null}
+      </NavLink>
+    )
+  }
+
   const nav = (
-    <nav className={`flex-1 space-y-1 overflow-y-auto pb-4 ${rail ? 'px-2' : 'px-3'}`}>
-      <SectionLabel collapsed={rail}>Platform</SectionLabel>
-      {item({ to: '/', end: true, title: 'Dashboard', icon: FiHome })}
-      {item({ to: '/lobby', title: 'Lobby', icon: FiInbox })}
-      {item({ to: '/tenants', title: 'Tenants', icon: FiLayers })}
-      {item({ to: '/platform/offboarded', title: 'Offboarded', icon: FiUserX })}
+    <nav className={`flex-1 space-y-0.5 overflow-y-auto pb-4 pt-2 ${rail ? 'px-2' : 'px-3'}`}>
+      {items.map((item) => {
+        if (item.type === 'link') return renderLink(item)
 
-      <SectionLabel collapsed={rail}>Insights</SectionLabel>
-      {item({ to: '/platform/analytics', title: 'Analytics', icon: FiActivity })}
-      {item({ to: '/platform/bookings', title: 'All bookings', icon: FiCalendar })}
-      {item({ to: '/platform/patients', title: 'All patients', icon: FiUsers })}
-      {item({ to: '/platform/employees', title: 'All employees', icon: FiUserCheck })}
-      {item({ to: '/platform/vendors', title: 'Vendors', icon: FiTruck })}
+        const expanded = openGroups.includes(item.id)
+        const groupActive = item.children.some(
+          (c) => location.pathname === c.to || location.pathname.startsWith(`${c.to}/`)
+        )
+        const locked = isSuperAdmin && item.needsTenant && !hasTenantSelected
 
-      <SectionLabel collapsed={rail}>Directory</SectionLabel>
-      {item({ to: '/platform/owners', title: 'Owners', icon: FiUsers })}
-      {item({ to: '/platform/permissions', title: 'Permissions', icon: FiShield })}
-      {item({ to: '/platform/settings', title: 'Settings', icon: FiSettings })}
+        if (rail) {
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={`sc-nav-item flex w-full items-center justify-center rounded-xl py-2.5 text-white/65 hover:bg-white/10 hover:text-white ${
+                groupActive ? 'bg-white/10 text-white' : ''
+              }`}
+              title={item.title}
+              onClick={() => {
+                setCollapsed(false)
+                if (!expanded) toggleGroup(item.id)
+              }}
+            >
+              <item.icon className="h-4 w-4" aria-hidden />
+            </button>
+          )
+        }
+
+        return (
+          <div key={item.id} className="space-y-0.5">
+            <div
+              className={`flex items-center gap-1 rounded-xl ${
+                groupActive && !expanded ? 'bg-white/5' : ''
+              }`}
+            >
+              <button
+                type="button"
+                className={`sc-nav-item flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium ${
+                  groupActive ? 'text-white' : 'text-white/65 hover:text-white'
+                } ${locked ? 'opacity-55' : ''}`}
+                onClick={() => toggleGroup(item.id)}
+                aria-expanded={expanded}
+              >
+                <item.icon className="h-4 w-4 shrink-0" aria-hidden />
+                <span className="min-w-0 flex-1 truncate">{item.title}</span>
+              </button>
+              <button
+                type="button"
+                className="mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+                onClick={() => toggleGroup(item.id)}
+                aria-label={expanded ? `Collapse ${item.title}` : `Expand ${item.title}`}
+              >
+                {expanded ? (
+                  <FiMinus className="h-3.5 w-3.5" aria-hidden />
+                ) : (
+                  <FiPlus className="h-3.5 w-3.5" aria-hidden />
+                )}
+              </button>
+            </div>
+            {expanded
+              ? item.children.map((child) => renderLink(child, { nested: true }))
+              : null}
+          </div>
+        )
+      })}
     </nav>
   )
 
   return (
-    <div className="flex min-h-screen bg-slate-100">
+    <div className="flex h-dvh max-h-dvh overflow-hidden bg-canvas">
       {mobileOpen ? (
         <button
           type="button"
-          className="sc-fade-in fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-[1px] md:hidden"
+          className="sc-fade-in fixed inset-0 z-30 bg-stone-900/45 md:hidden"
           aria-label="Close menu"
           onClick={closeMobile}
         />
       ) : null}
 
       <aside
-        className={`sc-sidebar-sheen fixed inset-y-0 left-0 z-40 flex w-60 flex-col transition-all duration-300 ease-out md:static md:translate-x-0 ${
+        className={`sc-sidebar-sheen fixed inset-y-0 left-0 z-40 flex h-dvh w-60 flex-col overflow-hidden transition-all duration-300 ease-out md:static md:h-full md:translate-x-0 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         } ${collapsed ? 'md:w-16' : 'md:w-60'}`}
       >
         <div
-          className={`flex h-14 items-center border-b border-white/10 ${
+          className={`flex h-14 shrink-0 items-center border-b border-white/10 ${
             rail ? 'justify-center px-0' : 'px-4'
           }`}
         >
           <span className="text-sm font-bold tracking-tight text-white">
-            {rail ? 'SC' : 'Senior Care'}
+            {rail ? 'O-hm' : 'O-hm Admin'}
           </span>
         </div>
         {nav}
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sc-glass-header sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-slate-200/80 px-3 md:px-4">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="sc-glass-header z-20 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-stone-200 px-3 md:px-4">
           <div className="flex min-w-0 items-center gap-2">
             <button
               type="button"
-              className="rounded-xl p-2 text-slate-500 transition-all duration-150 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 active:scale-95 md:hidden"
+              className="rounded-lg p-2 text-stone-500 transition-colors duration-150 hover:bg-stone-100 hover:text-stone-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600/30 md:hidden"
               onClick={() => setMobileOpen(true)}
               aria-label="Open menu"
             >
@@ -159,24 +262,50 @@ const Layout = () => {
             </button>
             <button
               type="button"
-              className="hidden rounded-xl p-2 text-slate-500 transition-all duration-150 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 active:scale-95 md:inline-flex"
+              className="hidden rounded-lg p-2 text-stone-500 transition-colors duration-150 hover:bg-stone-100 hover:text-stone-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600/30 md:inline-flex"
               onClick={() => setCollapsed((v) => !v)}
               aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
               <FiSidebar className="h-[18px] w-[18px]" aria-hidden />
             </button>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-slate-900">{displayName}</p>
-              <p className="truncate text-xs text-slate-500">Platform · Super Admin</p>
+              <p className="truncate text-sm font-semibold text-stone-900">{displayName}</p>
+              <p className="truncate text-xs text-stone-500">{roleLabel}</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className={`hidden sm:inline ${brandChipClass}`}>SUPER_ADMIN</span>
+          <div className="flex min-w-0 items-center gap-2">
+            {isSuperAdmin ? (
+              <>
+                <label className="sr-only" htmlFor="tenant-switcher">
+                  Select tenant
+                </label>
+                <select
+                  id="tenant-switcher"
+                  className={`${fieldClass} max-w-[10rem] py-1.5 text-sm sm:max-w-[14rem]`}
+                  value={selectedId}
+                  onChange={(e) => selectTenant(e.target.value)}
+                >
+                  <option value="">Select tenant…</option>
+                  {tenants.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : (
+              <span className="hidden max-w-[12rem] truncate rounded-md border border-stone-200 bg-white px-2.5 py-1.5 text-xs font-medium text-stone-700 sm:inline">
+                {tenant?.name || 'Organization'}
+              </span>
+            )}
+            <span className={`hidden sm:inline ${brandChipClass}`}>
+              {isSuperAdmin ? 'SUPER_ADMIN' : 'TENANT'}
+            </span>
             <button
               type="button"
               onClick={() => setLogoutOpen(true)}
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-xl px-2.5 text-sm text-slate-500 transition-all duration-150 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30 active:scale-95 sm:min-h-0"
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2.5 text-sm text-stone-500 transition-colors duration-150 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600/30 sm:min-h-0"
               aria-label="Logout"
             >
               <FiLogOut className="h-4 w-4" aria-hidden />
@@ -185,7 +314,14 @@ const Layout = () => {
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 p-4 md:p-6">
+        {isSuperAdmin && !hasTenantSelected ? (
+          <div className="shrink-0 border-b border-amber-100 bg-amber-50 px-4 py-2 text-sm text-amber-900 md:px-6">
+            No tenant selected. Manage Tenants and Lobby work anytime; other modules need a tenant
+            from the switcher above.
+          </div>
+        ) : null}
+
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4 md:p-6">
           <div key={location.pathname} className="sc-page-enter mx-auto max-w-[1400px]">
             <Outlet />
           </div>
@@ -195,7 +331,7 @@ const Layout = () => {
       <ConfirmDialog
         open={logoutOpen}
         title="Log out?"
-        message="You will need to sign in again with the Super Admin account."
+        message="You will need to sign in again to access the panel."
         confirmLabel="Logout"
         onConfirm={handleLogout}
         onClose={() => setLogoutOpen(false)}

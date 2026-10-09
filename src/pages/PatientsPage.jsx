@@ -767,7 +767,7 @@ const PatientsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
               <label className="inline-flex items-center gap-2">
                 <input
                   type="checkbox"
-                  className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                  className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                   checked={form.is_probono}
                   onChange={(e) => set('is_probono', e.target.checked)}
                 />
@@ -776,7 +776,7 @@ const PatientsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
               <label className="inline-flex items-center gap-2">
                 <input
                   type="checkbox"
-                  className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                  className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                   checked={form.is_registration_fees_paid}
                   onChange={(e) => set('is_registration_fees_paid', e.target.checked)}
                 />
@@ -785,7 +785,7 @@ const PatientsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
               <label className="inline-flex items-center gap-2">
                 <input
                   type="checkbox"
-                  className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                  className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                   checked={form.is_active}
                   onChange={(e) => set('is_active', e.target.checked)}
                 />

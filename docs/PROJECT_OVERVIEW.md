@@ -61,12 +61,12 @@ Onboard (Super Admin)
 | Area | What you can do |
 |---|---|
 | **Dashboard** | Platform snapshot and shortcuts |
-| **Lobby** | Create tenants; approve or reject pending orgs |
-| **Tenants** | List active orgs; open read-only inspection; offboard |
+| **Lobby** | Approve or reject pending onboarding requests |
+| **Tenants** | Create tenants; list active orgs; read-only inspection; offboard |
 | **Offboarded** | See removed orgs; restore when needed |
 | **Insights** | Cross-tenant analytics and read-only bookings / patients / employees |
 | **Owners** | Directory of tenant owner / ops admin contacts (no login) |
-| **Permissions** | Turn modules on/off **per tenant** (which features that org is entitled to) |
+| **Permissions** | Turn modules on/off **per tenant** and **per login role** (Tenant Admin vs Ops Admin) |
 | **Settings** | Demo environment controls (e.g. reset local demo data) |
 | **Tenant detail** | Read-only tabs for that org’s catalog and ops data |
 
@@ -76,7 +76,7 @@ Super Admin **cannot** create, edit, or delete tenant catalog/ops records — in
 
 ## Permissions (feature access)
 
-Super Admin uses **Permissions** to choose which modules each tenant is entitled to.
+Super Admin uses **Permissions** to choose which modules each tenant is entitled to, separately for **Tenant Admin** and **Ops Admin** logins (e.g. Vaishnavi: `owner@vaishnavi.com` / `ops@vaishnavi.com`).
 
 - **Core** features default **on** for new tenants (catalog, ops, analytics).
 - **Add-ons** (Attendance, Staff payouts) default **off** until enabled.

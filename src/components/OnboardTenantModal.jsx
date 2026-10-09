@@ -48,7 +48,7 @@ const ToggleRow = ({ checked, onChange, title, description, id }) => (
     <input
       id={id}
       type="checkbox"
-      className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+      className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
       checked={checked}
       onChange={(e) => onChange(e.target.checked)}
     />
@@ -58,13 +58,13 @@ const ToggleRow = ({ checked, onChange, title, description, id }) => (
 const SignInOption = ({ value, selected, onSelect, title, description }) => (
   <label
     className={`flex cursor-pointer gap-3 rounded-lg border px-3 py-3 transition-colors ${
-      selected === value ? 'border-sky-500 bg-sky-50/60' : 'border-slate-200 hover:bg-slate-50'
+      selected === value ? 'border-brand-500 bg-brand-50/60' : 'border-slate-200 hover:bg-slate-50'
     }`}
   >
     <input
       type="radio"
       name="employee_signin"
-      className="mt-1 text-sky-600 focus:ring-sky-500"
+      className="mt-1 text-brand-600 focus:ring-brand-500"
       checked={selected === value}
       onChange={() => onSelect(value)}
     />
@@ -437,7 +437,7 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
           </div>
           {form.enable_ops_admin ? (
             <p className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-              <FiCheck className="h-3.5 w-3.5 text-sky-600" aria-hidden />
+              <FiCheck className="h-3.5 w-3.5 text-brand-600" aria-hidden />
               Ops Admin credentials are stored in demo data (shown on login after approval).
             </p>
           ) : null}

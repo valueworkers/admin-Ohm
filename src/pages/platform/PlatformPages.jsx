@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { FiEye, FiRefreshCw } from 'react-icons/fi'
+import { FiEye, FiRefreshCw, FiTrash2 } from 'react-icons/fi'
 import PageHeader from '../../components/ui/PageHeader'
 import StatusBanner from '../../components/ui/StatusBanner'
 import { EmptyState, Panel } from '../../components/ui/PageState'
 import {
+  deleteTenant,
   getTenant,
   listCollection,
   listTenantsByStatus,
@@ -41,7 +42,7 @@ const bookingStatusChip = (status) => {
   if (s === 'ACTIVE' || s === 'CONFIRMED') return 'bg-emerald-50 text-emerald-800'
   if (s === 'PENDING') return 'bg-amber-50 text-amber-900'
   if (s === 'EXPIRED' || s === 'CANCELLED') return 'bg-rose-50 text-rose-800'
-  if (s === 'COMPLETED') return 'bg-sky-50 text-sky-800'
+  if (s === 'COMPLETED') return 'bg-brand-50 text-brand-800'
   return 'bg-slate-100 text-slate-700'
 }
 
@@ -125,7 +126,7 @@ export const PlatformAnalytics = () => {
           {active.map((t) => (
             <li key={t.id} className="flex items-center justify-between py-2">
               <span className="font-medium text-slate-800">{t.name}</span>
-              <Link to={`/tenants/${t.id}`} className="text-sky-700 hover:underline">
+              <Link to={`/tenants/${t.id}`} className="text-brand-700 hover:underline">
                 Inspect
               </Link>
             </li>
@@ -550,6 +551,7 @@ export const PlatformOwners = () => {
 export const PlatformOffboarded = () => {
   const rows = useLive(() => listTenantsByStatus('offboarded'))
   const [reactivate, setReactivate] = useState(null)
+  const [purgeTarget, setPurgeTarget] = useState(null)
   const [status, setStatus] = useState({ type: '', message: '' })
 
   const restore = () => {
@@ -559,17 +561,33 @@ export const PlatformOffboarded = () => {
     setReactivate(null)
   }
 
+  const purge = () => {
+    if (!purgeTarget) return
+    deleteTenant(purgeTarget.id)
+    setStatus({ type: 'success', message: `${purgeTarget.name} permanently removed.` })
+    setPurgeTarget(null)
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader
-        eyebrow="Platform"
+        eyebrow="Manage Tenants"
         title="Offboarded"
-        description="Organizations removed from active service. You can restore them to Tenants."
+        description="Tenants deleted from the active list appear here. Restore them, or permanently remove demo data."
+        actions={
+          <Link to="/tenants" className={btnSecondary}>
+            Back to Tenants
+          </Link>
+        }
       />
       <StatusBanner type={status.type} message={status.message} />
       <div className={tableWrapClass}>
         {rows.length === 0 ? (
-          <EmptyState bare title="No offboarded tenants" hint="Rejected or offboarded orgs show up here." />
+          <EmptyState
+            bare
+            title="No offboarded tenants"
+            hint="Deleted or rejected organizations show up here."
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
@@ -581,23 +599,35 @@ export const PlatformOffboarded = () => {
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-stone-100">
                 {rows.map((row) => (
-                  <tr key={row.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-medium text-slate-900">{row.name}</td>
-                    <td className="px-4 py-3 text-slate-600">
+                  <tr key={row.id} className="hover:bg-stone-50">
+                    <td className="px-4 py-3 font-medium text-stone-900">{row.name}</td>
+                    <td className="px-4 py-3 text-stone-600">
                       <div>{row.owner_name}</div>
-                      <div className="text-xs text-slate-400">{row.owner_email}</div>
+                      <div className="text-xs text-stone-400">{row.owner_email}</div>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{row.city}</td>
+                    <td className="px-4 py-3 text-stone-600">{row.city}</td>
                     <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1">
+                      <div className="flex flex-wrap justify-end gap-1">
                         <Link to={`/tenants/${row.id}`} className={btnGhost}>
                           <FiEye className="h-3.5 w-3.5" aria-hidden />
                           View
                         </Link>
-                        <button type="button" className={btnPrimary} onClick={() => setReactivate(row)}>
+                        <button
+                          type="button"
+                          className={btnPrimary}
+                          onClick={() => setReactivate(row)}
+                        >
                           Restore
+                        </button>
+                        <button
+                          type="button"
+                          className={`${btnGhost} text-rose-600 hover:bg-rose-50`}
+                          onClick={() => setPurgeTarget(row)}
+                        >
+                          <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
+                          Remove forever
                         </button>
                       </div>
                     </td>
@@ -615,6 +645,14 @@ export const PlatformOffboarded = () => {
         confirmLabel="Restore"
         onConfirm={restore}
         onClose={() => setReactivate(null)}
+      />
+      <ConfirmDialog
+        open={Boolean(purgeTarget)}
+        title="Remove forever?"
+        message="This permanently deletes the tenant and related demo records. This cannot be undone."
+        confirmLabel="Remove forever"
+        onConfirm={purge}
+        onClose={() => setPurgeTarget(null)}
       />
     </div>
   )

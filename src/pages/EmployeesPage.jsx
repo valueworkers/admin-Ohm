@@ -496,7 +496,7 @@ const EmployeesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow
                     id="emp-pic"
                     type="file"
                     accept="image/*"
-                    className="block text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-sky-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-sky-800"
+                    className="block text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-brand-800"
                     onChange={async (e) => {
                       const url = await readFileAsDataUrl(e.target.files?.[0])
                       set('profile_pic', url)
@@ -783,7 +783,7 @@ const EmployeesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow
                 <label key={key} className="inline-flex items-center gap-2">
                   <input
                     type="checkbox"
-                    className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                     checked={Boolean(form.employee_profile[key])}
                     onChange={(e) => setProfile(key, e.target.checked)}
                   />
@@ -793,7 +793,7 @@ const EmployeesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow
               <label className="inline-flex items-center gap-2">
                 <input
                   type="checkbox"
-                  className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                  className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                   checked={form.is_active}
                   onChange={(e) => set('is_active', e.target.checked)}
                 />
@@ -842,7 +842,7 @@ const EmployeesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow
                   <label key={v.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-slate-50">
                     <input
                       type="checkbox"
-                      className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                      className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                       checked={form.venue_ids.map(String).includes(String(v.id))}
                       onChange={() => toggleId('venue_ids', v.id)}
                     />
@@ -863,7 +863,7 @@ const EmployeesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow
                   <label key={s.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-slate-50">
                     <input
                       type="checkbox"
-                      className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                      className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                       checked={form.service_ids.map(String).includes(String(s.id))}
                       onChange={() => toggleId('service_ids', s.id)}
                     />

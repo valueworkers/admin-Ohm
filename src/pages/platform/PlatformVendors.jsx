@@ -206,7 +206,7 @@ const PlatformVendors = () => {
                     <td className="px-3 py-3">
                       <Link
                         to={`/tenants/${row.tenantId}`}
-                        className="font-medium text-sky-700 hover:underline"
+                        className="font-medium text-brand-700 hover:underline"
                       >
                         {row.tenant_name}
                       </Link>

@@ -95,7 +95,7 @@ const TenantDetail = () => {
             type="button"
             onClick={() => setTab(t.id)}
             className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              tab === t.id ? 'bg-sky-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+              tab === t.id ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-50'
             }`}
           >
             {t.label}
@@ -204,7 +204,7 @@ const TenantDetail = () => {
               <p className="text-base font-semibold text-slate-900">Feature access</p>
               <Link
                 to={`/platform/permissions?tenantId=${tenant.id}`}
-                className="text-sm font-medium text-sky-700 hover:underline"
+                className="text-sm font-medium text-brand-700 hover:underline"
               >
                 Manage permissions
               </Link>

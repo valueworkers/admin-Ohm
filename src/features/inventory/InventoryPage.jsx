@@ -540,7 +540,7 @@ const InventoryPage = () => {
         </Panel>
         <Panel className="!p-4">
           <p className="text-xs text-slate-500">Open POs</p>
-          <p className="mt-1 text-2xl font-bold text-sky-700">{kpis.openPo}</p>
+          <p className="mt-1 text-2xl font-bold text-brand-700">{kpis.openPo}</p>
         </Panel>
       </div>
 

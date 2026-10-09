@@ -1,26 +1,41 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { FiCheck, FiSlash } from 'react-icons/fi'
 import PageHeader from '../../components/ui/PageHeader'
 import StatusBanner from '../../components/ui/StatusBanner'
 import { EmptyState, Panel } from '../../components/ui/PageState'
 import {
   FEATURE_CATALOG,
   FEATURE_GROUPS,
-  mergeTenantFeatures,
+  getFeaturesForRole,
+  normalizeRoleFeatures,
+  TENANT_ROLE_OPTIONS,
 } from '../../config/features'
 import {
-  getTenantFeatures,
+  getTenantRoleFeatures,
   listCollection,
   setTenantFeature,
   subscribePlatform,
 } from '../../store/platformStore'
 import { fieldClass, labelClass } from '../../utils/ui'
 
-const statusChip = (active) =>
-  active
-    ? 'inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800'
-    : 'inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500'
+const RoleSwitch = ({ on, label, onToggle }) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={on}
+    aria-label={label}
+    onClick={onToggle}
+    className={`relative mx-auto h-7 w-12 shrink-0 rounded-full transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 ${
+      on ? 'bg-brand-600' : 'bg-stone-300'
+    }`}
+  >
+    <span
+      className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform duration-200 ease-out ${
+        on ? 'translate-x-5' : 'translate-x-0'
+      }`}
+    />
+  </button>
+)
 
 const PlatformPermissions = () => {
   const [searchParams] = useSearchParams()
@@ -32,22 +47,25 @@ const PlatformPermissions = () => {
     const active = all.find((t) => t.status === 'active')
     return active?.id || all[0]?.id || ''
   })
-  const [features, setFeatures] = useState(() =>
-    mergeTenantFeatures(getTenantFeatures(tenantId))
+  const [roleFeatures, setRoleFeatures] = useState(() =>
+    normalizeRoleFeatures(getTenantRoleFeatures(tenantId))
   )
   const [status, setStatus] = useState({ type: '', message: '' })
 
+  const refresh = (id) => {
+    setRoleFeatures(normalizeRoleFeatures(getTenantRoleFeatures(id)))
+  }
+
   useEffect(() => {
     return subscribePlatform(() => {
-      const next = listCollection('tenants')
-      setTenants(next)
-      if (tenantId) setFeatures(mergeTenantFeatures(getTenantFeatures(tenantId)))
+      setTenants(listCollection('tenants'))
+      if (tenantId) refresh(tenantId)
     })
   }, [tenantId])
 
   useEffect(() => {
     if (!tenantId) return
-    setFeatures(mergeTenantFeatures(getTenantFeatures(tenantId)))
+    refresh(tenantId)
     setStatus({ type: '', message: '' })
   }, [tenantId])
 
@@ -56,19 +74,33 @@ const PlatformPermissions = () => {
     [tenants, tenantId]
   )
 
-  const enabledCount = FEATURE_CATALOG.filter((f) => features[f.key]).length
+  const roleCounts = useMemo(
+    () =>
+      TENANT_ROLE_OPTIONS.map((role) => {
+        const map = getFeaturesForRole(roleFeatures, role.id)
+        const on = FEATURE_CATALOG.filter((f) => map[f.key]).length
+        return { ...role, on, total: FEATURE_CATALOG.length }
+      }),
+    [roleFeatures]
+  )
 
-  const toggle = (key, next) => {
+  const toggle = (featureKey, roleId, next) => {
     if (!tenantId) return
-    setTenantFeature(tenantId, key, next)
-    setFeatures(mergeTenantFeatures(getTenantFeatures(tenantId)))
-    const label = FEATURE_CATALOG.find((f) => f.key === key)?.label || key
+    setTenantFeature(tenantId, featureKey, next, roleId)
+    refresh(tenantId)
+    const featureLabel = FEATURE_CATALOG.find((f) => f.key === featureKey)?.label || featureKey
+    const roleLabel = TENANT_ROLE_OPTIONS.find((r) => r.id === roleId)?.label || roleId
     setStatus({
       type: 'success',
       message: next
-        ? `${label} enabled for ${selected?.name || 'tenant'}.`
-        : `${label} disabled for ${selected?.name || 'tenant'}.`,
+        ? `${featureLabel} enabled for ${selected?.name || 'tenant'} · ${roleLabel}.`
+        : `${featureLabel} disabled for ${selected?.name || 'tenant'} · ${roleLabel}.`,
     })
+  }
+
+  const roleColClass = `grid shrink-0 gap-2`
+  const roleColStyle = {
+    gridTemplateColumns: `repeat(${TENANT_ROLE_OPTIONS.length}, minmax(4.5rem, 5.5rem))`,
   }
 
   return (
@@ -76,13 +108,13 @@ const PlatformPermissions = () => {
       <PageHeader
         eyebrow="Platform"
         title="Permissions"
-        description="Toggle which modules each tenant is entitled to. Super Admin uses this when inspecting orgs; tenant accounts cannot sign in to this panel."
+        description="Pick a tenant, then enable modules per login role. Add roles in the catalog to show more columns."
       />
       <StatusBanner type={status.type} message={status.message} />
 
       <Panel className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-          <div>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-[14rem] flex-1 sm:max-w-md">
             <label htmlFor="perm-tenant" className={labelClass}>
               Tenant
             </label>
@@ -100,25 +132,36 @@ const PlatformPermissions = () => {
               ))}
             </select>
           </div>
+
           {selected ? (
-            <div className="text-sm text-slate-600">
-              <span className="font-medium text-slate-900">{enabledCount}</span>
-              {' / '}
-              {FEATURE_CATALOG.length} features on
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-stone-600">
+              {roleCounts.map((role) => (
+                <span key={role.id}>
+                  <span className="font-medium text-stone-900">{role.on}</span>
+                  {' / '}
+                  {role.total} {role.shortLabel}
+                </span>
+              ))}
               {selected.status === 'active' ? (
-                <>
-                  {' · '}
-                  <Link
-                    to={`/tenants/${selected.id}`}
-                    className="font-medium text-sky-700 hover:underline"
-                  >
-                    Inspect tenant
-                  </Link>
-                </>
+                <Link
+                  to={`/tenants/${selected.id}`}
+                  className="font-medium text-brand-700 hover:underline"
+                >
+                  Inspect tenant
+                </Link>
               ) : null}
             </div>
           ) : null}
         </div>
+
+        {selected ? (
+          <p className="rounded-lg border border-stone-100 bg-stone-50 px-3 py-2 text-xs text-stone-600">
+            Demo: Admin <span className="font-medium text-stone-800">owner@vaishnavi.com</span>
+            {' · '}
+            Ops Admin <span className="font-medium text-stone-800">ops@vaishnavi.com</span>
+            . Each column is that role’s module access.
+          </p>
+        ) : null}
       </Panel>
 
       {!selected ? (
@@ -130,69 +173,58 @@ const PlatformPermissions = () => {
         FEATURE_GROUPS.map((group) => {
           const items = FEATURE_CATALOG.filter((f) => f.group === group)
           return (
-            <Panel key={group}>
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <p className="text-base font-semibold text-slate-900">{group}</p>
-                <p className="text-xs text-slate-500">
-                  {group === 'Add-ons'
-                    ? 'Optional modules — off by default for new tenants'
-                    : 'Recommended for most tenants'}
-                </p>
-              </div>
-              <ul className="divide-y divide-slate-100">
-                {items.map((feature) => {
-                  const on = Boolean(features[feature.key])
-                  return (
-                    <li
-                      key={feature.key}
-                      className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+            <Panel key={group} className="overflow-x-auto">
+              <div className="mb-3 flex min-w-[28rem] items-end justify-between gap-3">
+                <p className="text-base font-semibold text-stone-900">{group}</p>
+                <div className={roleColClass} style={roleColStyle} aria-hidden>
+                  {TENANT_ROLE_OPTIONS.map((role) => (
+                    <p
+                      key={role.id}
+                      className="text-center text-[11px] font-bold uppercase tracking-wide text-stone-400"
+                      title={role.hint}
                     >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold text-slate-900">{feature.label}</p>
-                          <span className={statusChip(on)}>
-                            {on ? (
-                              <>
-                                <FiCheck className="h-3 w-3" aria-hidden /> Enabled
-                              </>
-                            ) : (
-                              <>
-                                <FiSlash className="h-3 w-3" aria-hidden /> Off
-                              </>
-                            )}
+                      {role.shortLabel}
+                    </p>
+                  ))}
+                </div>
+              </div>
+              <ul className="min-w-[28rem] divide-y divide-stone-100">
+                {items.map((feature) => (
+                  <li
+                    key={feature.key}
+                    className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-stone-900">{feature.label}</p>
+                        {feature.core ? (
+                          <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800">
+                            Core
                           </span>
-                          {feature.core ? (
-                            <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-800">
-                              Core
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
-                              Add-on
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-0.5 text-xs text-slate-500">{feature.description}</p>
-                        <p className="mt-0.5 text-[11px] text-slate-400">Route {feature.route}</p>
+                        ) : (
+                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                            Add-on
+                          </span>
+                        )}
                       </div>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={on}
-                        aria-label={`${on ? 'Disable' : 'Enable'} ${feature.label}`}
-                        onClick={() => toggle(feature.key, !on)}
-                        className={`relative h-7 w-12 shrink-0 rounded-full transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 ${
-                          on ? 'bg-sky-600' : 'bg-slate-300'
-                        }`}
-                      >
-                        <span
-                          className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform duration-200 ease-out ${
-                            on ? 'translate-x-5' : 'translate-x-0'
-                          }`}
-                        />
-                      </button>
-                    </li>
-                  )
-                })}
+                      <p className="mt-0.5 text-xs text-stone-500">{feature.description}</p>
+                    </div>
+                    <div className={roleColClass} style={roleColStyle}>
+                      {TENANT_ROLE_OPTIONS.map((role) => {
+                        const map = getFeaturesForRole(roleFeatures, role.id)
+                        const on = Boolean(map[feature.key])
+                        return (
+                          <RoleSwitch
+                            key={role.id}
+                            on={on}
+                            label={`${on ? 'Disable' : 'Enable'} ${feature.label} for ${role.label}`}
+                            onToggle={() => toggle(feature.key, role.id, !on)}
+                          />
+                        )
+                      })}
+                    </div>
+                  </li>
+                ))}
               </ul>
             </Panel>
           )

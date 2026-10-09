@@ -154,7 +154,7 @@ const PackagesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
 
       <Panel className="p-4">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
-          <FiGrid className="h-4 w-4 text-sky-600" aria-hidden />
+          <FiGrid className="h-4 w-4 text-brand-600" aria-hidden />
           Services
         </div>
         {services.length === 0 ? (
@@ -170,7 +170,7 @@ const PackagesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                   onClick={() => setSelectedServiceId(String(svc.id))}
                   className={`rounded-xl border px-3 py-2 text-left text-sm font-medium transition-colors ${
                     active
-                      ? 'border-sky-500 bg-sky-50 text-sky-900'
+                      ? 'border-brand-500 bg-brand-50 text-brand-900'
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >
@@ -185,7 +185,7 @@ const PackagesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <FiPackage className="h-4 w-4 text-sky-600" aria-hidden />
+            <FiPackage className="h-4 w-4 text-brand-600" aria-hidden />
             Packages {selectedService ? `(${selectedService.name})` : '(Service)'}
           </div>
           {canWrite ? (
@@ -225,7 +225,7 @@ const PackagesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    <span className="text-base font-bold text-sky-700">{money(pkg.price)}</span>
+                    <span className="text-base font-bold text-brand-700">{money(pkg.price)}</span>
                     {canWrite ? (
                       <>
                         <button
@@ -258,7 +258,7 @@ const PackagesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                     <FiClock className="h-3.5 w-3.5" aria-hidden />
                     {pkg.frequency || 'MONTHLY'}
                   </span>
-                  <span className="rounded-full bg-sky-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-sky-800">
+                  <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand-800">
                     {(pkg.service_type || 'IN_HOUSE').replace(/_/g, ' ')}
                   </span>
                 </div>
@@ -285,7 +285,7 @@ const PackagesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
         }
       >
         <form id="package-form" className="space-y-3" onSubmit={handleSave}>
-          <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900">
+          <p className="rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-900">
             Service: <span className="font-semibold">{selectedService?.name}</span>
           </p>
           <div>
@@ -404,7 +404,7 @@ const PackagesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
-              className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+              className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
               checked={form.active}
               onChange={(e) => set('active', e.target.checked)}
             />

@@ -30,7 +30,7 @@ export const statusBadge = (status) => {
   const map = {
     FULFILLABLE: 'bg-emerald-50 text-emerald-800',
     NEEDS_SUPPLIER: 'bg-amber-50 text-amber-900',
-    ORDERED: 'bg-sky-50 text-sky-800',
+    ORDERED: 'bg-brand-50 text-brand-800',
     RECEIVED: 'bg-teal-50 text-teal-800',
     FULFILLED: 'bg-slate-100 text-slate-700',
   }

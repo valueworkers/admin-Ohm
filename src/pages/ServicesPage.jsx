@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   FiBriefcase,
   FiEdit2,
@@ -14,6 +14,7 @@ import StatusBanner from '../components/ui/StatusBanner'
 import { EmptyState } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
 import { usePlatformCollection } from '../hooks/usePlatformCollection'
+import { useVenueScope } from '../hooks/useVenueScope'
 import {
   btnGhost,
   btnPrimary,
@@ -48,7 +49,10 @@ const EMPTY = {
   description: '',
   tags: '',
   active: true,
+  show_to_tenant: true,
 }
+
+const isShownToTenant = (row) => row.show_to_tenant !== false
 
 const readFilesAsDataUrls = (files, max = 6) =>
   Promise.all(
@@ -80,7 +84,7 @@ const LocationCell = ({ locations }) => {
     <label className="inline-flex max-w-[220px] items-center gap-1.5 text-slate-700">
       <FiMapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
       <select
-        className="max-w-[180px] truncate rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500/30"
+        className="max-w-[180px] truncate rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/30"
         aria-label="Service locations"
         defaultValue={locations[0]}
       >
@@ -106,6 +110,11 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
   const canWrite = canWriteProp ?? access.canWrite
   const { rows, save, remove } = usePlatformCollection('services', tenantId)
   const { rows: venues } = usePlatformCollection('venues', tenantId)
+  const { isSuperAdmin } = access
+  const { selectedId, displayVenues, allVenues, tenantRestricted } = useVenueScope(
+    tenantId,
+    venues
+  )
 
   const [status, setStatus] = useState({ type: '', message: '' })
   const [modalOpen, setModalOpen] = useState(false)
@@ -121,6 +130,21 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
     venues.forEach((v) => map.set(String(v.id), v))
     return map
   }, [venues])
+
+  const visibleServices = useMemo(() => {
+    let list = rows
+    if (!isSuperAdmin) {
+      list = list.filter(isShownToTenant)
+    }
+    if (tenantRestricted && selectedId) {
+      list = list.filter((row) => {
+        const ids = Array.isArray(row.venue_ids) ? row.venue_ids.map(String) : []
+        if (!ids.length) return true
+        return ids.includes(String(selectedId))
+      })
+    }
+    return list
+  }, [rows, isSuperAdmin, tenantRestricted, selectedId])
 
   const resolveLocations = (row) => {
     const ids = Array.isArray(row.venue_ids) ? row.venue_ids : []
@@ -144,6 +168,10 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
 
   const toggleVenue = (id) => {
+    if (tenantRestricted) {
+      setForm((f) => ({ ...f, venue_ids: [id] }))
+      return
+    }
     setForm((f) => {
       const sid = String(id)
       const has = f.venue_ids.map(String).includes(sid)
@@ -156,9 +184,21 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
 
   const openCreate = () => {
     setEditing(null)
-    setForm(EMPTY)
+    setForm({
+      ...EMPTY,
+      venue_ids: tenantRestricted && selectedId ? [selectedId] : [],
+    })
     setModalOpen(true)
   }
+
+  useEffect(() => {
+    if (!modalOpen || !tenantRestricted || !selectedId) return
+    setForm((f) => {
+      const ids = f.venue_ids.map(String)
+      if (ids.length === 1 && ids[0] === String(selectedId)) return f
+      return { ...f, venue_ids: [selectedId] }
+    })
+  }, [modalOpen, tenantRestricted, selectedId])
 
   const openEdit = (row) => {
     setEditing(row)
@@ -176,6 +216,7 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
       description: row.description || '',
       tags: Array.isArray(row.tags) ? row.tags.join(', ') : row.tags || '',
       active: row.active !== false && row.status !== 'inactive',
+      show_to_tenant: isShownToTenant(row),
     })
     setModalOpen(true)
   }
@@ -220,6 +261,7 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
         tags,
         active: Boolean(form.active),
         status: form.active ? 'active' : 'inactive',
+        show_to_tenant: isSuperAdmin ? Boolean(form.show_to_tenant) : isShownToTenant(editing || {}),
       })
       setStatus({
         type: 'success',
@@ -241,12 +283,30 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
     })
   }
 
+  const toggleShowToTenant = (row) => {
+    if (!isSuperAdmin) return
+    const next = !isShownToTenant(row)
+    save({ ...row, show_to_tenant: next })
+    setStatus({
+      type: 'success',
+      message: next
+        ? `${row.name} is now visible to the tenant.`
+        : `${row.name} is hidden from the tenant.`,
+    })
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader
         eyebrow={eyebrow || 'Organization'}
         title="Services"
-        description="Care services listed for this tenant. Multiple venues appear as a location dropdown in the table."
+        description={
+          isSuperAdmin
+            ? 'Choose which services this tenant can see using Show to tenant. You can still add and edit every service.'
+            : tenantRestricted
+              ? 'Services assigned to your organization (Single venue mode applies).'
+              : 'Care services available for your organization.'
+        }
         actions={
           canWrite ? (
             <button type="button" className={btnPrimary} onClick={openCreate}>
@@ -254,7 +314,7 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
               Add service
             </button>
           ) : (
-            <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
+            <span className="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-600">
               Read only
             </span>
           )
@@ -272,6 +332,16 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
             actionLabel={canWrite ? 'Add service' : undefined}
             onAction={canWrite ? openCreate : undefined}
           />
+        ) : visibleServices.length === 0 ? (
+          <EmptyState
+            bare
+            title={isSuperAdmin ? 'No services match' : 'No services available'}
+            hint={
+              isSuperAdmin
+                ? 'Add a service or adjust filters.'
+                : 'Super Admin has not shared any services with your organization yet.'
+            }
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
@@ -283,17 +353,22 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                   <th className="px-4 py-3">Website</th>
                   <th className="px-4 py-3">Tags</th>
                   <th className="px-4 py-3">Active</th>
+                  {isSuperAdmin ? <th className="px-4 py-3">Show to tenant</th> : null}
                   {canWrite ? <th className="px-4 py-3 text-right">Actions</th> : null}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {rows.map((row) => {
+              <tbody className="divide-y divide-stone-100">
+                {visibleServices.map((row) => {
                   const active = row.active !== false && row.status !== 'inactive'
+                  const shown = isShownToTenant(row)
                   const tags = Array.isArray(row.tags)
                     ? row.tags
                     : parseTags(row.tags || row.service_type || row.category)
                   return (
-                    <tr key={row.id} className="hover:bg-slate-50">
+                    <tr
+                      key={row.id}
+                      className={`hover:bg-stone-50 ${isSuperAdmin && !shown ? 'opacity-70' : ''}`}
+                    >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           {row.logo_url ? (
@@ -303,7 +378,7 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                               className="h-8 w-8 rounded-lg object-cover"
                             />
                           ) : null}
-                          <span className="font-semibold text-slate-900">{row.name}</span>
+                          <span className="font-semibold text-stone-900">{row.name}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -325,7 +400,7 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                             href={row.website}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-sky-700 hover:underline"
+                            className="text-brand-700 hover:underline"
                           >
                             {row.website.replace(/^https?:\/\//, '').slice(0, 28)}
                             {row.website.length > 36 ? '…' : ''}
@@ -358,8 +433,8 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                           aria-checked={active}
                           disabled={!canWrite}
                           onClick={() => toggleActive(row)}
-                          className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 disabled:cursor-not-allowed ${
-                            active ? 'bg-emerald-500' : 'bg-slate-300'
+                          className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-not-allowed ${
+                            active ? 'bg-emerald-500' : 'bg-stone-300'
                           }`}
                         >
                           <span
@@ -369,6 +444,26 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                           />
                         </button>
                       </td>
+                      {isSuperAdmin ? (
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={shown}
+                            aria-label={`Show ${row.name} to tenant`}
+                            onClick={() => toggleShowToTenant(row)}
+                            className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 ${
+                              shown ? 'bg-brand-600' : 'bg-stone-300'
+                            }`}
+                          >
+                            <span
+                              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                                shown ? 'left-5' : 'left-0.5'
+                              }`}
+                            />
+                          </button>
+                        </td>
+                      ) : null}
                       {canWrite ? (
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-1">
@@ -504,35 +599,42 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
           </div>
 
           <div>
-            <p className={labelClass}>Venues (optional, select multiple)</p>
-            {venues.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-slate-200 px-3 py-3 text-sm text-slate-500">
-                No venues yet — add venues first, or rely on address/city for location.
+            <p className={labelClass}>
+              {tenantRestricted ? 'Venue' : 'Venues (optional, select multiple)'}
+            </p>
+            {displayVenues.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-stone-200 px-3 py-3 text-sm text-stone-500">
+                {allVenues.length === 0
+                  ? 'No venues yet — add venues first, or rely on address/city for location.'
+                  : 'No venue assigned for Single mode yet.'}
               </p>
             ) : (
-              <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
-                {venues.map((v) => {
+              <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-stone-200 p-2">
+                {displayVenues.map((v) => {
                   const checked = form.venue_ids.map(String).includes(String(v.id))
                   const label = v.area || v.city ? `${v.name} (${v.area || v.city})` : v.name
                   return (
                     <label
                       key={v.id}
-                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-slate-50"
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-stone-50"
                     >
                       <input
-                        type="checkbox"
-                        className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                        type={tenantRestricted ? 'radio' : 'checkbox'}
+                        name="service-venue"
+                        className="rounded border-stone-300 text-brand-600 focus:ring-brand-500"
                         checked={checked}
                         onChange={() => toggleVenue(v.id)}
                       />
-                      <span className="text-slate-800">{label}</span>
+                      <span className="text-stone-800">{label}</span>
                     </label>
                   )
                 })}
               </div>
             )}
-            <p className="mt-1 text-xs text-slate-500">
-              If multiple venues are selected, the table shows them in a location dropdown.
+            <p className="mt-1 text-xs text-stone-500">
+              {tenantRestricted
+                ? 'Your org is limited to the Super Admin–selected venue.'
+                : 'If multiple venues are selected, the table shows them in a location dropdown.'}
             </p>
           </div>
 
@@ -547,7 +649,7 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                 type="file"
                 accept="image/*"
                 multiple
-                className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-sky-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-sky-800"
+                className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-brand-800"
                 onChange={async (e) => {
                   const urls = await readFilesAsDataUrls(e.target.files, 6)
                   set('photos', urls)
@@ -571,7 +673,7 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                 id="svc-logo"
                 type="file"
                 accept="image/*"
-                className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-sky-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-sky-800"
+                className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-brand-800"
                 onChange={async (e) => {
                   const urls = await readFilesAsDataUrls(e.target.files, 1)
                   set('logo_url', urls[0] || '')
@@ -625,15 +727,28 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
             <p className="mt-1 text-xs text-slate-500">Separate multiple services with commas.</p>
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-              checked={form.active}
-              onChange={(e) => set('active', e.target.checked)}
-            />
-            Active
-          </label>
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm text-stone-700">
+              <input
+                type="checkbox"
+                className="rounded border-stone-300 text-brand-600 focus:ring-brand-500"
+                checked={form.active}
+                onChange={(e) => set('active', e.target.checked)}
+              />
+              Active
+            </label>
+            {isSuperAdmin ? (
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <input
+                  type="checkbox"
+                  className="rounded border-stone-300 text-brand-600 focus:ring-brand-500"
+                  checked={Boolean(form.show_to_tenant)}
+                  onChange={(e) => set('show_to_tenant', e.target.checked)}
+                />
+                Show to tenant
+              </label>
+            ) : null}
+          </div>
         </form>
       </Modal>
 

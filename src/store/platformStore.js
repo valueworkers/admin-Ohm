@@ -1,8 +1,16 @@
-import { defaultTenantFeatures, mergeTenantFeatures } from '../config/features'
+import {
+  defaultTenantFeatures,
+  getFeaturesForRole,
+  mergeTenantFeatures,
+  normalizeRoleFeatures,
+  normalizeTenantRole,
+  roleFeatureBucket,
+  TENANT_ROLES,
+} from '../config/features'
 import { SEED_TENANTS, SEED_USERS, buildSeedCollections } from '../data/seed'
 
-const STORAGE_KEY = 'sc_platform_v10'
-const LEGACY_STORAGE_KEYS = ['sc_platform_v9', 'sc_platform_v2']
+const STORAGE_KEY = 'sc_platform_v11'
+const LEGACY_STORAGE_KEYS = ['sc_platform_v10', 'sc_platform_v9', 'sc_platform_v2']
 const EVENT = 'platform-changed'
 
 let storeRevision = 0
@@ -12,8 +20,42 @@ export const getPlatformRevision = () => storeRevision
 const normalizeTenants = (tenants = []) =>
   (tenants || []).map((t) => ({
     ...t,
-    features: mergeTenantFeatures(t.features),
+    features: normalizeRoleFeatures(t.features),
   }))
+
+const normalizeUsers = (users = []) => {
+  const seedById = Object.fromEntries(SEED_USERS.map((u) => [u.id, u]))
+  const byEmail = Object.fromEntries(
+    SEED_USERS.map((u) => [String(u.email || '').toLowerCase(), u])
+  )
+  const merged = (users || []).map((u) => {
+    const seed = seedById[u.id] || byEmail[String(u.email || '').toLowerCase()]
+    if (!seed) {
+      return {
+        ...u,
+        tenant_role: u.tenant_role
+          ? normalizeTenantRole(u.tenant_role)
+          : normalizeTenantRole(u.role_label),
+      }
+    }
+    return {
+      ...seed,
+      ...u,
+      phone: u.phone || seed.phone,
+      tenant_role: normalizeTenantRole(u.tenant_role || seed.tenant_role || u.role_label),
+      role_label: u.role_label || seed.role_label,
+    }
+  })
+  const existingIds = new Set(merged.map((u) => u.id))
+  const existingEmails = new Set(merged.map((u) => String(u.email || '').toLowerCase()))
+  SEED_USERS.forEach((seed) => {
+    if (existingIds.has(seed.id) || existingEmails.has(String(seed.email || '').toLowerCase())) {
+      return
+    }
+    merged.push({ ...seed })
+  })
+  return merged
+}
 
 const emptyState = () => {
   const collections = buildSeedCollections()
@@ -21,7 +63,7 @@ const emptyState = () => {
     users: SEED_USERS.map((u) => ({ ...u })),
     tenants: SEED_TENANTS.map((t) => ({
       ...t,
-      features: mergeTenantFeatures(t.features),
+      features: normalizeRoleFeatures(t.features),
     })),
     ...collections,
   }
@@ -50,6 +92,11 @@ const read = () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
     } else {
       state.tenants = normalizeTenants(state.tenants)
+    }
+    if (Array.isArray(state.users)) {
+      state.users = normalizeUsers(state.users)
+    } else {
+      state.users = SEED_USERS.map((u) => ({ ...u }))
     }
     if (!localStorage.getItem(STORAGE_KEY)) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
@@ -94,7 +141,7 @@ export const listCollection = (name) => {
   const state = read()
   const rows = Array.isArray(state[name]) ? state[name] : []
   if (name === 'tenants') {
-    return rows.map((t) => ({ ...t, features: mergeTenantFeatures(t.features) }))
+    return rows.map((t) => ({ ...t, features: normalizeRoleFeatures(t.features) }))
   }
   return rows
 }
@@ -105,37 +152,55 @@ export const listByTenant = (name, tenantId) =>
 export const getTenant = (tenantId) => {
   const tenant = listCollection('tenants').find((t) => String(t.id) === String(tenantId))
   if (!tenant) return null
-  return { ...tenant, features: mergeTenantFeatures(tenant.features) }
+  return { ...tenant, features: normalizeRoleFeatures(tenant.features) }
 }
 
-export const getTenantFeatures = (tenantId) => {
+/** Role-scoped features for a tenant (`ADMIN` | `OPS_ADMIN`). */
+export const getTenantFeatures = (tenantId, role = TENANT_ROLES.ADMIN) => {
   const tenant = getTenant(tenantId)
-  return tenant ? tenant.features : defaultTenantFeatures()
+  if (!tenant) return defaultTenantFeatures()
+  return getFeaturesForRole(tenant.features, role)
 }
 
-export const tenantHasFeature = (tenantId, featureKey) =>
-  Boolean(getTenantFeatures(tenantId)?.[featureKey])
+export const getTenantRoleFeatures = (tenantId) => {
+  const tenant = getTenant(tenantId)
+  return tenant ? tenant.features : normalizeRoleFeatures(null)
+}
 
-/** Super Admin: enable/disable a feature for one tenant. */
-export const setTenantFeature = (tenantId, featureKey, enabled) => {
+export const tenantHasFeature = (tenantId, featureKey, role = TENANT_ROLES.ADMIN) =>
+  Boolean(getTenantFeatures(tenantId, role)?.[featureKey])
+
+/** Super Admin: enable/disable a feature for one tenant role. */
+export const setTenantFeature = (
+  tenantId,
+  featureKey,
+  enabled,
+  role = TENANT_ROLES.ADMIN
+) => {
   const state = read()
+  const roleKey = roleFeatureBucket(role)
   state.tenants = state.tenants.map((t) => {
     if (String(t.id) !== String(tenantId)) return t
-    const features = mergeTenantFeatures(t.features)
-    features[featureKey] = Boolean(enabled)
+    const features = normalizeRoleFeatures(t.features)
+    features[roleKey] = {
+      ...features[roleKey],
+      [featureKey]: Boolean(enabled),
+    }
     return { ...t, features }
   })
   write(state)
   return getTenant(tenantId)
 }
 
-export const setTenantFeatures = (tenantId, nextFeatures) => {
+export const setTenantFeatures = (tenantId, nextFeatures, role = TENANT_ROLES.ADMIN) => {
   const state = read()
-  state.tenants = state.tenants.map((t) =>
-    String(t.id) === String(tenantId)
-      ? { ...t, features: mergeTenantFeatures(nextFeatures) }
-      : t
-  )
+  const roleKey = roleFeatureBucket(role)
+  state.tenants = state.tenants.map((t) => {
+    if (String(t.id) !== String(tenantId)) return t
+    const features = normalizeRoleFeatures(t.features)
+    features[roleKey] = mergeTenantFeatures(nextFeatures)
+    return { ...t, features }
+  })
   write(state)
   return getTenant(tenantId)
 }
@@ -143,16 +208,46 @@ export const setTenantFeatures = (tenantId, nextFeatures) => {
 export const listTenantsByStatus = (status) =>
   listCollection('tenants').filter((t) => t.status === status)
 
-export const findUserByCredentials = (email, password) => {
+export const findUserByCredentials = (emailOrPhone, password) => {
+  const user = findUserByEmailOrPhone(emailOrPhone)
+  if (!user) return null
+  if (String(user.password) !== String(password)) return null
+  return user
+}
+
+export const findUserByEmail = (email) => {
   const normalized = String(email || '')
     .trim()
     .toLowerCase()
+  return listCollection('users').find((u) => String(u.email).toLowerCase() === normalized) || null
+}
+
+const digitsOnly = (value) => String(value || '').replace(/\D/g, '')
+
+export const findUserByEmailOrPhone = (emailOrPhone) => {
+  const raw = String(emailOrPhone || '').trim()
+  if (!raw) return null
+  if (raw.includes('@')) return findUserByEmail(raw)
+  const phoneDigits = digitsOnly(raw)
+  if (phoneDigits.length < 8) return null
   return (
-    listCollection('users').find(
-      (u) =>
-        String(u.email).toLowerCase() === normalized && String(u.password) === String(password)
-    ) || null
+    listCollection('users').find((u) => {
+      const userDigits = digitsOnly(u.phone || u.mobile_number || '')
+      if (!userDigits) return false
+      return userDigits === phoneDigits || userDigits.endsWith(phoneDigits) || phoneDigits.endsWith(userDigits)
+    }) || null
   )
+}
+
+export const updateUserPassword = (userId, password) => {
+  const state = read()
+  const list = Array.isArray(state.users) ? [...state.users] : []
+  const idx = list.findIndex((u) => String(u.id) === String(userId))
+  if (idx < 0) return null
+  list[idx] = { ...list[idx], password: String(password) }
+  state.users = list
+  write(state)
+  return list[idx]
 }
 
 const newId = (prefix) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
@@ -191,6 +286,56 @@ export const updateTenantStatus = (tenantId, status, extra = {}) => {
   )
   write(state)
   return getTenant(tenantId)
+}
+
+export const updateTenant = (tenantId, patch = {}) => {
+  const state = read()
+  const idx = state.tenants.findIndex((t) => String(t.id) === String(tenantId))
+  if (idx < 0) throw new Error('Tenant not found.')
+  const allowed = [
+    'name',
+    'type',
+    'domain',
+    'company_code',
+    'logo_url',
+    'city',
+    'address',
+    'phone',
+    'owner_name',
+    'owner_email',
+    'owner_phone',
+  ]
+  const next = { ...state.tenants[idx] }
+  allowed.forEach((key) => {
+    if (patch[key] !== undefined) next[key] = String(patch[key] ?? '').trim()
+  })
+  if (!next.name) throw new Error('Organization name is required.')
+  state.tenants[idx] = next
+  write(state)
+  return getTenant(tenantId)
+}
+
+export const deleteTenant = (tenantId) => {
+  const state = read()
+  const id = String(tenantId)
+  state.tenants = (state.tenants || []).filter((t) => String(t.id) !== id)
+  state.users = (state.users || []).filter((u) => String(u.tenant_id) !== id)
+  ;[
+    'services',
+    'venues',
+    'packages',
+    'vendors',
+    'vendorPayments',
+    'bookings',
+    'patients',
+    'employees',
+    'attendance',
+    'staffPayouts',
+  ].forEach((name) => {
+    state[name] = (state[name] || []).filter((row) => String(row.tenantId) !== id)
+  })
+  write(state)
+  return true
 }
 
 /**
@@ -242,6 +387,7 @@ export const onboardTenant = (payload) => {
       first_name: adminName.split(' ')[0] || 'Ops',
       last_name: adminName.split(' ').slice(1).join(' ') || 'Admin',
       user_type: 'TENANT_OWNER',
+      tenant_role: TENANT_ROLES.OPS_ADMIN,
       tenant_id: tenantId,
       phone: String(ops_admin_phone).trim(),
       role_label: String(ops_admin_role_label || 'Ops Admin').trim() || 'Ops Admin',
@@ -272,7 +418,7 @@ export const onboardTenant = (payload) => {
       employee_offboarding: employee_offboarding || 'soft_delete',
       employee_signin: employee_signin || 'both',
     },
-    features: defaultTenantFeatures(),
+    features: normalizeRoleFeatures(null),
     status: 'pending',
     onboarded_at: new Date().toISOString(),
     approved_at: null,

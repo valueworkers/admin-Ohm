@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { FiEdit2, FiMapPin, FiPlus, FiTrash2 } from 'react-icons/fi'
+import { FiCheck, FiEdit2, FiMapPin, FiPlus, FiTrash2 } from 'react-icons/fi'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import Modal from '../components/ui/Modal'
 import PageHeader from '../components/ui/PageHeader'
@@ -7,6 +7,7 @@ import StatusBanner from '../components/ui/StatusBanner'
 import { EmptyState } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
 import { usePlatformCollection } from '../hooks/usePlatformCollection'
+import { useVenueScope } from '../hooks/useVenueScope'
 import {
   btnGhost,
   btnPrimary,
@@ -75,6 +76,17 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
   const tenantId = tenantIdProp || access.tenantId
   const canWrite = canWriteProp ?? access.canWrite
   const { rows, save, remove } = usePlatformCollection('venues', tenantId)
+  const {
+    mode,
+    selectedId,
+    displayVenues,
+    allVenues,
+    switchMode,
+    selectVenue,
+    isSingle,
+    canConfigureMode,
+    tenantRestricted,
+  } = useVenueScope(tenantId, rows)
 
   const [status, setStatus] = useState({ type: '', message: '' })
   const [modalOpen, setModalOpen] = useState(false)
@@ -204,31 +216,83 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
       <PageHeader
         eyebrow={eyebrow || 'Organization'}
         title="Venues"
-        description="Clinics and care venues for this tenant — address, capacity, halls, and photos."
+        description={
+          canConfigureMode
+            ? isSingle
+              ? 'Single (Super Admin) — tenants only see the selected venue. You can still add more venues here.'
+              : 'Multi (Super Admin) — tenants see all venues. You can add and manage every location.'
+            : tenantRestricted
+              ? 'Your organization is in Single venue mode. Only the venue assigned by Super Admin is shown.'
+              : 'Clinics and care venues for your organization.'
+        }
         actions={
-          canWrite ? (
-            <button type="button" className={btnPrimary} onClick={openCreate}>
-              <FiPlus className="h-4 w-4" aria-hidden />
-              Add venue
-            </button>
-          ) : (
-            <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
-              Read only
-            </span>
-          )
+          <div className="flex flex-wrap items-center gap-2">
+            {canConfigureMode ? (
+              <>
+                <div
+                  className="flex rounded-lg border border-stone-200 bg-stone-50 p-0.5"
+                  role="group"
+                  aria-label="Venue mode for tenant"
+                >
+                  {['single', 'multi'].map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      className={`rounded-md px-2.5 py-1.5 text-xs font-semibold capitalize transition-colors ${
+                        mode === m ? 'bg-brand-600 text-white' : 'text-stone-600 hover:bg-white'
+                      }`}
+                      onClick={() => switchMode(m)}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+                {isSingle && allVenues.length > 0 ? (
+                  <select
+                    className={`${fieldClass} w-auto min-w-[10rem] py-1.5 text-xs`}
+                    value={selectedId}
+                    onChange={(e) => selectVenue(e.target.value)}
+                    aria-label="Selected venue for tenant"
+                  >
+                    {allVenues.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </>
+            ) : null}
+            {canWrite ? (
+              <button type="button" className={btnPrimary} onClick={openCreate}>
+                <FiPlus className="h-4 w-4" aria-hidden />
+                Add venue
+              </button>
+            ) : (
+              <span className="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-600">
+                Read only
+              </span>
+            )}
+          </div>
         }
       />
 
       <StatusBanner type={status.type} message={status.message} />
 
       <div className={tableWrapClass}>
-        {rows.length === 0 ? (
+        {allVenues.length === 0 ? (
           <EmptyState
             bare
             title="No venues yet"
             hint={canWrite ? 'Add a venue so services can link locations.' : 'Nothing on file.'}
             actionLabel={canWrite ? 'Add venue' : undefined}
             onAction={canWrite ? openCreate : undefined}
+          />
+        ) : displayVenues.length === 0 ? (
+          <EmptyState
+            bare
+            title="No venue assigned"
+            hint="Super Admin has not selected a venue for Single mode yet."
           />
         ) : (
           <div className="overflow-x-auto">
@@ -241,16 +305,26 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
                   <th className="px-4 py-3">Capacity</th>
                   <th className="px-4 py-3">Halls</th>
                   <th className="px-4 py-3">Active</th>
-                  {canWrite ? <th className="px-4 py-3 text-right">Actions</th> : null}
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {rows.map((row) => {
+              <tbody className="divide-y divide-stone-100">
+                {displayVenues.map((row) => {
                   const active = row.active !== false && row.status !== 'inactive'
                   const hallCount = Array.isArray(row.halls) ? row.halls.length : 0
+                  const isSelected = String(row.id) === String(selectedId)
                   return (
-                    <tr key={row.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 font-semibold text-slate-900">{row.name}</td>
+                    <tr key={row.id} className="hover:bg-stone-50">
+                      <td className="px-4 py-3 font-semibold text-stone-900">
+                        <span className="inline-flex items-center gap-2">
+                          {row.name}
+                          {isSelected ? (
+                            <span className="rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-800">
+                              Selected
+                            </span>
+                          ) : null}
+                        </span>
+                      </td>
                       <td className="px-4 py-3">
                         <span className="inline-flex max-w-[260px] items-start gap-1.5 text-slate-700">
                           <FiMapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
@@ -271,9 +345,21 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
                           {active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
-                      {canWrite ? (
-                        <td className="px-4 py-3">
+                      <td className="px-4 py-3">
                           <div className="flex justify-end gap-1">
+                            {canConfigureMode && !isSelected ? (
+                              <button
+                                type="button"
+                                className={btnGhost}
+                                onClick={() => selectVenue(row.id)}
+                                aria-label={`Set ${row.name} as tenant selected venue`}
+                              >
+                                <FiCheck className="h-3.5 w-3.5" aria-hidden />
+                                Use
+                              </button>
+                            ) : null}
+                            {canWrite ? (
+                              <>
                             <button
                               type="button"
                               className={btnGhost}
@@ -290,9 +376,10 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
                             >
                               <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
                             </button>
+                              </>
+                            ) : null}
                           </div>
                         </td>
-                      ) : null}
                     </tr>
                   )
                 })}
@@ -600,7 +687,7 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
               type="file"
               accept="image/*"
               multiple
-              className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-sky-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-sky-800"
+              className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-brand-800"
               onChange={async (e) => {
                 const urls = await readFilesAsDataUrls(e.target.files, 8)
                 set('photos', urls)
@@ -619,7 +706,7 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
-              className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+              className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
               checked={form.active}
               onChange={(e) => set('active', e.target.checked)}
             />

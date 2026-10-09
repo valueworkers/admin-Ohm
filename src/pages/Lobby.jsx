@@ -1,23 +1,21 @@
 import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { FiCheck, FiX } from 'react-icons/fi'
-import OnboardTenantModal from '../components/OnboardTenantModal'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
 import { EmptyState } from '../components/ui/PageState'
 import {
   listTenantsByStatus,
-  onboardTenant,
   subscribePlatform,
   updateTenantStatus,
 } from '../store/platformStore'
 import { btnGhost, btnPrimary, tableHeadClass, tableWrapClass } from '../utils/ui'
 
 const Lobby = () => {
+  const navigate = useNavigate()
   const [pending, setPending] = useState(() => listTenantsByStatus('pending'))
   const [status, setStatus] = useState({ type: '', message: '' })
-  const [modalOpen, setModalOpen] = useState(false)
-  const [saving, setSaving] = useState(false)
   const [rejectTarget, setRejectTarget] = useState(null)
 
   useEffect(() => subscribePlatform(() => setPending(listTenantsByStatus('pending'))), [])
@@ -39,34 +37,16 @@ const Lobby = () => {
     setRejectTarget(null)
   }
 
-  const handleCreate = (form) => {
-    setSaving(true)
-    try {
-      const { tenant } = onboardTenant(form)
-      setStatus({
-        type: 'success',
-        message: tenant.has_ops_admin
-          ? `${tenant.name} submitted to Lobby with Ops Admin ${tenant.owner_email}.`
-          : `${tenant.name} submitted to Lobby (no Ops Admin).`,
-      })
-      setModalOpen(false)
-    } catch (err) {
-      setSaving(false)
-      throw err
-    }
-    setSaving(false)
-  }
-
   return (
     <div className="space-y-4">
       <PageHeader
         eyebrow="Platform"
         title="Lobby"
-        description="Create tenants with org profile, optional Ops Admin login, logo, and ops settings. Approve to activate under Tenants."
+        description="Approve or reject pending onboarding requests. Create new tenants from the Tenants page."
         actions={
-          <button type="button" className={btnPrimary} onClick={() => setModalOpen(true)}>
-            Create tenant
-          </button>
+          <Link to="/tenants" className={btnPrimary}>
+            Go to Tenants
+          </Link>
         }
       />
 
@@ -77,9 +57,9 @@ const Lobby = () => {
           <EmptyState
             bare
             title="Lobby is empty"
-            hint="Create a tenant to open an onboarding request."
-            actionLabel="Create tenant"
-            onAction={() => setModalOpen(true)}
+            hint="New tenants created from Tenants appear here until approved."
+            actionLabel="Open Tenants"
+            onAction={() => navigate('/tenants')}
           />
         ) : (
           <div className="overflow-x-auto">
@@ -149,13 +129,6 @@ const Lobby = () => {
           </div>
         )}
       </div>
-
-      <OnboardTenantModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onSubmit={handleCreate}
-        saving={saving}
-      />
 
       <ConfirmDialog
         open={Boolean(rejectTarget)}

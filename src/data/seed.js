@@ -5,6 +5,7 @@ export const SEED_USERS = [
     id: 'user-super',
     email: 'super@seniorcare.com',
     password: 'admin123',
+    phone: '+91 98765 00001',
     first_name: 'Super',
     last_name: 'Admin',
     user_type: 'SUPER_ADMIN',
@@ -14,18 +15,48 @@ export const SEED_USERS = [
     id: 'user-vaishnavi',
     email: 'owner@vaishnavi.com',
     password: 'tenant123',
+    phone: '+91 98765 11001',
     first_name: 'Priya',
     last_name: 'Menon',
     user_type: 'TENANT_OWNER',
+    tenant_role: 'ADMIN',
+    role_label: 'Tenant Admin',
+    tenant_id: 'tenant-vaishnavi',
+  },
+  {
+    id: 'user-vaishnavi-ops',
+    email: 'ops@vaishnavi.com',
+    password: 'ops123',
+    phone: '+91 98765 11002',
+    first_name: 'Anil',
+    last_name: 'Rao',
+    user_type: 'TENANT_OWNER',
+    tenant_role: 'OPS_ADMIN',
+    role_label: 'Ops Admin',
     tenant_id: 'tenant-vaishnavi',
   },
   {
     id: 'user-careplus',
     email: 'owner@careplus.com',
     password: 'tenant123',
+    phone: '+91 98765 22002',
     first_name: 'Rahul',
     last_name: 'Desai',
     user_type: 'TENANT_OWNER',
+    tenant_role: 'ADMIN',
+    role_label: 'Tenant Admin',
+    tenant_id: 'tenant-careplus',
+  },
+  {
+    id: 'user-careplus-ops',
+    email: 'ops@careplus.com',
+    password: 'ops123',
+    phone: '+91 98765 22003',
+    first_name: 'Meera',
+    last_name: 'Shah',
+    user_type: 'TENANT_OWNER',
+    tenant_role: 'OPS_ADMIN',
+    role_label: 'Ops Admin',
     tenant_id: 'tenant-careplus',
   },
   {
@@ -35,6 +66,7 @@ export const SEED_USERS = [
     first_name: 'Sneha',
     last_name: 'Kulkarni',
     user_type: 'TENANT_OWNER',
+    tenant_role: 'OPS_ADMIN',
     tenant_id: 'tenant-pending-lotus',
     phone: '+91 98765 33003',
     role_label: 'Ops Admin',
@@ -48,20 +80,38 @@ const defaultSettings = {
   employee_signin: 'both',
 }
 
-/** Core modules ON; add-ons OFF unless listed true. */
-const featuresWith = (extras = {}) => ({
+/** Core modules ON; add-ons OFF unless listed true. Role-scoped for Admin / Ops Admin. */
+const flatFeatures = (extras = {}) => ({
   analytics: true,
   services: true,
   venues: true,
   packages: true,
+  resources: true,
+  emr: false,
   bookings: true,
   patients: true,
+  customer_lobby: true,
+  invoices: true,
+  payments: true,
   employees: true,
   vendors: true,
-  vendor_payments: true,
   attendance: false,
+  payroll: false,
   staff_payouts: false,
+  staff_for_hire: false,
+  n8n_templates: false,
   ...extras,
+})
+
+const featuresWith = (adminExtras = {}, opsExtras = {}) => ({
+  admin: flatFeatures(adminExtras),
+  ops_admin: flatFeatures({
+    emr: false,
+    payroll: false,
+    staff_payouts: false,
+    n8n_templates: false,
+    ...opsExtras,
+  }),
 })
 
 export const SEED_TENANTS = [
@@ -82,7 +132,10 @@ export const SEED_TENANTS = [
     phone: '+91 98765 11001',
     address: '12 MG Road, Bengaluru',
     settings: { ...defaultSettings, ops_can_activate_vendors: true },
-    features: featuresWith({ attendance: true, staff_payouts: true }),
+    features: featuresWith(
+      { attendance: true, staff_payouts: true, payroll: true, emr: true },
+      { attendance: true, staff_payouts: false, bookings: true, patients: true }
+    ),
     onboarded_at: '2025-11-02T10:00:00.000Z',
     approved_at: '2025-11-03T09:00:00.000Z',
   },
@@ -103,7 +156,10 @@ export const SEED_TENANTS = [
     phone: '+91 98765 22002',
     address: '88 Jubilee Hills, Hyderabad',
     settings: { ...defaultSettings },
-    features: featuresWith({ attendance: true, staff_payouts: false }),
+    features: featuresWith(
+      { attendance: true, staff_payouts: false },
+      { attendance: true, staff_payouts: false, emr: false, payroll: false }
+    ),
     onboarded_at: '2025-12-01T10:00:00.000Z',
     approved_at: '2025-12-02T11:00:00.000Z',
   },
@@ -885,5 +941,34 @@ export const buildSeedCollections = () => ({
 })
 
 export const DEMO_LOGINS = [
-  { email: 'super@seniorcare.com', password: 'admin123', label: 'Super Admin' },
+  {
+    email: 'super@seniorcare.com',
+    phone: '+91 98765 00001',
+    password: 'admin123',
+    label: 'Super Admin',
+  },
+  {
+    email: 'owner@vaishnavi.com',
+    phone: '+91 98765 11001',
+    password: 'tenant123',
+    label: 'Vaishnavi Admin',
+  },
+  {
+    email: 'ops@vaishnavi.com',
+    phone: '+91 98765 11002',
+    password: 'ops123',
+    label: 'Vaishnavi Ops Admin',
+  },
+  {
+    email: 'owner@careplus.com',
+    phone: '+91 98765 22002',
+    password: 'tenant123',
+    label: 'CarePlus Admin',
+  },
+  {
+    email: 'ops@careplus.com',
+    phone: '+91 98765 22003',
+    password: 'ops123',
+    label: 'CarePlus Ops Admin',
+  },
 ]

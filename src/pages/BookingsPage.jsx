@@ -46,7 +46,7 @@ const statusChip = (status) => {
   if (s === 'ACTIVE' || s === 'CONFIRMED') return 'bg-emerald-50 text-emerald-800'
   if (s === 'PENDING') return 'bg-amber-50 text-amber-900'
   if (s === 'EXPIRED' || s === 'CANCELLED') return 'bg-rose-50 text-rose-800'
-  if (s === 'COMPLETED') return 'bg-sky-50 text-sky-800'
+  if (s === 'COMPLETED') return 'bg-brand-50 text-brand-800'
   return 'bg-slate-100 text-slate-700'
 }
 
@@ -598,7 +598,7 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
               <label className="flex items-center gap-2 pb-2 text-sm text-slate-700">
                 <input
                   type="checkbox"
-                  className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                  className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                   checked={form.auto_renew}
                   onChange={(e) => set('auto_renew', e.target.checked)}
                 />
