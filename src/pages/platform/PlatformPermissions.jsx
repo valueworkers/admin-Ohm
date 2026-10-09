@@ -26,7 +26,7 @@ const RoleSwitch = ({ on, label, onToggle }) => (
     aria-label={label}
     onClick={onToggle}
     className={`relative mx-auto h-7 w-12 shrink-0 rounded-full transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 ${
-      on ? 'bg-brand-600' : 'bg-stone-300'
+      on ? 'bg-brand-500' : 'bg-stone-300'
     }`}
   >
     <span

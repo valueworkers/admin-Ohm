@@ -260,7 +260,7 @@ const Login = () => {
                 aria-selected={mode === m.id}
                 className={`flex-1 rounded-md px-2 py-2 text-sm font-medium transition-colors duration-150 ${
                   mode === m.id
-                    ? 'bg-brand-600 text-white'
+                    ? 'bg-ink text-white'
                     : 'text-stone-600 hover:bg-white hover:text-stone-900'
                 }`}
                 onClick={() => switchMode(m.id)}
@@ -421,13 +421,13 @@ const Login = () => {
           )}
         </div>
 
-        <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/80 backdrop-blur-sm">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-white/40">Demo account</p>
+        <div className="rounded-xl border border-stone-200 bg-white p-3 text-sm shadow-sm">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-stone-400">Demo account</p>
           <div className="mt-2 flex gap-2">
             <select
               id="demo-account"
               aria-label="Choose demo account"
-              className="min-w-0 flex-1 rounded-lg border border-white/20 bg-white px-3 py-2 text-sm text-stone-800 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-600/20"
+              className={`${fieldClass} min-w-0 flex-1`}
               value={demoKey}
               onChange={(e) => {
                 setDemoKey(e.target.value)
@@ -443,7 +443,7 @@ const Login = () => {
             </select>
             <button
               type="button"
-              className="shrink-0 rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
+              className={`${btnSecondary} shrink-0`}
               onClick={applySelectedDemo}
             >
               Use
@@ -451,7 +451,7 @@ const Login = () => {
           </div>
           <button
             type="button"
-            className="mt-2 text-xs font-medium text-white/50 underline-offset-2 hover:text-white/80 hover:underline"
+            className="mt-2 text-xs font-medium text-stone-500 underline-offset-2 hover:text-stone-800 hover:underline"
             onClick={() => {
               resetPlatformStore()
               setError('')

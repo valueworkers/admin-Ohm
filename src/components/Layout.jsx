@@ -14,12 +14,12 @@ const NAV_OPEN_KEY = 'admin_nav_open_groups'
 const navClass =
   ({ collapsed }) =>
   ({ isActive }) =>
-    `sc-nav-item flex items-center gap-3 rounded-xl py-2.5 text-sm font-medium ${
+    `sc-nav-item relative flex items-center gap-3 rounded-r-lg py-2.5 text-sm font-medium ${
       collapsed ? 'justify-center px-0' : 'px-3'
     } ${
       isActive
-        ? 'bg-brand-600 text-white'
-        : 'text-white/65 hover:bg-white/10 hover:text-white'
+        ? 'is-active text-stone-900'
+        : 'text-stone-500 hover:bg-stone-50 hover:text-stone-800'
     }`
 
 const loadOpenGroups = () => {
@@ -143,7 +143,7 @@ const Layout = () => {
           <span className="min-w-0 truncate">
             {item.title}
             {locked ? (
-              <span className="ml-1 text-[10px] font-normal text-white/40">tenant</span>
+              <span className="ml-1 text-[10px] font-normal text-stone-400">tenant</span>
             ) : null}
           </span>
         ) : null}
@@ -167,8 +167,8 @@ const Layout = () => {
             <button
               key={item.id}
               type="button"
-              className={`sc-nav-item flex w-full items-center justify-center rounded-xl py-2.5 text-white/65 hover:bg-white/10 hover:text-white ${
-                groupActive ? 'bg-white/10 text-white' : ''
+              className={`sc-nav-item relative flex w-full items-center justify-center rounded-r-lg py-2.5 text-stone-500 hover:bg-stone-50 hover:text-stone-800 ${
+                groupActive ? 'is-active text-stone-900' : ''
               }`}
               title={item.title}
               onClick={() => {
@@ -184,14 +184,14 @@ const Layout = () => {
         return (
           <div key={item.id} className="space-y-0.5">
             <div
-              className={`flex items-center gap-1 rounded-xl ${
-                groupActive && !expanded ? 'bg-white/5' : ''
+              className={`flex items-center gap-1 rounded-r-lg ${
+                groupActive && !expanded ? 'is-active sc-nav-item relative bg-brand-50' : ''
               }`}
             >
               <button
                 type="button"
-                className={`sc-nav-item flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium ${
-                  groupActive ? 'text-white' : 'text-white/65 hover:text-white'
+                className={`relative flex min-w-0 flex-1 items-center gap-3 rounded-r-lg px-3 py-2.5 text-left text-sm font-medium ${
+                  groupActive ? 'text-stone-900' : 'text-stone-500 hover:text-stone-800'
                 } ${locked ? 'opacity-55' : ''}`}
                 onClick={() => toggleGroup(item.id)}
                 aria-expanded={expanded}
@@ -201,7 +201,7 @@ const Layout = () => {
               </button>
               <button
                 type="button"
-                className="mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+                className="mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
                 onClick={() => toggleGroup(item.id)}
                 aria-label={expanded ? `Collapse ${item.title}` : `Expand ${item.title}`}
               >
@@ -238,13 +238,19 @@ const Layout = () => {
         } ${collapsed ? 'md:w-16' : 'md:w-60'}`}
       >
         <div
-          className={`flex h-14 shrink-0 items-center border-b border-white/10 ${
-            rail ? 'justify-center px-0' : 'px-4'
+          className={`flex h-14 shrink-0 items-center border-b border-stone-100 ${
+            rail ? 'justify-center px-0' : 'gap-2 px-4'
           }`}
         >
-          <span className="text-sm font-bold tracking-tight text-white">
-            {rail ? 'O-hm' : 'O-hm Admin'}
+          <span
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-xs font-bold text-brand-600"
+            aria-hidden
+          >
+            O
           </span>
+          {!rail ? (
+            <span className="text-sm font-bold tracking-tight text-stone-900">O-hm Admin</span>
+          ) : null}
         </div>
         {nav}
       </aside>

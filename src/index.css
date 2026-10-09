@@ -1,24 +1,33 @@
 @import "tailwindcss";
 
 @theme {
-  --color-brand-50: #eef4f0;
-  --color-brand-100: #d7e6dc;
-  --color-brand-200: #b4cfbf;
-  --color-brand-500: #4d7a62;
-  --color-brand-600: #3b5f4c;
-  --color-brand-700: #2f4c3d;
-  --color-brand-800: #263d32;
-  --color-canvas: #f7f7f5;
-  --color-sidebar: #171c1a;
-  --color-sidebar-mid: #121614;
+  /* Accent orange — StarAdmin #F29F67 */
+  --color-brand-50: #fef6f0;
+  --color-brand-100: #fde8d9;
+  --color-brand-200: #f9c9a8;
+  --color-brand-500: #f29f67;
+  --color-brand-600: #e8894a;
+  --color-brand-700: #d06f30;
+  --color-brand-800: #a85624;
+  /* Dark navy — StarAdmin #1E1E2C */
+  --color-ink: #1e1e2c;
+  --color-ink-hover: #2a2a3d;
+  /* Supporting */
+  --color-accent-blue: #3b8ff3;
+  --color-accent-teal: #34b1aa;
+  --color-accent-yellow: #e0b50f;
+  --color-canvas: #f3f3f3;
+  --color-sidebar: #ffffff;
+  --color-sidebar-mid: #fafafa;
 }
 
 :root {
-  --sc-canvas: #f7f7f5;
-  --sc-ink: #1c1917;
-  --sc-primary: #3b5f4c;
-  --sc-primary-hover: #2f4c3d;
-  --sc-sidebar: #171c1a;
+  --sc-canvas: #f3f3f3;
+  --sc-ink: #1e1e2c;
+  --sc-primary: #f29f67;
+  --sc-primary-hover: #e8894a;
+  --sc-navy: #1e1e2c;
+  --sc-sidebar: #ffffff;
   --sc-ease: cubic-bezier(0.22, 1, 0.36, 1);
 
   font-family: "Segoe UI", system-ui, sans-serif;
@@ -148,12 +157,30 @@ body {
 }
 
 .sc-sidebar-sheen {
-  background: linear-gradient(180deg, #1a211e 0%, #121614 100%);
+  background: #ffffff;
+  border-right: 1px solid #ececec;
+  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.02);
 }
 
 .sc-login-bg {
-  background:
-    linear-gradient(145deg, #101412 0%, #1a211e 55%, #243029 100%);
+  background: #f3f3f3;
+}
+
+.sc-nav-item.is-active {
+  background-color: #fef6f0;
+  color: #1e1e2c;
+}
+
+.sc-nav-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 1.35rem;
+  width: 3px;
+  border-radius: 999px;
+  background: #f29f67;
+  transform: translateY(-50%);
 }
 
 @media (prefers-reduced-motion: reduce) {

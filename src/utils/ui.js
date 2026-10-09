@@ -4,7 +4,7 @@ export const fieldClass =
 export const labelClass = 'mb-1.5 block text-xs font-medium text-stone-700'
 
 export const btnPrimary =
-  'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600/35 active:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0'
+  'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-ink px-3.5 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-ink-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 active:bg-ink disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0'
 
 export const btnSecondary =
   'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3.5 py-2 text-sm font-medium text-stone-700 transition-colors duration-150 hover:border-stone-400 hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/40 disabled:opacity-50 sm:min-h-0'
@@ -25,7 +25,7 @@ export const cardLinkClass =
   'group rounded-xl border border-stone-200/90 bg-white p-5 transition-colors duration-150 hover:border-brand-300 hover:bg-[#fafaf9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600/30'
 
 export const brandChipClass =
-  'rounded-md bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-800 ring-1 ring-brand-100'
+  'rounded-md bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-800 ring-1 ring-brand-100/80'
 
 export const brandBannerClass =
   'border-b border-stone-100 bg-[#fafaf9] px-4 py-2 text-sm text-stone-800 md:px-6'
