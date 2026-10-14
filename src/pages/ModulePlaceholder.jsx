@@ -5,7 +5,7 @@ import { useAccess } from '../hooks/useAccess'
 
 const TITLES = {
   '/ops/resources': 'Resources',
-  '/ops/emr': 'EMR',
+  '/ops/emr': 'Document Manager',
   '/ops/analytics/attendance-master': 'Attendance Master',
   '/ops/analytics/reminders': 'Reminders',
   '/ops/analytics/payment-master': 'Payment Master',

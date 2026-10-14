@@ -32,6 +32,8 @@ export const getSelectedVenueId = (tenantId) => {
 
 export const setSelectedVenueId = (tenantId, venueId) => {
   const id = venueId == null || venueId === '' ? '' : String(venueId)
+  const prev = getSelectedVenueId(tenantId)
+  if (prev === id) return id
   try {
     if (!id) localStorage.removeItem(selectedKey(tenantId))
     else localStorage.setItem(selectedKey(tenantId), id)
@@ -45,6 +47,7 @@ export const setSelectedVenueId = (tenantId, venueId) => {
 /**
  * Keep selection valid for the tenant venue list.
  * In single mode, ensures one venue is selected when any exist.
+ * Does not write/dispatch when selection is already correct (avoids render loops).
  */
 export const ensureVenueSelection = (tenantId, venues = []) => {
   const list = Array.isArray(venues) ? venues : []
@@ -53,14 +56,12 @@ export const ensureVenueSelection = (tenantId, venues = []) => {
   const stillValid = selectedId && list.some((v) => String(v.id) === String(selectedId))
 
   if (!stillValid) {
-    selectedId = list[0]?.id ? String(list[0].id) : ''
-    if (selectedId) setSelectedVenueId(tenantId, selectedId)
-    else setSelectedVenueId(tenantId, '')
+    const nextId = list[0]?.id ? String(list[0].id) : ''
+    selectedId = setSelectedVenueId(tenantId, nextId)
   }
 
   if (mode === 'single' && !selectedId && list[0]?.id) {
-    selectedId = String(list[0].id)
-    setSelectedVenueId(tenantId, selectedId)
+    selectedId = setSelectedVenueId(tenantId, list[0].id)
   }
 
   return { mode, selectedId }

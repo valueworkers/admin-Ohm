@@ -17,7 +17,7 @@ import {
   FiDollarSign,
   FiBell,
   FiClipboard,
-  FiHeart,
+  FiFolder,
   FiGrid,
   FiShield,
 } from 'react-icons/fi'
@@ -30,6 +30,25 @@ import {
  */
 export const NAV_ITEMS = [
   { type: 'link', to: '/', end: true, title: 'Home', icon: FiHome, needsTenant: false },
+  {
+    type: 'group',
+    id: 'tenants',
+    title: 'Manage Tenants',
+    icon: FiLayers,
+    needsTenant: false,
+    superOnly: true,
+    children: [
+      { to: '/tenants', title: 'Tenants', icon: FiLayers, needsTenant: false, superOnly: true },
+      { to: '/lobby', title: 'Lobby', icon: FiInbox, needsTenant: false, superOnly: true },
+      {
+        to: '/tenants/offboarded',
+        title: 'Offboarded',
+        icon: FiUserX,
+        needsTenant: false,
+        superOnly: true,
+      },
+    ],
+  },
   {
     type: 'link',
     to: '/ops/venues',
@@ -57,8 +76,8 @@ export const NAV_ITEMS = [
   {
     type: 'link',
     to: '/ops/emr',
-    title: 'EMR',
-    icon: FiHeart,
+    title: 'Document Manager',
+    icon: FiFolder,
     needsTenant: true,
     featureKey: 'emr',
   },
@@ -185,25 +204,6 @@ export const NAV_ITEMS = [
         icon: FiCreditCard,
         needsTenant: true,
         featureKey: 'payments',
-      },
-    ],
-  },
-  {
-    type: 'group',
-    id: 'tenants',
-    title: 'Manage Tenants',
-    icon: FiLayers,
-    needsTenant: false,
-    superOnly: true,
-    children: [
-      { to: '/tenants', title: 'Tenants', icon: FiLayers, needsTenant: false, superOnly: true },
-      { to: '/lobby', title: 'Lobby', icon: FiInbox, needsTenant: false, superOnly: true },
-      {
-        to: '/tenants/offboarded',
-        title: 'Offboarded',
-        icon: FiUserX,
-        needsTenant: false,
-        superOnly: true,
       },
     ],
   },

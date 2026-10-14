@@ -38,8 +38,8 @@ export const FEATURE_CATALOG = [
   },
   {
     key: 'emr',
-    label: 'EMR',
-    description: 'Electronic medical records.',
+    label: 'Document Manager',
+    description: 'Documents and file management for the tenant.',
     group: 'Catalog',
     core: false,
     route: '/ops/emr',

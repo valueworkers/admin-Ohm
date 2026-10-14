@@ -1,0 +1,75 @@
+import axios from 'axios'
+
+const baseURL = String(import.meta.env.VITE_BASEURL_CARE || '').replace(/\/?$/, '/')
+
+const api = axios.create({
+  baseURL,
+  headers: { 'Content-Type': 'application/json' },
+})
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('access_token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+const errorText = (error) => {
+  const data = error?.response?.data
+  if (!data) return String(error?.message || '')
+  if (typeof data === 'string') return data
+  return [data.detail, data.message, data.error, JSON.stringify(data)]
+    .filter(Boolean)
+    .join(' ')
+}
+
+const isAuthFailure = (error) => {
+  const status = error?.response?.status
+  const text = errorText(error).toLowerCase()
+  if (status === 401 || status === 403) return true
+  if (status === 404) return true
+  if (text.includes('given token not valid for any token type')) return true
+  if (text.includes('token not valid') || text.includes('token is invalid')) return true
+  if (text.includes('authentication credentials were not provided')) return true
+  return false
+}
+
+const isLoginRequest = (config) => {
+  const url = String(config?.url || '')
+  return (
+    url.includes('auth/login') ||
+    url.includes('auth/otp') ||
+    url.includes('auth/password-reset')
+  )
+}
+
+let redirectingToLogin = false
+
+const forceLogoutToLogin = () => {
+  if (redirectingToLogin) return
+  if (window.location.pathname.startsWith('/login')) return
+
+  redirectingToLogin = true
+  localStorage.removeItem('access_token')
+  localStorage.removeItem('refresh_token')
+  localStorage.removeItem('authTokens')
+  localStorage.removeItem('authUser')
+  localStorage.removeItem('user_type')
+  localStorage.removeItem('selected_tenant_id')
+  window.dispatchEvent(new Event('auth-changed'))
+  window.location.assign('/login')
+}
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const hasSession = Boolean(localStorage.getItem('access_token'))
+    if (hasSession && !isLoginRequest(error?.config) && isAuthFailure(error)) {
+      forceLogoutToLogin()
+    }
+    return Promise.reject(error)
+  }
+)
+
+export default api

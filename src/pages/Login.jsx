@@ -2,18 +2,15 @@ import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { FiEye, FiEyeOff, FiLoader } from 'react-icons/fi'
 import Modal from '../components/ui/Modal'
-import { DEMO_LOGINS } from '../data/seed'
-import { resetPlatformStore } from '../store/platformStore'
 import {
   canAccessAdminPanel,
-  completePasswordReset,
   getAuthUser,
   isAuthenticated,
-  loginWithDummy,
-  loginWithDummyOtp,
-  sendDemoOtp,
-  sendPasswordResetOtp,
-  verifyPasswordResetOtp,
+  loginWithOtpApi,
+  loginWithPasswordApi,
+  resetPasswordApi,
+  sendLoginOtpApi,
+  sendPasswordResetOtpApi,
 } from '../utils/auth'
 import { btnPrimary, btnSecondary, fieldClass, labelClass } from '../utils/ui'
 
@@ -24,8 +21,7 @@ const MODES = [
 
 const FORGOT_STEPS = {
   identifier: 1,
-  otp: 2,
-  password: 3,
+  reset: 2,
 }
 
 const emptyForgot = () => ({
@@ -67,15 +63,7 @@ const Login = () => {
     setOtpSent(false)
   }
 
-  const fillDemo = (demo) => {
-    setEmail(demo.email)
-    setPassword(demo.password)
-    setMode('password')
-    setError('')
-    setInfo('')
-  }
-
-  const handlePasswordSubmit = (event) => {
+  const handlePasswordSubmit = async (event) => {
     event.preventDefault()
     setError('')
     setInfo('')
@@ -85,9 +73,13 @@ const Login = () => {
     }
     setIsLoading(true)
     try {
-      const result = loginWithDummy(email, password)
+      const result = await loginWithPasswordApi(email, password)
       if (!result.ok) {
         setError(result.error)
+        return
+      }
+      if (!result.tokens?.access) {
+        setError('Login succeeded but no access token was returned.')
         return
       }
       navigate(location.state?.from || '/', { replace: true })
@@ -96,7 +88,7 @@ const Login = () => {
     }
   }
 
-  const sendOtp = () => {
+  const sendOtp = async () => {
     setError('')
     setInfo('')
     if (!email.trim()) {
@@ -105,7 +97,7 @@ const Login = () => {
     }
     setIsLoading(true)
     try {
-      const result = sendDemoOtp(email)
+      const result = await sendLoginOtpApi(email)
       if (!result.ok) {
         setError(result.error)
         return
@@ -117,7 +109,7 @@ const Login = () => {
     }
   }
 
-  const handleOtpSubmit = (event) => {
+  const handleOtpSubmit = async (event) => {
     event.preventDefault()
     setError('')
     if (!email.trim()) {
@@ -125,7 +117,7 @@ const Login = () => {
       return
     }
     if (!otpSent) {
-      sendOtp()
+      await sendOtp()
       return
     }
     if (!otp.trim()) {
@@ -134,9 +126,13 @@ const Login = () => {
     }
     setIsLoading(true)
     try {
-      const result = loginWithDummyOtp(email, otp)
+      const result = await loginWithOtpApi(email, otp)
       if (!result.ok) {
         setError(result.error)
+        return
+      }
+      if (!result.tokens?.access) {
+        setError('Login succeeded but no access token was returned.')
         return
       }
       navigate(location.state?.from || '/', { replace: true })
@@ -158,7 +154,22 @@ const Login = () => {
     setForgotOpen(true)
   }
 
-  const submitForgot = (event) => {
+  const resendForgotOtp = async () => {
+    setForgotStatus({ type: '', message: '' })
+    setForgotLoading(true)
+    try {
+      const result = await sendPasswordResetOtpApi(forgot.identifier)
+      setForgotStatus(
+        result.ok
+          ? { type: 'success', message: result.message }
+          : { type: 'error', message: result.error }
+      )
+    } finally {
+      setForgotLoading(false)
+    }
+  }
+
+  const submitForgot = async (event) => {
     event.preventDefault()
     setForgotStatus({ type: '', message: '' })
     setForgotLoading(true)
@@ -168,38 +179,20 @@ const Login = () => {
           setForgotStatus({ type: 'error', message: 'Email or phone is required.' })
           return
         }
-        const result = sendPasswordResetOtp(forgot.identifier)
+        const result = await sendPasswordResetOtpApi(forgot.identifier)
         if (!result.ok) {
           setForgotStatus({ type: 'error', message: result.error })
           return
         }
         setForgot((prev) => ({
           ...prev,
-          step: FORGOT_STEPS.otp,
+          step: FORGOT_STEPS.reset,
           status: { type: 'success', message: result.message },
         }))
         return
       }
 
-      if (forgot.step === FORGOT_STEPS.otp) {
-        if (!forgot.otp.trim()) {
-          setForgotStatus({ type: 'error', message: 'Enter the 6-digit OTP.' })
-          return
-        }
-        const result = verifyPasswordResetOtp(forgot.identifier, forgot.otp)
-        if (!result.ok) {
-          setForgotStatus({ type: 'error', message: result.error })
-          return
-        }
-        setForgot((prev) => ({
-          ...prev,
-          step: FORGOT_STEPS.password,
-          status: { type: 'success', message: 'OTP verified. Set a new password.' },
-        }))
-        return
-      }
-
-      const result = completePasswordReset(
+      const result = await resetPasswordApi(
         forgot.identifier,
         forgot.otp,
         forgot.newPassword,
@@ -209,7 +202,7 @@ const Login = () => {
         setForgotStatus({ type: 'error', message: result.error })
         return
       }
-      setEmail(result.email)
+      setEmail(result.username || forgot.identifier)
       setPassword('')
       setMode('password')
       setInfo(result.message)
@@ -221,29 +214,13 @@ const Login = () => {
   }
 
   const forgotPrimaryLabel =
-    forgot.step === FORGOT_STEPS.identifier
-      ? 'Send OTP'
-      : forgot.step === FORGOT_STEPS.otp
-        ? 'Verify OTP'
-        : 'Update password'
+    forgot.step === FORGOT_STEPS.identifier ? 'Send OTP' : 'Update password'
 
   const forgotTitle =
-    forgot.step === FORGOT_STEPS.identifier
-      ? 'Forgot password'
-      : forgot.step === FORGOT_STEPS.otp
-        ? 'Verify OTP'
-        : 'Set new password'
-
-  const [demoKey, setDemoKey] = useState(DEMO_LOGINS[0]?.email || '')
-
-  const applySelectedDemo = () => {
-    const demo = DEMO_LOGINS.find((d) => d.email === demoKey)
-    if (demo) fillDemo(demo)
-  }
-
+    forgot.step === FORGOT_STEPS.identifier ? 'Forgot password' : 'Set new password'
   return (
     <div className="sc-login-bg flex h-dvh max-h-dvh items-center justify-center overflow-y-auto px-4 py-6 sm:py-10">
-      <div className="sc-page-enter w-full max-w-md space-y-3">
+      <div className="sc-page-enter w-full max-w-md">
         <div className="rounded-xl border border-stone-200 bg-white p-6 sm:p-8">
           <h1 className="text-2xl font-bold tracking-tight text-stone-900">Ohm Admin</h1>
 
@@ -420,47 +397,6 @@ const Login = () => {
             </form>
           )}
         </div>
-
-        <div className="rounded-xl border border-stone-200 bg-white p-3 text-sm shadow-sm">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-stone-400">Demo account</p>
-          <div className="mt-2 flex gap-2">
-            <select
-              id="demo-account"
-              aria-label="Choose demo account"
-              className={`${fieldClass} min-w-0 flex-1`}
-              value={demoKey}
-              onChange={(e) => {
-                setDemoKey(e.target.value)
-                const demo = DEMO_LOGINS.find((d) => d.email === e.target.value)
-                if (demo) fillDemo(demo)
-              }}
-            >
-              {DEMO_LOGINS.map((demo) => (
-                <option key={demo.email} value={demo.email}>
-                  {demo.label} — {demo.email}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className={`${btnSecondary} shrink-0`}
-              onClick={applySelectedDemo}
-            >
-              Use
-            </button>
-          </div>
-          <button
-            type="button"
-            className="mt-2 text-xs font-medium text-stone-500 underline-offset-2 hover:text-stone-800 hover:underline"
-            onClick={() => {
-              resetPlatformStore()
-              setError('')
-              setInfo('')
-            }}
-          >
-            Reset demo data
-          </button>
-        </div>
       </div>
 
       <Modal
@@ -472,19 +408,12 @@ const Login = () => {
             <button type="button" className={btnSecondary} onClick={closeForgot}>
               Cancel
             </button>
-            {forgot.step === FORGOT_STEPS.otp ? (
+            {forgot.step === FORGOT_STEPS.reset ? (
               <button
                 type="button"
                 className={btnSecondary}
                 disabled={forgotLoading}
-                onClick={() => {
-                  const result = sendPasswordResetOtp(forgot.identifier)
-                  setForgotStatus(
-                    result.ok
-                      ? { type: 'success', message: result.message }
-                      : { type: 'error', message: result.error }
-                  )
-                }}
+                onClick={resendForgotOtp}
               >
                 Resend OTP
               </button>
@@ -501,15 +430,12 @@ const Login = () => {
         }
       >
         <form id="forgot-password-form" className="space-y-3" onSubmit={submitForgot}>
-          <p className="text-xs font-medium text-slate-500">
-            Step {forgot.step} of 3
-          </p>
+          <p className="text-xs font-medium text-slate-500">Step {forgot.step} of 2</p>
 
           {forgot.step === FORGOT_STEPS.identifier ? (
             <>
               <p className="text-sm text-slate-600">
-                Enter your account email or phone. We will send a 6-digit OTP (demo code shown on
-                screen).
+                Enter your account email or phone. We will send a 6-digit OTP.
               </p>
               <div>
                 <label htmlFor="forgot-identifier" className={labelClass}>
@@ -530,15 +456,16 @@ const Login = () => {
                     }))
                   }
                   required
+                  disabled={forgotLoading}
                 />
               </div>
             </>
           ) : null}
 
-          {forgot.step === FORGOT_STEPS.otp ? (
+          {forgot.step === FORGOT_STEPS.reset ? (
             <>
               <p className="text-sm text-slate-600">
-                Enter the 6-digit code sent to your email or phone.
+                Enter the OTP sent to your email or phone, then choose a new password.
               </p>
               <div>
                 <label htmlFor="forgot-otp" className={labelClass}>
@@ -561,16 +488,9 @@ const Login = () => {
                     }))
                   }
                   required
+                  disabled={forgotLoading}
                 />
               </div>
-            </>
-          ) : null}
-
-          {forgot.step === FORGOT_STEPS.password ? (
-            <>
-              <p className="text-sm text-slate-600">
-                Create a new password, then sign in with it on the login form.
-              </p>
               <div>
                 <label htmlFor="forgot-new-password" className={labelClass}>
                   New password
@@ -590,6 +510,7 @@ const Login = () => {
                       }))
                     }
                     required
+                    disabled={forgotLoading}
                   />
                   <button
                     type="button"
@@ -620,6 +541,7 @@ const Login = () => {
                       }))
                     }
                     required
+                    disabled={forgotLoading}
                   />
                   <button
                     type="button"

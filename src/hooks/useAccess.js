@@ -15,7 +15,7 @@ import {
   isTenantOwner,
 } from '../utils/auth'
 import { getTenant, getTenantFeatures, subscribePlatform } from '../store/platformStore'
-import { getSelectedTenantId } from '../utils/tenants'
+import { getSelectedTenant, getSelectedTenantId, getStoredTenants } from '../utils/tenants'
 
 export const useAccess = () => {
   const [storeTick, setStoreTick] = useState(0)
@@ -24,10 +24,14 @@ export const useAccess = () => {
     const sync = () => setStoreTick((n) => n + 1)
     window.addEventListener('auth-changed', sync)
     window.addEventListener('tenant-selection-changed', sync)
+    window.addEventListener('tenants-changed', sync)
+    window.addEventListener('api-tenants-refreshed', sync)
     const unsub = subscribePlatform(sync)
     return () => {
       window.removeEventListener('auth-changed', sync)
       window.removeEventListener('tenant-selection-changed', sync)
+      window.removeEventListener('tenants-changed', sync)
+      window.removeEventListener('api-tenants-refreshed', sync)
       unsub()
     }
   }, [])
@@ -39,7 +43,11 @@ export const useAccess = () => {
   const tenantId = superAdmin
     ? getSelectedTenantId() || null
     : user?.tenant_id || null
-  const tenant = tenantId ? getTenant(tenantId) : null
+  const tenant = tenantId
+    ? getSelectedTenant() ||
+      getStoredTenants().find((t) => String(t.id) === String(tenantId)) ||
+      getTenant(tenantId)
+    : null
   const tenantRole = superAdmin ? TENANT_ROLES.ADMIN : getTenantRole(user)
   const features = tenantId
     ? getTenantFeatures(tenantId, tenantRole)

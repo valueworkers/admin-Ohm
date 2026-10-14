@@ -3,6 +3,7 @@ import { useAccess } from './useAccess'
 import {
   ensureVenueSelection,
   getSelectedVenueId,
+  getVenueMode,
   getVisibleVenues,
   setSelectedVenueId,
   setVenueMode,
@@ -27,12 +28,14 @@ export const useVenueScope = (tenantId, venues = []) => {
     }
   }, [])
 
+  useEffect(() => {
+    ensureVenueSelection(tenantId, venues)
+  }, [tenantId, venues])
+
   void tick
 
-  const { mode, selectedId } = useMemo(
-    () => ensureVenueSelection(tenantId, venues),
-    [tenantId, venues, tick]
-  )
+  const mode = getVenueMode(tenantId)
+  const selectedId = getSelectedVenueId(tenantId)
 
   const scopedVenues = useMemo(
     () => getVisibleVenues(tenantId, venues),

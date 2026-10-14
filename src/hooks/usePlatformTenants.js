@@ -1,42 +1,74 @@
 import { useCallback, useEffect, useState } from 'react'
-import {
-  getTenant,
-  listTenantsByStatus,
-  subscribePlatform,
-} from '../store/platformStore'
+import { fetchTenants } from '../api/tenants'
 import {
   clearSelectedTenant,
+  getSelectedTenant,
   getSelectedTenantId,
+  getStoredTenants,
+  saveStoredTenants,
   setSelectedTenantId,
 } from '../utils/tenants'
 
+const TENANTS_REFRESH_EVENT = 'api-tenants-refreshed'
+
+export const refreshApiTenants = async () => {
+  const list = await fetchTenants()
+  saveStoredTenants(list)
+  window.dispatchEvent(new Event(TENANTS_REFRESH_EVENT))
+  return list
+}
+
 export const usePlatformTenants = () => {
-  const sync = useCallback(() => {
-    const active = listTenantsByStatus('active')
-    let selectedId = getSelectedTenantId()
-    if (selectedId && !active.some((t) => String(t.id) === String(selectedId))) {
-      clearSelectedTenant()
-      selectedId = ''
+  const [tenants, setTenants] = useState(() => getStoredTenants())
+  const [selectedId, setSelectedId] = useState(() => getSelectedTenantId() || '')
+  const [selected, setSelected] = useState(() => getSelectedTenant())
+  const [loading, setLoading] = useState(false)
+
+  const syncFromStorage = useCallback(() => {
+    const list = getStoredTenants()
+    let id = getSelectedTenantId()
+    if (id && !list.some((t) => String(t.id) === String(id))) {
+      // Clear without re-entry if already missing
+      if (id) clearSelectedTenant()
+      id = ''
     }
-    return {
-      tenants: active,
-      selectedId: selectedId || '',
-      selected: selectedId ? getTenant(selectedId) : null,
-    }
+    setTenants(list)
+    setSelectedId(id || '')
+    setSelected(id ? list.find((t) => String(t.id) === String(id)) || null : null)
   }, [])
 
-  const [state, setState] = useState(sync)
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const list = await fetchTenants()
+      saveStoredTenants(list)
+      // syncFromStorage will run via tenants-changed listener
+    } catch {
+      syncFromStorage()
+    } finally {
+      setLoading(false)
+    }
+  }, [syncFromStorage])
 
   useEffect(() => {
-    const refresh = () => setState(sync())
-    refresh()
-    const unsub = subscribePlatform(refresh)
-    window.addEventListener('tenant-selection-changed', refresh)
-    return () => {
-      unsub()
-      window.removeEventListener('tenant-selection-changed', refresh)
+    let mounted = true
+    const safeSync = () => {
+      if (mounted) syncFromStorage()
     }
-  }, [sync])
+
+    load()
+    window.addEventListener('tenant-selection-changed', safeSync)
+    window.addEventListener('tenants-changed', safeSync)
+    window.addEventListener(TENANTS_REFRESH_EVENT, safeSync)
+    window.addEventListener('auth-changed', load)
+    return () => {
+      mounted = false
+      window.removeEventListener('tenant-selection-changed', safeSync)
+      window.removeEventListener('tenants-changed', safeSync)
+      window.removeEventListener(TENANTS_REFRESH_EVENT, safeSync)
+      window.removeEventListener('auth-changed', load)
+    }
+  }, [load, syncFromStorage])
 
   const selectTenant = useCallback((id) => {
     if (!id) clearSelectedTenant()
@@ -44,10 +76,12 @@ export const usePlatformTenants = () => {
   }, [])
 
   return {
-    tenants: state.tenants,
-    selectedId: state.selectedId,
-    selected: state.selected,
+    tenants,
+    selectedId,
+    selected,
+    loading,
     selectTenant,
     clearSelection: () => clearSelectedTenant(),
+    refresh: load,
   }
 }

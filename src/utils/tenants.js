@@ -66,6 +66,7 @@ export const setSelectedTenantId = (tenantId) => {
 }
 
 export const clearSelectedTenant = () => {
+  if (!localStorage.getItem(SELECTED_TENANT_KEY)) return
   localStorage.removeItem(SELECTED_TENANT_KEY)
   window.dispatchEvent(new Event('tenant-selection-changed'))
 }

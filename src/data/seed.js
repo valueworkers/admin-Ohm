@@ -940,35 +940,3 @@ export const buildSeedCollections = () => ({
   ],
 })
 
-export const DEMO_LOGINS = [
-  {
-    email: 'super@seniorcare.com',
-    phone: '+91 98765 00001',
-    password: 'admin123',
-    label: 'Super Admin',
-  },
-  {
-    email: 'owner@vaishnavi.com',
-    phone: '+91 98765 11001',
-    password: 'tenant123',
-    label: 'Vaishnavi Admin',
-  },
-  {
-    email: 'ops@vaishnavi.com',
-    phone: '+91 98765 11002',
-    password: 'ops123',
-    label: 'Vaishnavi Ops Admin',
-  },
-  {
-    email: 'owner@careplus.com',
-    phone: '+91 98765 22002',
-    password: 'tenant123',
-    label: 'CarePlus Admin',
-  },
-  {
-    email: 'ops@careplus.com',
-    phone: '+91 98765 22003',
-    password: 'ops123',
-    label: 'CarePlus Ops Admin',
-  },
-]
