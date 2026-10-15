@@ -96,7 +96,7 @@ const TenantDetail = () => {
       <PageHeader
         eyebrow="Platform · Tenant detail"
         title={tenant.name}
-        description={[tenant.schema_name, tenant.primary_domain].filter(Boolean).join(' · ')}
+        description={tenant.primary_domain || undefined}
         actions={
           <div className="flex flex-wrap gap-2">
             <button type="button" className={btnSecondary} onClick={load}>
@@ -127,9 +127,6 @@ const TenantDetail = () => {
             <span className={statusChip(tenant.status)}>{tenant.status || '—'}</span>
           </div>
           <p className="mt-1 text-sm text-stone-600">
-            Schema: <span className="font-medium text-stone-800">{tenant.schema_name || '—'}</span>
-          </p>
-          <p className="text-sm text-stone-600">
             Created: {formatDate(tenant.created_at)}
           </p>
         </div>

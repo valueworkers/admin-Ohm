@@ -25,7 +25,6 @@ import {
 
 const EMPTY_EDIT = {
   name: '',
-  schema_name: '',
   status: '',
   owner: '',
   contact_email: '',
@@ -52,7 +51,6 @@ const moduleLabel = (key) => {
 
 const toEditForm = (detail = {}) => ({
   name: detail.name || '',
-  schema_name: detail.schema_name || '',
   status: detail.status || '',
   owner: detail.owner != null ? String(detail.owner) : '',
   contact_email: detail.contact_email || '',
@@ -508,17 +506,6 @@ const Tenants = () => {
                   value={editForm.name}
                   required
                   onChange={(e) => setEditField('name', e.target.value)}
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="edit-schema">
-                  Schema name
-                </label>
-                <input
-                  id="edit-schema"
-                  className={fieldClass}
-                  value={editForm.schema_name}
-                  onChange={(e) => setEditField('schema_name', e.target.value)}
                 />
               </div>
               <div>
