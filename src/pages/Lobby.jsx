@@ -76,6 +76,57 @@ const formFromRow = (row) => ({
       : [emptyBranch()],
 })
 
+const normalizeBranches = (branches) =>
+  (branches || [])
+    .map((b) => ({
+      name: String(b.name || '').trim(),
+      address: String(b.address || '').trim(),
+    }))
+    .filter((b) => b.name || b.address)
+
+const buildEditPayload = (current, baseline) => {
+  const next = {
+    organization_name: String(current.organization_name || '').trim(),
+    email: String(current.email || '').trim(),
+    contact_phone: String(current.contact_phone || '').trim(),
+    address: String(current.address || '').trim(),
+    ops_admin_email: String(current.ops_admin_email || '').trim(),
+    slug: String(current.slug || '').trim(),
+    custom_domain: String(current.custom_domain || '').trim(),
+    wants_custom_website: Boolean(current.wants_custom_website),
+    branches: normalizeBranches(current.branches),
+  }
+  const prev = {
+    organization_name: String(baseline.organization_name || '').trim(),
+    email: String(baseline.email || '').trim(),
+    contact_phone: String(baseline.contact_phone || '').trim(),
+    address: String(baseline.address || '').trim(),
+    ops_admin_email: String(baseline.ops_admin_email || '').trim(),
+    slug: String(baseline.slug || '').trim(),
+    custom_domain: String(baseline.custom_domain || '').trim(),
+    wants_custom_website: Boolean(baseline.wants_custom_website),
+    branches: normalizeBranches(baseline.branches),
+  }
+
+  const payload = {}
+  for (const key of [
+    'organization_name',
+    'email',
+    'contact_phone',
+    'address',
+    'ops_admin_email',
+    'slug',
+    'custom_domain',
+    'wants_custom_website',
+  ]) {
+    if (next[key] !== prev[key]) payload[key] = next[key]
+  }
+  if (JSON.stringify(next.branches) !== JSON.stringify(prev.branches)) {
+    payload.branches = next.branches
+  }
+  return payload
+}
+
 const Lobby = () => {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
@@ -86,6 +137,7 @@ const Lobby = () => {
   const [notes, setNotes] = useState('')
   const [editOpen, setEditOpen] = useState(false)
   const [editForm, setEditForm] = useState(null)
+  const [editBaseline, setEditBaseline] = useState(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -142,7 +194,9 @@ const Lobby = () => {
       return
     }
     setBanner({ type: '', message: '' })
-    setEditForm(formFromRow(selected))
+    const form = formFromRow(selected)
+    setEditForm(form)
+    setEditBaseline(form)
     setEditOpen(true)
   }
 
@@ -150,6 +204,7 @@ const Lobby = () => {
     if (saving) return
     setEditOpen(false)
     setEditForm(null)
+    setEditBaseline(null)
   }
 
   const setEditField = (key, value) => {
@@ -211,31 +266,22 @@ const Lobby = () => {
 
   const submitEdit = async (event) => {
     event.preventDefault()
-    if (!selected?.id || !editForm) return
+    if (!selected?.id || !editForm || !editBaseline) return
     const name = editForm.organization_name.trim() || selected.organization_name || 'Request'
+    const payload = buildEditPayload(editForm, editBaseline)
+    if (Object.keys(payload).length === 0) {
+      setBanner({ type: 'success', message: 'No changes to save.' })
+      closeEdit()
+      return
+    }
     setSaving(true)
     setBanner({ type: '', message: '' })
     try {
-      const payload = {
-        organization_name: editForm.organization_name.trim(),
-        email: editForm.email.trim(),
-        contact_phone: editForm.contact_phone.trim(),
-        address: editForm.address.trim(),
-        ops_admin_email: editForm.ops_admin_email.trim(),
-        slug: editForm.slug.trim(),
-        custom_domain: editForm.custom_domain.trim(),
-        wants_custom_website: Boolean(editForm.wants_custom_website),
-        branches: (editForm.branches || [])
-          .map((b) => ({
-            name: String(b.name || '').trim(),
-            address: String(b.address || '').trim(),
-          }))
-          .filter((b) => b.name || b.address),
-      }
       await updateOnboardingRequest(selected.id, payload)
       setBanner({ type: 'success', message: `${name} updated.` })
       setEditOpen(false)
       setEditForm(null)
+      setEditBaseline(null)
       await load()
     } catch (err) {
       setBanner({
