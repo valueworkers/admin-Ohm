@@ -54,59 +54,59 @@ export const normalizeTenantRow = (row = {}) => ({
   slug: row.schema_name || '',
 })
 
-/** GET /tenants/ — list all tenants (excluding public). */
+/** GET /api/platform/tenants/ — list all tenants (excluding public). */
 export const fetchTenants = async () => {
-  const { data } = await api.get('tenants/')
+  const { data } = await api.get('api/platform/tenants/')
   return asList(data).map(normalizeTenantRow)
 }
 
-/** POST /tenants/ — create a new tenant. */
+/** POST /api/platform/tenants/ — create a new tenant. */
 export const createTenant = async (payload) => {
-  const { data } = await api.post('tenants/', payload)
+  const { data } = await api.post('api/platform/tenants/', payload)
   const row = data?.data || data
   return normalizeTenantRow(row)
 }
 
-/** GET /tenants/:id/ — retrieve tenant details. */
+/** GET /api/platform/tenants/:id/ — retrieve tenant details. */
 export const fetchTenantById = async (tenantId) => {
-  const { data } = await api.get(`tenants/${tenantId}/`)
+  const { data } = await api.get(`api/platform/tenants/${tenantId}/`)
   const row = data?.data || data
   return normalizeTenantRow(row)
 }
 
-/** PUT /tenants/:id/ — fully update a tenant. */
+/** PUT /api/platform/tenants/:id/ — fully update a tenant. */
 export const replaceTenantById = async (tenantId, payload) => {
-  const { data } = await api.put(`tenants/${tenantId}/`, payload)
+  const { data } = await api.put(`api/platform/tenants/${tenantId}/`, payload)
   const row = data?.data || data
   return normalizeTenantRow(row)
 }
 
-/** PATCH /tenants/:id/ — partially update a tenant. */
+/** PATCH /api/platform/tenants/:id/ — partially update / edit a tenant. */
 export const updateTenantById = async (tenantId, payload) => {
-  const { data } = await api.patch(`tenants/${tenantId}/`, payload)
+  const { data } = await api.patch(`api/platform/tenants/${tenantId}/`, payload)
   const row = data?.data || data
   return normalizeTenantRow(row)
 }
 
 /**
- * DELETE /tenants/:id/?confirm={schema_name}
+ * DELETE /api/platform/tenants/:id/?confirm={schema_name}
  * Permanently delete a suspended tenant.
  */
 export const deleteTenantById = async (tenantId, schemaName) => {
-  const { data } = await api.delete(`tenants/${tenantId}/`, {
+  const { data } = await api.delete(`api/platform/tenants/${tenantId}/`, {
     params: { confirm: String(schemaName || '').trim() },
   })
   return data?.data || data
 }
 
-/** POST /tenants/:id/suspend/ — suspend an active tenant. */
+/** POST /api/platform/tenants/:id/suspend/ — suspend an active tenant. */
 export const suspendTenant = async (tenantId) => {
-  const { data } = await api.post(`tenants/${tenantId}/suspend/`)
+  const { data } = await api.post(`api/platform/tenants/${tenantId}/suspend/`)
   return data?.data || data
 }
 
-/** POST /tenants/:id/activate/ — activate a suspended tenant. */
+/** POST /api/platform/tenants/:id/activate/ — activate a suspended tenant. */
 export const activateTenant = async (tenantId) => {
-  const { data } = await api.post(`tenants/${tenantId}/activate/`)
+  const { data } = await api.post(`api/platform/tenants/${tenantId}/activate/`)
   return data?.data || data
 }

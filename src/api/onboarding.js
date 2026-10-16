@@ -7,15 +7,15 @@ const asList = (data) => {
   return []
 }
 
-/** GET /onboarding/requests/ — Super Admin lobby queue. */
+/** GET /api/platform/onboarding/requests/ — Super Admin lobby queue. */
 export const fetchOnboardingRequests = async () => {
-  const { data } = await api.get('onboarding/requests/')
+  const { data } = await api.get('api/platform/onboarding/requests/')
   return asList(data)
 }
 
-/** POST /onboarding/requests/ — create onboarding request from Tenants tab. */
+/** POST /api/platform/onboarding/requests/ — create onboarding request from Tenants tab. */
 export const createOnboardingRequest = async (payload) => {
-  const { data } = await api.post('onboarding/requests/', payload)
+  const { data } = await api.post('api/platform/onboarding/requests/', payload)
   return data?.data || data
 }
 
@@ -33,30 +33,30 @@ export const checkSlugAvailability = async (slug) => {
   }
 }
 
-/** POST /onboarding/requests/:id/approve/ */
+/** POST /api/platform/onboarding/requests/:id/approve/ */
 export const approveOnboardingRequest = async (provisioningId, reviewNotes = 'Approved') => {
-  const { data } = await api.post(`onboarding/requests/${provisioningId}/approve/`, {
+  const { data } = await api.post(`api/platform/onboarding/requests/${provisioningId}/approve/`, {
     review_notes: reviewNotes,
   })
   return data
 }
 
-/** POST /onboarding/requests/:id/reject/ */
+/** POST /api/platform/onboarding/requests/:id/reject/ */
 export const rejectOnboardingRequest = async (provisioningId, reviewNotes = 'Rejected') => {
-  const { data } = await api.post(`onboarding/requests/${provisioningId}/reject/`, {
+  const { data } = await api.post(`api/platform/onboarding/requests/${provisioningId}/reject/`, {
     review_notes: reviewNotes,
   })
   return data
 }
 
-/** PATCH /onboarding/requests/:id/ — edit lobby request before approve/reject. */
+/** PATCH /api/platform/onboarding/requests/:id/ — edit lobby request. */
 export const updateOnboardingRequest = async (provisioningId, payload) => {
-  const { data } = await api.patch(`onboarding/requests/${provisioningId}/`, payload)
+  const { data } = await api.patch(`api/platform/onboarding/requests/${provisioningId}/`, payload)
   return data?.data || data
 }
 
-/** DELETE /onboarding/requests/:id/ — remove a lobby request. */
+/** DELETE /api/platform/onboarding/requests/:id/ — remove a lobby request. */
 export const deleteOnboardingRequest = async (provisioningId) => {
-  const { data } = await api.delete(`onboarding/requests/${provisioningId}/`)
+  const { data } = await api.delete(`api/platform/onboarding/requests/${provisioningId}/`)
   return data?.data || data
 }

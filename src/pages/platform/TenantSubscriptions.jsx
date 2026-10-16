@@ -27,7 +27,7 @@ import {
 const EMPTY_FORM = {
   tenant: '',
   plan: '',
-  status: 'active',
+  status: 'trial',
   starts_at: '',
   ends_at: '',
   trial_ends_at: '',
@@ -72,7 +72,7 @@ const statusChip = (status) => {
   if (s === 'active') {
     return 'rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800'
   }
-  if (s === 'trialing' || s === 'pending') {
+  if (s === 'trial' || s === 'trialing' || s === 'pending') {
     return 'rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-900'
   }
   if (s === 'canceled' || s === 'expired' || s === 'inactive') {
@@ -164,7 +164,7 @@ const TenantSubscriptions = () => {
   const buildPayload = () => ({
     tenant: Number(form.tenant) || form.tenant,
     plan: Number(form.plan) || form.plan,
-    status: form.status.trim() || 'active',
+    status: form.status.trim() || 'trial',
     starts_at: toIsoOrNull(form.starts_at) || new Date().toISOString(),
     ends_at: toIsoOrNull(form.ends_at),
     trial_ends_at: toIsoOrNull(form.trial_ends_at),
@@ -410,6 +410,7 @@ const TenantSubscriptions = () => {
               onChange={(e) => setField('status', e.target.value)}
               disabled={saving}
             >
+              <option value="trial">trial</option>
               <option value="active">active</option>
               <option value="trialing">trialing</option>
               <option value="pending">pending</option>

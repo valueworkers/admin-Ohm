@@ -18,35 +18,35 @@ export const normalizePlan = (row = {}) => ({
   max_branches: row.max_branches ?? null,
 })
 
-/** GET /plans/ */
+/** GET /api/platform/plans/ */
 export const fetchPlans = async () => {
-  const { data } = await api.get('plans/')
+  const { data } = await api.get('api/platform/plans/')
   return asList(data).map(normalizePlan)
 }
 
-/** GET /plans/:id/ */
+/** GET /api/platform/plans/:id/ */
 export const fetchPlanById = async (planId) => {
-  const { data } = await api.get(`plans/${planId}/`)
+  const { data } = await api.get(`api/platform/plans/${planId}/`)
   const row = data?.data || data
   return normalizePlan(row)
 }
 
-/** POST /plans/ */
+/** POST /api/platform/plans/ */
 export const createPlan = async (payload) => {
-  const { data } = await api.post('plans/', payload)
+  const { data } = await api.post('api/platform/plans/', payload)
   const row = data?.data || data
   return normalizePlan(row)
 }
 
-/** PATCH /plans/:id/ */
+/** PATCH /api/platform/plans/:id/ */
 export const updatePlan = async (planId, payload) => {
-  const { data } = await api.patch(`plans/${planId}/`, payload)
+  const { data } = await api.patch(`api/platform/plans/${planId}/`, payload)
   const row = data?.data || data
   return normalizePlan(row)
 }
 
-/** DELETE /plans/:id/ */
+/** DELETE /api/platform/plans/:id/ */
 export const deletePlan = async (planId) => {
-  const { data } = await api.delete(`plans/${planId}/`)
+  const { data } = await api.delete(`api/platform/plans/${planId}/`)
   return data?.data || data
 }

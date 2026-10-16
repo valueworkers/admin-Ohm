@@ -32,28 +32,28 @@ export const normalizeSubscription = (row = {}) => ({
   features: Array.isArray(row.features) ? row.features : [],
 })
 
-/** GET /subscriptions/ */
+/** GET /api/platform/subscriptions/ */
 export const fetchSubscriptions = async () => {
-  const { data } = await api.get('subscriptions/')
+  const { data } = await api.get('api/platform/subscriptions/')
   return asList(data).map(normalizeSubscription)
 }
 
-/** POST /subscriptions/ */
+/** POST /api/platform/subscriptions/ */
 export const createSubscription = async (payload) => {
-  const { data } = await api.post('subscriptions/', payload)
+  const { data } = await api.post('api/platform/subscriptions/', payload)
   const row = data?.data || data
   return normalizeSubscription(row)
 }
 
-/** PATCH /subscriptions/:id/ */
+/** PATCH /api/platform/subscriptions/:id/ */
 export const updateSubscription = async (subscriptionId, payload) => {
-  const { data } = await api.patch(`subscriptions/${subscriptionId}/`, payload)
+  const { data } = await api.patch(`api/platform/subscriptions/${subscriptionId}/`, payload)
   const row = data?.data || data
   return normalizeSubscription(row)
 }
 
-/** DELETE /subscriptions/:id/ */
+/** DELETE /api/platform/subscriptions/:id/ */
 export const deleteSubscription = async (subscriptionId) => {
-  const { data } = await api.delete(`subscriptions/${subscriptionId}/`)
+  const { data } = await api.delete(`api/platform/subscriptions/${subscriptionId}/`)
   return data?.data || data
 }
