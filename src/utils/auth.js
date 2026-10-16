@@ -230,6 +230,12 @@ const loginApiError = (error, fallback) => {
   if (status === 401) {
     return { ok: false, error: 'Invalid credentials. Please try again.' }
   }
+  if (status === 429) {
+    return {
+      ok: false,
+      error: apiErrorMessage(error, 'Too many requests. Please wait a few minutes, then try again.'),
+    }
+  }
   if (status === 400) {
     return {
       ok: false,

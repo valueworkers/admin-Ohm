@@ -27,8 +27,15 @@ export const normalizeTenantRow = (row = {}) => ({
   contact_phone: row.contact_phone || '',
   timezone: row.timezone || '',
   default_currency: row.default_currency || '',
-  label: row.label || '',
-  tag: row.tag || '',
+  tags: Array.isArray(row.tags)
+    ? row.tags.map(String).filter(Boolean)
+    : typeof row.tags === 'string' && row.tags
+      ? row.tags.split(',').map((t) => t.trim()).filter(Boolean)
+      : Array.isArray(row.tag)
+        ? row.tag.map(String).filter(Boolean)
+        : typeof row.tag === 'string' && row.tag
+          ? row.tag.split(',').map((t) => t.trim()).filter(Boolean)
+          : [],
   domains: Array.isArray(row.domains) ? row.domains : [],
   primary_domain: primaryDomain(row.domains),
   subscriptions: Array.isArray(row.subscriptions) ? row.subscriptions : [],
@@ -53,9 +60,9 @@ export const fetchTenantById = async (tenantId) => {
   return normalizeTenantRow(row)
 }
 
-/** PATCH /my/tenants/:id/ — update tenant from Tenants tab. */
+/** PATCH /tenants/:id/ — update tenant from Tenants tab. */
 export const updateTenantById = async (tenantId, payload) => {
-  const { data } = await api.patch(`my/tenants/${tenantId}/`, payload)
+  const { data } = await api.patch(`tenants/${tenantId}/`, payload)
   const row = data?.data || data
   return normalizeTenantRow(row)
 }
@@ -63,5 +70,11 @@ export const updateTenantById = async (tenantId, payload) => {
 /** POST /tenants/:id/suspend/ — suspend / remove tenant from active list. */
 export const suspendTenant = async (tenantId) => {
   const { data } = await api.post(`tenants/${tenantId}/suspend/`)
+  return data?.data || data
+}
+
+/** POST /tenants/:id/activate/ — activate a suspended tenant. */
+export const activateTenant = async (tenantId) => {
+  const { data } = await api.post(`tenants/${tenantId}/activate/`)
   return data?.data || data
 }

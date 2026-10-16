@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { FiCheck, FiEdit2, FiLoader, FiPlus, FiRefreshCw, FiTrash2, FiX } from 'react-icons/fi'
 import {
   approveOnboardingRequest,
@@ -128,6 +128,7 @@ const buildEditPayload = (current, baseline) => {
 }
 
 const Lobby = () => {
+  const location = useLocation()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -167,6 +168,13 @@ const Lobby = () => {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    const next = location.state?.banner
+    if (!next?.message) return
+    setBanner({ type: next.type || 'success', message: next.message })
+    window.history.replaceState({}, document.title)
+  }, [location.state])
 
   const openReview = (action) => {
     if (!selected) {

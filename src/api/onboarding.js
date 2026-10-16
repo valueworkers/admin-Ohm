@@ -13,6 +13,26 @@ export const fetchOnboardingRequests = async () => {
   return asList(data)
 }
 
+/** POST /onboarding/requests/ — create onboarding request from Tenants tab. */
+export const createOnboardingRequest = async (payload) => {
+  const { data } = await api.post('onboarding/requests/', payload)
+  return data?.data || data
+}
+
+/** GET /onboarding/check-slug/?slug=… — slug / subdomain availability. */
+export const checkSlugAvailability = async (slug) => {
+  const value = String(slug || '').trim()
+  const { data } = await api.get('onboarding/check-slug/', {
+    params: { slug: value },
+  })
+  const payload = data?.data || data || {}
+  return {
+    slug: payload.slug || value,
+    available: Boolean(payload.available),
+    reason: payload.reason || null,
+  }
+}
+
 /** POST /onboarding/requests/:id/approve/ */
 export const approveOnboardingRequest = async (provisioningId, reviewNotes = 'Approved') => {
   const { data } = await api.post(`onboarding/requests/${provisioningId}/approve/`, {

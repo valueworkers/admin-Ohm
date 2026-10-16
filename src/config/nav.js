@@ -232,6 +232,30 @@ export const NAV_ITEMS = [
     superOnly: true,
   },
   {
+    type: 'group',
+    id: 'subscriptions',
+    title: 'Subscription plan',
+    icon: FiCreditCard,
+    needsTenant: false,
+    superOnly: true,
+    children: [
+      {
+        to: '/platform/subscription-plans',
+        title: 'Plans',
+        icon: FiCreditCard,
+        needsTenant: false,
+        superOnly: true,
+      },
+      {
+        to: '/platform/tenant-subscriptions',
+        title: 'Tenant subscription',
+        icon: FiLayers,
+        needsTenant: false,
+        superOnly: true,
+      },
+    ],
+  },
+  {
     type: 'link',
     to: '/platform/analytics',
     title: 'Platform analytics',

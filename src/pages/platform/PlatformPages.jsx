@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { FiEye, FiRefreshCw, FiTrash2 } from 'react-icons/fi'
+import { activateTenant, fetchTenants } from '../../api/tenants'
 import PageHeader from '../../components/ui/PageHeader'
 import StatusBanner from '../../components/ui/StatusBanner'
-import { EmptyState, Panel } from '../../components/ui/PageState'
+import { EmptyState, ErrorState, LoadingState, Panel } from '../../components/ui/PageState'
 import {
   deleteTenant,
   getTenant,
@@ -14,6 +15,7 @@ import {
   subscribePlatform,
   updateTenantStatus,
 } from '../../store/platformStore'
+import { apiErrorMessage } from '../../utils/errors'
 import {
   btnGhost,
   btnPrimary,
@@ -93,19 +95,61 @@ const withTenantName = (rows) =>
 
 export const PlatformAnalytics = () => {
   const stats = useLive(() => platformStats(null))
-  const tenants = useLive(() => listCollection('tenants'))
-  const active = tenants.filter((t) => t.status === 'active')
+  const [tenants, setTenants] = useState([])
+  const [tenantsLoading, setTenantsLoading] = useState(true)
+  const [tenantsError, setTenantsError] = useState('')
+
+  const loadTenants = useCallback(async () => {
+    setTenantsLoading(true)
+    setTenantsError('')
+    try {
+      const list = await fetchTenants()
+      setTenants(list)
+    } catch (err) {
+      setTenants([])
+      setTenantsError(apiErrorMessage(err, 'Could not load tenants.'))
+    } finally {
+      setTenantsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadTenants()
+  }, [loadTenants])
+
+  const activeTenants = useMemo(
+    () =>
+      tenants.filter((t) => {
+        const s = String(t.status || '').toLowerCase()
+        return s !== 'suspended' && s !== 'offboarded' && s !== 'failed'
+      }),
+    [tenants]
+  )
 
   return (
     <div className="space-y-4">
       <PageHeader
         eyebrow="Platform"
         title="Platform analytics"
-        description="Cross-tenant snapshot. All figures are read-only aggregates from demo data."
+        description="Cross-tenant snapshot. Tenant list is live from the API."
+        actions={
+          <button
+            type="button"
+            className={btnSecondary}
+            onClick={loadTenants}
+            disabled={tenantsLoading}
+          >
+            <FiRefreshCw
+              className={`h-4 w-4 ${tenantsLoading ? 'animate-spin' : ''}`}
+              aria-hidden
+            />
+            Refresh tenants
+          </button>
+        }
       />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          ['Active tenants', stats.tenantsActive],
+          ['Tenants', tenantsLoading ? '…' : activeTenants.length],
           ['Lobby pending', stats.tenantsPending],
           ['Booking value', `₹${stats.revenue.toLocaleString('en-IN')}`],
           ['Total bookings', stats.bookings],
@@ -121,17 +165,30 @@ export const PlatformAnalytics = () => {
         ))}
       </div>
       <Panel>
-        <p className="text-base font-semibold text-slate-900">Active tenants</p>
-        <ul className="mt-3 divide-y divide-slate-100 text-sm">
-          {active.map((t) => (
-            <li key={t.id} className="flex items-center justify-between py-2">
-              <span className="font-medium text-slate-800">{t.name}</span>
-              <Link to={`/tenants/${t.id}`} className="text-brand-700 hover:underline">
-                Inspect
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <p className="text-base font-semibold text-slate-900">Tenants</p>
+        {tenantsLoading ? (
+          <LoadingState label="Loading tenants…" />
+        ) : tenantsError ? (
+          <ErrorState bare message={tenantsError} onRetry={loadTenants} />
+        ) : activeTenants.length === 0 ? (
+          <EmptyState bare title="No tenants" hint="No tenants returned from the API yet." />
+        ) : (
+          <ul className="mt-3 divide-y divide-slate-100 text-sm">
+            {activeTenants.map((t) => (
+              <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <div className="min-w-0">
+                  <span className="font-medium text-slate-800">{t.name}</span>
+                  {t.status ? (
+                    <span className="ml-2 text-xs text-stone-400">{t.status}</span>
+                  ) : null}
+                </div>
+                <Link to={`/tenants/${t.id}`} className="text-brand-700 hover:underline">
+                  Inspect
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </Panel>
     </div>
   )
@@ -553,12 +610,26 @@ export const PlatformOffboarded = () => {
   const [reactivate, setReactivate] = useState(null)
   const [purgeTarget, setPurgeTarget] = useState(null)
   const [status, setStatus] = useState({ type: '', message: '' })
+  const [saving, setSaving] = useState(false)
 
-  const restore = () => {
+  const restore = async () => {
     if (!reactivate) return
-    updateTenantStatus(reactivate.id, 'active', { approved_at: new Date().toISOString() })
-    setStatus({ type: 'success', message: `${reactivate.name} restored to active tenants.` })
-    setReactivate(null)
+    const name = reactivate.name || 'Tenant'
+    setSaving(true)
+    setStatus({ type: '', message: '' })
+    try {
+      await activateTenant(reactivate.id)
+      updateTenantStatus(reactivate.id, 'active', { approved_at: new Date().toISOString() })
+      setStatus({ type: 'success', message: `${name} activated.` })
+      setReactivate(null)
+    } catch (err) {
+      setStatus({
+        type: 'error',
+        message: apiErrorMessage(err, 'Could not activate tenant.'),
+      })
+    } finally {
+      setSaving(false)
+    }
   }
 
   const purge = () => {
@@ -640,11 +711,14 @@ export const PlatformOffboarded = () => {
       </div>
       <ConfirmDialog
         open={Boolean(reactivate)}
-        title="Restore tenant?"
-        message="This sets the organization back to active so the owner can sign in again."
-        confirmLabel="Restore"
+        title="Activate tenant?"
+        message="This activates the organization so it can be used again."
+        confirmLabel="Activate"
+        loading={saving}
         onConfirm={restore}
-        onClose={() => setReactivate(null)}
+        onClose={() => {
+          if (!saving) setReactivate(null)
+        }}
       />
       <ConfirmDialog
         open={Boolean(purgeTarget)}

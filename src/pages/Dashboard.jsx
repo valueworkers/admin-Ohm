@@ -1,10 +1,12 @@
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FiArrowRight, FiCalendar, FiInbox, FiLayers, FiMapPin, FiUsers } from 'react-icons/fi'
 import WelcomeHero from '../components/WelcomeHero'
 import { Panel } from '../components/ui/PageState'
+import { fetchOnboardingRequests } from '../api/onboarding'
 import { useAccess } from '../hooks/useAccess'
 import { usePlatformTenants } from '../hooks/usePlatformTenants'
-import { listTenantsByStatus, platformStats } from '../store/platformStore'
+import { platformStats } from '../store/platformStore'
 
 const formatAmount = (n) =>
   new Intl.NumberFormat('en-IN', {
@@ -40,12 +42,42 @@ const QuickLink = ({ to, icon: Icon, title, hint }) => (
   </Link>
 )
 
+const isOpenLobby = (status) => {
+  const s = String(status || '').toLowerCase()
+  return s === 'submitted' || s === 'pending' || !s
+}
+
 const Dashboard = () => {
   const { isSuperAdmin, tenantId, tenant } = useAccess()
   const stats = platformStats(isSuperAdmin ? null : tenantId)
-  const pending = listTenantsByStatus('pending')
-  const { selected } = usePlatformTenants()
+  const { tenants, selected, loading: tenantsLoading } = usePlatformTenants()
+  const [lobbyPending, setLobbyPending] = useState(null)
   const orgName = tenant?.name || selected?.name
+
+  const tenantCount = useMemo(
+    () =>
+      tenants.filter((t) => {
+        const s = String(t.status || '').toLowerCase()
+        return s !== 'suspended' && s !== 'offboarded' && s !== 'failed'
+      }).length,
+    [tenants]
+  )
+
+  useEffect(() => {
+    if (!isSuperAdmin) return undefined
+    let mounted = true
+    fetchOnboardingRequests()
+      .then((list) => {
+        if (!mounted) return
+        setLobbyPending(list.filter((r) => isOpenLobby(r.status)).length)
+      })
+      .catch(() => {
+        if (mounted) setLobbyPending(0)
+      })
+    return () => {
+      mounted = false
+    }
+  }, [isSuperAdmin])
 
   if (!isSuperAdmin) {
     return (
@@ -73,7 +105,7 @@ const Dashboard = () => {
       <WelcomeHero selectedName={selected?.name} />
 
       <div className="sc-stagger grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        <Stat label="No of Tenants" value={stats.tenantsActive} />
+        <Stat label="No of Tenants" value={tenantsLoading ? '…' : tenantCount} />
         <Stat label="No of Vendors" value={stats.vendors} />
         <Stat label="No of Employees" value={stats.employees} />
         <Stat label="No of Bookings" value={stats.bookings} />
@@ -86,9 +118,11 @@ const Dashboard = () => {
           icon={FiInbox}
           title="Tenant Lobby"
           hint={
-            pending.length
-              ? `${pending.length} waiting for approval`
-              : 'Approve onboarding requests'
+            lobbyPending == null
+              ? 'Approve onboarding requests'
+              : lobbyPending
+                ? `${lobbyPending} waiting for approval`
+                : 'Approve onboarding requests'
           }
         />
         <QuickLink

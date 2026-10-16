@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { FiEdit2, FiEye, FiLoader, FiPlus, FiRefreshCw, FiTrash2 } from 'react-icons/fi'
-import { fetchTenantById, fetchTenants, suspendTenant, updateTenantById } from '../api/tenants'
+import { Link, useNavigate } from 'react-router-dom'
+import { FiCheck, FiEdit2, FiEye, FiLoader, FiPlus, FiRefreshCw, FiTrash2 } from 'react-icons/fi'
+import { createOnboardingRequest } from '../api/onboarding'
+import {
+  activateTenant,
+  fetchTenantById,
+  fetchTenants,
+  suspendTenant,
+  updateTenantById,
+} from '../api/tenants'
 import { FEATURE_CATALOG } from '../config/features'
 import { saveStoredTenants } from '../utils/tenants'
 import OnboardTenantModal from '../components/OnboardTenantModal'
@@ -10,7 +17,6 @@ import Modal from '../components/ui/Modal'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/PageState'
-import { onboardTenant } from '../store/platformStore'
 import { apiErrorMessage } from '../utils/errors'
 import { clearSelectedTenant, getSelectedTenantId } from '../utils/tenants'
 import {
@@ -31,8 +37,7 @@ const EMPTY_EDIT = {
   contact_phone: '',
   timezone: '',
   default_currency: '',
-  label: '',
-  tag: '',
+  tagsText: '',
   domains: [],
   modules: [],
   subscriptions: [],
@@ -49,6 +54,14 @@ const moduleLabel = (key) => {
   return found?.label || key
 }
 
+const tagsToText = (tags) => (Array.isArray(tags) ? tags : []).map(String).filter(Boolean).join(', ')
+
+const parseTags = (value) =>
+  String(value || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+
 const toEditForm = (detail = {}) => ({
   name: detail.name || '',
   status: detail.status || '',
@@ -57,8 +70,7 @@ const toEditForm = (detail = {}) => ({
   contact_phone: detail.contact_phone || '',
   timezone: detail.timezone || '',
   default_currency: detail.default_currency || '',
-  label: detail.label || '',
-  tag: detail.tag || '',
+  tagsText: tagsToText(detail.tags),
   domains: (Array.isArray(detail.domains) ? detail.domains : []).map((d, i) => ({
     id: d.id ?? `new-${i}`,
     domain: d.domain || '',
@@ -94,6 +106,11 @@ const statusChip = (status) => {
   return 'rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-semibold text-stone-600'
 }
 
+const canActivate = (status) => {
+  const s = String(status || '').toLowerCase()
+  return s === 'suspended' || s === 'inactive' || s === 'offboarded'
+}
+
 const formatDate = (value) => {
   if (!value) return '—'
   try {
@@ -118,12 +135,32 @@ const formatDateTime = (value) => {
   }
 }
 
+const toCreatePayload = (form = {}) => ({
+  organization_name: String(form.organization_name || '').trim(),
+  email: String(form.email || '').trim(),
+  contact_phone: String(form.contact_phone || '').trim(),
+  address: String(form.address || '').trim(),
+  branches: (form.branches || [])
+    .map((b) => ({
+      name: String(b.name || '').trim(),
+      address: String(b.address || '').trim(),
+    }))
+    .filter((b) => b.name || b.address),
+  ops_admin_email: String(form.ops_admin_email || '').trim(),
+  slug: String(form.slug || '').trim(),
+  custom_domain: String(form.custom_domain || '').trim(),
+  wants_custom_website: Boolean(form.wants_custom_website),
+  requested_plan: form.requested_plan ?? null,
+})
+
 const Tenants = () => {
+  const navigate = useNavigate()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [status, setStatus] = useState({ type: '', message: '' })
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [activateTarget, setActivateTarget] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState(null)
   const [editForm, setEditForm] = useState(EMPTY_EDIT)
@@ -169,22 +206,51 @@ const Tenants = () => {
     }
   }
 
-  const handleCreate = (form) => {
+  const confirmActivate = async () => {
+    if (!activateTarget) return
+    const name = activateTarget.name || 'Tenant'
     setSaving(true)
+    setStatus({ type: '', message: '' })
     try {
-      const { tenant } = onboardTenant(form)
-      setStatus({
-        type: 'success',
-        message: tenant.has_ops_admin
-          ? `${tenant.name} sent to Lobby with Ops Admin ${tenant.owner_email}. Approve it there to activate.`
-          : `${tenant.name} sent to Lobby (no Ops Admin). Approve it there to activate.`,
-      })
-      setModalOpen(false)
+      await activateTenant(activateTarget.id)
+      setStatus({ type: 'success', message: `${name} activated.` })
+      setActivateTarget(null)
+      await load()
     } catch (err) {
+      setStatus({
+        type: 'error',
+        message: apiErrorMessage(err, 'Could not activate tenant.'),
+      })
+    } finally {
       setSaving(false)
-      throw err
     }
-    setSaving(false)
+  }
+
+  const handleCreate = async (form) => {
+    setSaving(true)
+    setStatus({ type: '', message: '' })
+    try {
+      const payload = toCreatePayload(form)
+      await createOnboardingRequest(payload)
+      setModalOpen(false)
+      navigate('/lobby', {
+        replace: false,
+        state: {
+          banner: {
+            type: 'success',
+            message: `${payload.organization_name} sent to Lobby. Approve it there to activate.`,
+          },
+        },
+      })
+    } catch (err) {
+      setStatus({
+        type: 'error',
+        message: apiErrorMessage(err, 'Could not create onboarding request.'),
+      })
+      throw new Error(apiErrorMessage(err, 'Could not create onboarding request.'))
+    } finally {
+      setSaving(false)
+    }
   }
 
   const openEdit = async (row) => {
@@ -300,8 +366,7 @@ const Tenants = () => {
         contact_phone: editForm.contact_phone.trim(),
         timezone: editForm.timezone.trim(),
         default_currency: editForm.default_currency.trim(),
-        label: editForm.label.trim(),
-        tag: editForm.tag.trim(),
+        tags: parseTags(editForm.tagsText),
         domains: (editForm.domains || [])
           .map((d) => ({
             ...(d.id != null && !String(d.id).startsWith('new-') ? { id: d.id } : {}),
@@ -441,14 +506,25 @@ const Tenants = () => {
                             <FiEdit2 className="h-3.5 w-3.5" aria-hidden />
                             Edit
                           </button>
-                          <button
-                            type="button"
-                            className={`${btnGhost} text-rose-600 hover:bg-rose-50`}
-                            onClick={() => setDeleteTarget(row)}
-                          >
-                            <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
-                            Delete
-                          </button>
+                          {canActivate(row.status) ? (
+                            <button
+                              type="button"
+                              className={btnGhost}
+                              onClick={() => setActivateTarget(row)}
+                            >
+                              <FiCheck className="h-3.5 w-3.5" aria-hidden />
+                              Activate
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className={`${btnGhost} text-rose-600 hover:bg-rose-50`}
+                              onClick={() => setDeleteTarget(row)}
+                            >
+                              <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -564,28 +640,16 @@ const Tenants = () => {
                   onChange={(e) => setEditField('default_currency', e.target.value)}
                 />
               </div>
-              <div>
-                <label className={labelClass} htmlFor="edit-label">
-                  Label
+              <div className="sm:col-span-2">
+                <label className={labelClass} htmlFor="edit-tags">
+                  Tags
                 </label>
                 <input
-                  id="edit-label"
+                  id="edit-tags"
                   className={fieldClass}
-                  value={editForm.label}
-                  onChange={(e) => setEditField('label', e.target.value)}
-                  placeholder="Display label"
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="edit-tag">
-                  Tag
-                </label>
-                <input
-                  id="edit-tag"
-                  className={fieldClass}
-                  value={editForm.tag}
-                  onChange={(e) => setEditField('tag', e.target.value)}
-                  placeholder="e.g. clinic, daycare"
+                  value={editForm.tagsText}
+                  onChange={(e) => setEditField('tagsText', e.target.value)}
+                  placeholder="Comma-separated, e.g. test, care"
                 />
               </div>
               <div>
@@ -825,6 +889,22 @@ const Tenants = () => {
         onConfirm={confirmDelete}
         onClose={() => {
           if (!saving) setDeleteTarget(null)
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(activateTarget)}
+        title="Activate tenant?"
+        message={
+          activateTarget
+            ? `This activates “${activateTarget.name || 'this tenant'}” so it can be used again.`
+            : 'This activates the tenant so it can be used again.'
+        }
+        confirmLabel="Activate"
+        loading={saving}
+        onConfirm={confirmActivate}
+        onClose={() => {
+          if (!saving) setActivateTarget(null)
         }}
       />
     </div>

@@ -20,6 +20,8 @@ import Tenants from './pages/Tenants'
 import VenuesPage from './pages/VenuesPage'
 import { PlatformAnalytics, PlatformOffboarded } from './pages/platform/PlatformPages'
 import PlatformPermissions from './pages/platform/PlatformPermissions'
+import SubscriptionPlans from './pages/platform/SubscriptionPlans'
+import TenantSubscriptions from './pages/platform/TenantSubscriptions'
 
 const App = () => (
   <BrowserRouter>
@@ -36,6 +38,8 @@ const App = () => (
             <Route path="tenants/:tenantId" element={<TenantDetail />} />
             <Route path="platform/analytics" element={<PlatformAnalytics />} />
             <Route path="platform/permissions" element={<PlatformPermissions />} />
+            <Route path="platform/subscription-plans" element={<SubscriptionPlans />} />
+            <Route path="platform/tenant-subscriptions" element={<TenantSubscriptions />} />
           </Route>
 
           <Route element={<RequireSelectedTenant />}>

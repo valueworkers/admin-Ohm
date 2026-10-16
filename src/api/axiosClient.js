@@ -27,11 +27,14 @@ const errorText = (error) => {
 const isAuthFailure = (error) => {
   const status = error?.response?.status
   const text = errorText(error).toLowerCase()
-  if (status === 401 || status === 403) return true
-  if (status === 404) return true
+  // Only token / auth failures — not generic 403/404 or business errors.
+  if (status === 401) return true
   if (text.includes('given token not valid for any token type')) return true
   if (text.includes('token not valid') || text.includes('token is invalid')) return true
+  if (text.includes('token has expired') || text.includes('expired token')) return true
   if (text.includes('authentication credentials were not provided')) return true
+  if (text.includes('not authenticated') || text.includes('authentication failed')) return true
+  if (text.includes('authorization header') && text.includes('token')) return true
   return false
 }
 

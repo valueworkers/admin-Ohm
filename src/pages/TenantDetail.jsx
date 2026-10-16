@@ -138,8 +138,10 @@ const TenantDetail = () => {
           ['Contact phone', tenant.contact_phone || '—'],
           ['Timezone', tenant.timezone || '—'],
           ['Currency', tenant.default_currency || '—'],
-          ['Label', tenant.label || '—'],
-          ['Tag', tenant.tag || '—'],
+          [
+            'Tags',
+            Array.isArray(tenant.tags) && tenant.tags.length ? tenant.tags.join(', ') : '—',
+          ],
           ['Owner id', tenant.owner ?? '—'],
           ['Modules', modules.length],
           ['Domains', domains.length],
