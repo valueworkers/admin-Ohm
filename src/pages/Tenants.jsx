@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { FiCheck, FiEdit2, FiEye, FiLoader, FiPlus, FiRefreshCw, FiTrash2 } from 'react-icons/fi'
+import {
+  FiEdit2,
+  FiEye,
+  FiLoader,
+  FiPauseCircle,
+  FiPlayCircle,
+  FiPlus,
+  FiRefreshCw,
+  FiTrash2,
+} from 'react-icons/fi'
 import { createOnboardingRequest } from '../api/onboarding'
 import {
   activateTenant,
+  deleteTenantById,
   fetchTenantById,
   fetchTenants,
   suspendTenant,
@@ -20,6 +30,7 @@ import { EmptyState, ErrorState, LoadingState } from '../components/ui/PageState
 import { apiErrorMessage } from '../utils/errors'
 import { clearSelectedTenant, getSelectedTenantId } from '../utils/tenants'
 import {
+  btnDanger,
   btnGhost,
   btnPrimary,
   btnSecondary,
@@ -106,10 +117,16 @@ const statusChip = (status) => {
   return 'rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-semibold text-stone-600'
 }
 
-const canActivate = (status) => {
-  const s = String(status || '').toLowerCase()
+const statusKey = (status) => String(status || '').toLowerCase().trim()
+
+const isSuspendedStatus = (status) => {
+  const s = statusKey(status)
   return s === 'suspended' || s === 'inactive' || s === 'offboarded'
 }
+
+const canActivate = (status) => isSuspendedStatus(status)
+const canSuspend = (status) => !isSuspendedStatus(status)
+const canHardDelete = (status) => isSuspendedStatus(status)
 
 const formatDate = (value) => {
   if (!value) return '—'
@@ -159,7 +176,9 @@ const Tenants = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [status, setStatus] = useState({ type: '', message: '' })
-  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [suspendTarget, setSuspendTarget] = useState(null)
+  const [purgeTarget, setPurgeTarget] = useState(null)
+  const [purgeConfirm, setPurgeConfirm] = useState('')
   const [activateTarget, setActivateTarget] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState(null)
@@ -185,16 +204,16 @@ const Tenants = () => {
     load()
   }, [load])
 
-  const confirmDelete = async () => {
-    if (!deleteTarget) return
-    const name = deleteTarget.name || 'Tenant'
+  const confirmSuspend = async () => {
+    if (!suspendTarget) return
+    const name = suspendTarget.name || 'Tenant'
     setSaving(true)
     setStatus({ type: '', message: '' })
     try {
-      await suspendTenant(deleteTarget.id)
-      if (getSelectedTenantId() === String(deleteTarget.id)) clearSelectedTenant()
+      await suspendTenant(suspendTarget.id)
+      if (getSelectedTenantId() === String(suspendTarget.id)) clearSelectedTenant()
       setStatus({ type: 'success', message: `${name} suspended.` })
-      setDeleteTarget(null)
+      setSuspendTarget(null)
       await load()
     } catch (err) {
       setStatus({
@@ -220,6 +239,52 @@ const Tenants = () => {
       setStatus({
         type: 'error',
         message: apiErrorMessage(err, 'Could not activate tenant.'),
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const openPurge = (row) => {
+    setStatus({ type: '', message: '' })
+    setPurgeConfirm('')
+    setPurgeTarget(row)
+  }
+
+  const closePurge = () => {
+    if (saving) return
+    setPurgeTarget(null)
+    setPurgeConfirm('')
+  }
+
+  const confirmPurge = async () => {
+    if (!purgeTarget) return
+    const schema = String(purgeTarget.schema_name || '').trim()
+    if (!schema) {
+      setStatus({ type: 'error', message: 'This tenant has no schema name to confirm delete.' })
+      return
+    }
+    if (purgeConfirm.trim() !== schema) {
+      setStatus({
+        type: 'error',
+        message: `Type the schema name “${schema}” to confirm permanent delete.`,
+      })
+      return
+    }
+    const name = purgeTarget.name || 'Tenant'
+    setSaving(true)
+    setStatus({ type: '', message: '' })
+    try {
+      await deleteTenantById(purgeTarget.id, schema)
+      if (getSelectedTenantId() === String(purgeTarget.id)) clearSelectedTenant()
+      setStatus({ type: 'success', message: `${name} permanently deleted.` })
+      setPurgeTarget(null)
+      setPurgeConfirm('')
+      await load()
+    } catch (err) {
+      setStatus({
+        type: 'error',
+        message: apiErrorMessage(err, 'Could not delete tenant.'),
       })
     } finally {
       setSaving(false)
@@ -497,7 +562,7 @@ const Tenants = () => {
                       </td>
                       <td className="px-4 py-3 text-stone-600">{formatDate(row.created_at)}</td>
                       <td className="px-4 py-3">
-                        <div className="flex flex-wrap justify-end gap-1">
+                        <div className="flex flex-wrap justify-end gap-1.5">
                           <Link to={`/tenants/${row.id}`} className={btnGhost}>
                             <FiEye className="h-3.5 w-3.5" aria-hidden />
                             View
@@ -506,25 +571,51 @@ const Tenants = () => {
                             <FiEdit2 className="h-3.5 w-3.5" aria-hidden />
                             Edit
                           </button>
-                          {canActivate(row.status) ? (
-                            <button
-                              type="button"
-                              className={btnGhost}
-                              onClick={() => setActivateTarget(row)}
-                            >
-                              <FiCheck className="h-3.5 w-3.5" aria-hidden />
-                              Activate
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className={`${btnGhost} text-rose-600 hover:bg-rose-50`}
-                              onClick={() => setDeleteTarget(row)}
-                            >
-                              <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
-                              Delete
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            className={`${btnGhost} border-amber-200 text-amber-800 hover:border-amber-300 hover:bg-amber-50 disabled:border-stone-200 disabled:text-stone-400 disabled:hover:bg-white`}
+                            onClick={() => setSuspendTarget(row)}
+                            disabled={!canSuspend(row.status)}
+                            title={
+                              canSuspend(row.status)
+                                ? 'Suspend this tenant'
+                                : 'Already suspended'
+                            }
+                            aria-label={`Suspend ${row.name}`}
+                          >
+                            <FiPauseCircle className="h-3.5 w-3.5" aria-hidden />
+                            Suspend
+                          </button>
+                          <button
+                            type="button"
+                            className={`${btnGhost} border-emerald-200 text-emerald-800 hover:border-emerald-300 hover:bg-emerald-50 disabled:border-stone-200 disabled:text-stone-400 disabled:hover:bg-white`}
+                            onClick={() => setActivateTarget(row)}
+                            disabled={!canActivate(row.status)}
+                            title={
+                              canActivate(row.status)
+                                ? 'Activate this tenant'
+                                : 'Suspend the tenant first to activate'
+                            }
+                            aria-label={`Activate ${row.name}`}
+                          >
+                            <FiPlayCircle className="h-3.5 w-3.5" aria-hidden />
+                            Activate
+                          </button>
+                          <button
+                            type="button"
+                            className={`${btnGhost} border-rose-200 text-rose-700 hover:border-rose-300 hover:bg-rose-50 disabled:border-stone-200 disabled:text-stone-400 disabled:hover:bg-white`}
+                            onClick={() => openPurge(row)}
+                            disabled={!canHardDelete(row.status)}
+                            title={
+                              canHardDelete(row.status)
+                                ? 'Permanently delete this suspended tenant'
+                                : 'Suspend the tenant first to delete'
+                            }
+                            aria-label={`Delete ${row.name}`}
+                          >
+                            <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
+                            Delete
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -877,18 +968,18 @@ const Tenants = () => {
       </Modal>
 
       <ConfirmDialog
-        open={Boolean(deleteTarget)}
+        open={Boolean(suspendTarget)}
         title="Suspend tenant?"
         message={
-          deleteTarget
-            ? `This suspends “${deleteTarget.name || 'this tenant'}” and removes it from the active list.`
-            : 'This suspends the tenant and removes it from the active list.'
+          suspendTarget
+            ? `This suspends “${suspendTarget.name || 'this tenant'}”. You can activate it again later, or permanently delete it while suspended.`
+            : 'This suspends the tenant.'
         }
         confirmLabel="Suspend"
         loading={saving}
-        onConfirm={confirmDelete}
+        onConfirm={confirmSuspend}
         onClose={() => {
-          if (!saving) setDeleteTarget(null)
+          if (!saving) setSuspendTarget(null)
         }}
       />
 
@@ -907,6 +998,62 @@ const Tenants = () => {
           if (!saving) setActivateTarget(null)
         }}
       />
+
+      <Modal
+        open={Boolean(purgeTarget)}
+        title="Delete tenant permanently?"
+        onClose={closePurge}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button type="button" className={btnSecondary} onClick={closePurge} disabled={saving}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={btnDanger}
+              disabled={
+                saving ||
+                !purgeTarget?.schema_name ||
+                purgeConfirm.trim() !== String(purgeTarget.schema_name || '').trim()
+              }
+              onClick={confirmPurge}
+            >
+              {saving ? 'Deleting…' : 'Delete permanently'}
+            </button>
+          </div>
+        }
+      >
+        {purgeTarget ? (
+          <div className="space-y-3">
+            <p className="text-sm text-stone-600">
+              This permanently deletes “{purgeTarget.name}”. Only suspended tenants can be deleted.
+              Type the schema name to confirm.
+            </p>
+            <div>
+              <label className={labelClass} htmlFor="purge-schema">
+                Schema name
+              </label>
+              <input
+                id="purge-schema"
+                className={fieldClass}
+                value={purgeConfirm}
+                onChange={(e) => setPurgeConfirm(e.target.value)}
+                placeholder={purgeTarget.schema_name || 'schema_name'}
+                disabled={saving}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              {purgeTarget.schema_name ? (
+                <p className="mt-1 text-xs text-stone-500">
+                  Required: <span className="font-medium text-stone-700">{purgeTarget.schema_name}</span>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-rose-600">This tenant has no schema name.</p>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   )
 }
