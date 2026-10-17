@@ -13,16 +13,16 @@ export const fetchOnboardingRequests = async () => {
   return asList(data)
 }
 
-/** POST /api/platform/onboarding/requests/ — create onboarding request from Tenants tab. */
+/** POST /api/platform/onboarding/requests/ — multipart create from Tenants tab. */
 export const createOnboardingRequest = async (payload) => {
   const { data } = await api.post('api/platform/onboarding/requests/', payload)
   return data?.data || data
 }
 
-/** GET /onboarding/check-slug/?slug=… — slug / subdomain availability. */
+/** GET /api/platform/onboarding/check-slug/?slug=… — slug / subdomain availability. */
 export const checkSlugAvailability = async (slug) => {
   const value = String(slug || '').trim()
-  const { data } = await api.get('onboarding/check-slug/', {
+  const { data } = await api.get('api/platform/onboarding/check-slug/', {
     params: { slug: value },
   })
   const payload = data?.data || data || {}

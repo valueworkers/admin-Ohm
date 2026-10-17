@@ -152,24 +152,6 @@ const formatDateTime = (value) => {
   }
 }
 
-const toCreatePayload = (form = {}) => ({
-  organization_name: String(form.organization_name || '').trim(),
-  email: String(form.email || '').trim(),
-  contact_phone: String(form.contact_phone || '').trim(),
-  address: String(form.address || '').trim(),
-  branches: (form.branches || [])
-    .map((b) => ({
-      name: String(b.name || '').trim(),
-      address: String(b.address || '').trim(),
-    }))
-    .filter((b) => b.name || b.address),
-  ops_admin_email: String(form.ops_admin_email || '').trim(),
-  slug: String(form.slug || '').trim(),
-  custom_domain: String(form.custom_domain || '').trim(),
-  wants_custom_website: Boolean(form.wants_custom_website),
-  requested_plan: form.requested_plan ?? null,
-})
-
 const Tenants = () => {
   const navigate = useNavigate()
   const [rows, setRows] = useState([])
@@ -291,19 +273,19 @@ const Tenants = () => {
     }
   }
 
-  const handleCreate = async (form) => {
+  const handleCreate = async (formData, meta = {}) => {
     setSaving(true)
     setStatus({ type: '', message: '' })
     try {
-      const payload = toCreatePayload(form)
-      await createOnboardingRequest(payload)
+      await createOnboardingRequest(formData)
       setModalOpen(false)
+      const name = meta.organization_name || 'Tenant'
       navigate('/lobby', {
         replace: false,
         state: {
           banner: {
             type: 'success',
-            message: `${payload.organization_name} sent to Lobby. Approve it there to activate.`,
+            message: `${name} sent to Lobby. Approve it there to activate.`,
           },
         },
       })
