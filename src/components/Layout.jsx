@@ -35,11 +35,20 @@ const loadOpenGroups = () => {
 const Layout = () => {
   const navigate = useNavigate()
   const location = useLocation()
-  const { hasTenantSelected, isSuperAdmin, isOpsAdmin, tenant, user, hasFeature } = useAccess()
+  const {
+    hasTenantSelected,
+    isSuperAdmin,
+    isTenantOwner,
+    isOpsAdmin,
+    tenant,
+    user,
+    hasFeature,
+  } = useAccess()
   const { tenants, selectedId, selectTenant } = usePlatformTenants()
   const displayName = isSuperAdmin
     ? 'Super Admin'
-    : [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() ||
+    : user?.full_name ||
+      [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() ||
       user?.email ||
       'Tenant Admin'
   const roleLabel = isSuperAdmin
@@ -104,7 +113,8 @@ const Layout = () => {
 
   const allowedForRole = (entry) => {
     if (entry.superOnly && !isSuperAdmin) return false
-    if (isSuperAdmin) return true
+    if (entry.ownerOnly && !isTenantOwner) return false
+    if (isSuperAdmin) return !entry.ownerOnly
     if (!entry.featureKey) return true
     return hasFeature(entry.featureKey)
   }
@@ -120,7 +130,7 @@ const Layout = () => {
         }
         return item
       }).filter(Boolean),
-    [isSuperAdmin, hasFeature]
+    [isSuperAdmin, isTenantOwner, hasFeature]
   )
 
   const renderLink = (item, { nested = false } = {}) => {

@@ -6,9 +6,6 @@ const RequireTenantOwner = () => {
   if (!isTenantOwner(user)) {
     return <Navigate to="/" replace />
   }
-  if (!user?.tenant_id) {
-    return <Navigate to="/" replace />
-  }
   return <Outlet />
 }
 

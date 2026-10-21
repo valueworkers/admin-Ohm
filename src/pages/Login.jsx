@@ -6,12 +6,14 @@ import {
   canAccessAdminPanel,
   getAuthUser,
   isAuthenticated,
+  isSuperAdmin,
   loginWithOtpApi,
   loginWithPasswordApi,
   resetPasswordApi,
   sendLoginOtpApi,
   sendPasswordResetOtpApi,
 } from '../utils/auth'
+import { syncOwnerTenantsAfterLogin } from '../utils/postLogin'
 import { btnPrimary, btnSecondary, fieldClass, labelClass } from '../utils/ui'
 
 const MODES = [
@@ -63,6 +65,14 @@ const Login = () => {
     setOtpSent(false)
   }
 
+  const finishLoginNavigate = async (user) => {
+    if (!isSuperAdmin(user)) {
+      await syncOwnerTenantsAfterLogin()
+    }
+    const fallback = isSuperAdmin(user) ? '/' : '/my-tenants'
+    navigate(location.state?.from || fallback, { replace: true })
+  }
+
   const handlePasswordSubmit = async (event) => {
     event.preventDefault()
     setError('')
@@ -82,7 +92,7 @@ const Login = () => {
         setError('Login succeeded but no access token was returned.')
         return
       }
-      navigate(location.state?.from || '/', { replace: true })
+      await finishLoginNavigate(result.user)
     } finally {
       setIsLoading(false)
     }
@@ -135,7 +145,7 @@ const Login = () => {
         setError('Login succeeded but no access token was returned.')
         return
       }
-      navigate(location.state?.from || '/', { replace: true })
+      await finishLoginNavigate(result.user)
     } finally {
       setIsLoading(false)
     }

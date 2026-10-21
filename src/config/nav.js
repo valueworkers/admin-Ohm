@@ -20,6 +20,7 @@ import {
   FiFolder,
   FiGrid,
   FiShield,
+  FiUser,
 } from 'react-icons/fi'
 
 /**
@@ -30,6 +31,22 @@ import {
  */
 export const NAV_ITEMS = [
   { type: 'link', to: '/', end: true, title: 'Home', icon: FiHome, needsTenant: false },
+  {
+    type: 'link',
+    to: '/my-tenants',
+    title: 'My tenants',
+    icon: FiLayers,
+    needsTenant: false,
+    ownerOnly: true,
+  },
+  {
+    type: 'link',
+    to: '/profile',
+    title: 'Profile',
+    icon: FiUser,
+    needsTenant: false,
+    ownerOnly: true,
+  },
   {
     type: 'group',
     id: 'tenants',

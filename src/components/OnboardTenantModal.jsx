@@ -27,6 +27,7 @@ export const EMPTY_ONBOARD = {
   email: '',
   phone: '',
   gst: '',
+  opsAdminEmail: '',
   wantsCoOwners: 'no',
   coOwnerEmails: [''],
   branches: [emptyBranch()],
@@ -34,6 +35,7 @@ export const EMPTY_ONBOARD = {
   customDomain: '',
   slug: '',
   customizeWebsite: 'no',
+  requestedPlan: null,
 }
 
 const normalizeSlug = (value) =>
@@ -50,12 +52,6 @@ const slugFromOrgName = (name) =>
       .toLowerCase()
       .replace(/[\s_]+/g, '-'),
   )
-
-const joinAddress = (branch) =>
-  [branch.addressLine1, branch.addressLine2, branch.locality, branch.city, branch.pincode]
-    .map((v) => String(v || '').trim())
-    .filter(Boolean)
-    .join(', ')
 
 const isBranchComplete = (b) =>
   Boolean(
@@ -234,6 +230,9 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
     if (!EMAIL_RE.test(String(form.email || '').trim())) return 'Enter a valid email.'
     if (!PHONE_RE.test(String(form.phone || '').trim())) return 'Phone must be 10 digits.'
 
+    const opsAdmin = String(form.opsAdminEmail || '').trim()
+    if (opsAdmin && !EMAIL_RE.test(opsAdmin)) return 'Enter a valid ops admin email.'
+
     const gst = String(form.gst || '').trim().toUpperCase()
     if (gst && !GSTIN_RE.test(gst)) return 'Enter a valid GSTIN (or leave blank).'
 
@@ -273,32 +272,37 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
     const slug = derivedSlug
     const branches = form.branches.filter(isBranchComplete).map((b) => ({
       name: String(b.name || '').trim(),
-      address_line_1: String(b.addressLine1 || '').trim(),
-      address_line_2: String(b.addressLine2 || '').trim(),
+      line1: String(b.addressLine1 || '').trim(),
+      line2: String(b.addressLine2 || '').trim(),
       locality: String(b.locality || '').trim(),
       city: String(b.city || '').trim(),
       pincode: String(b.pincode || '').trim(),
-      address: joinAddress(b),
     }))
 
     const coOwnerEmails =
       form.wantsCoOwners === 'yes'
         ? form.coOwnerEmails.map((e) => String(e || '').trim()).filter(Boolean).slice(0, 3)
-        : []
+        : null
 
     const fd = new FormData()
     fd.append('organization_name', String(form.tenantName || '').trim())
     fd.append('email', String(form.email || '').trim())
     fd.append('contact_phone', String(form.phone || '').trim())
-    if (gst) fd.append('gst_number', gst)
+    fd.append('gst_number', gst)
     fd.append('branches', JSON.stringify(branches))
-    fd.append('co_owner_emails', JSON.stringify(coOwnerEmails))
+    fd.append('ops_admin_email', String(form.opsAdminEmail || '').trim())
+    // JSON array string, e.g. ["test@test.com"] — empty → null
+    fd.append(
+      'co_owner_emails',
+      coOwnerEmails?.length ? JSON.stringify(coOwnerEmails) : 'null',
+    )
     fd.append('slug', slug)
     fd.append(
       'custom_domain',
       form.hasDomain === 'yes' ? String(form.customDomain || '').trim() : '',
     )
     fd.append('wants_custom_website', form.customizeWebsite === 'yes' ? 'true' : 'false')
+    fd.append('requested_plan', form.requestedPlan != null ? String(form.requestedPlan) : '')
     if (form.tenantLogo) fd.append('logo', form.tenantLogo)
     return fd
   }
@@ -403,7 +407,19 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
             />
           </label>
 
-          <label className="block sm:col-span-2">
+          <label className="block">
+            <span className={labelClass}>Ops admin email (optional)</span>
+            <input
+              type="email"
+              className={fieldClass}
+              value={form.opsAdminEmail}
+              onChange={(e) => set('opsAdminEmail', e.target.value)}
+              disabled={saving}
+              placeholder="ops@example.com"
+            />
+          </label>
+
+          <label className="block">
             <span className={labelClass}>GSTIN (optional)</span>
             <input
               className={fieldClass}

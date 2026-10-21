@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import RequireFeature from './components/RequireFeature'
 import RequireSelectedTenant from './components/RequireSelectedTenant'
 import RequireSuperAdmin from './components/RequireSuperAdmin'
+import RequireTenantOwner from './components/RequireTenantOwner'
 import AttendancePage from './pages/AttendancePage'
 import BookingsPage from './pages/BookingsPage'
 import Dashboard from './pages/Dashboard'
@@ -12,7 +13,9 @@ import LocationPackagesPage from './pages/LocationPackagesPage'
 import Lobby from './pages/Lobby'
 import Login from './pages/Login'
 import ModulePlaceholder from './pages/ModulePlaceholder'
+import MyTenants from './pages/MyTenants'
 import PatientsPage from './pages/PatientsPage'
+import Profile from './pages/Profile'
 import ServicesPage from './pages/ServicesPage'
 import StaffPayoutsPage from './pages/StaffPayoutsPage'
 import TenantDetail from './pages/TenantDetail'
@@ -30,6 +33,11 @@ const App = () => (
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
           <Route index element={<Dashboard />} />
+
+          <Route element={<RequireTenantOwner />}>
+            <Route path="my-tenants" element={<MyTenants />} />
+            <Route path="profile" element={<Profile />} />
+          </Route>
 
           <Route element={<RequireSuperAdmin />}>
             <Route path="lobby" element={<Lobby />} />

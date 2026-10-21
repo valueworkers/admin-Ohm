@@ -4,17 +4,21 @@ import { useAccess } from '../hooks/useAccess'
 
 const RequireSelectedTenant = () => {
   const navigate = useNavigate()
-  const { hasTenantSelected, tenant } = useAccess()
+  const { hasTenantSelected, isSuperAdmin, tenant } = useAccess()
 
   if (!hasTenantSelected) {
     return (
       <Panel>
         <EmptyState
           bare
-          title="Select a tenant"
-          hint="Choose an active tenant from the header switcher to open this module."
-          actionLabel="Go to Tenants"
-          onAction={() => navigate('/tenants')}
+          title={isSuperAdmin ? 'Select a tenant' : 'No organization selected'}
+          hint={
+            isSuperAdmin
+              ? 'Choose an active tenant from the header switcher to open this module.'
+              : 'Activate or select one of your tenants first.'
+          }
+          actionLabel={isSuperAdmin ? 'Go to Tenants' : 'My tenants'}
+          onAction={() => navigate(isSuperAdmin ? '/tenants' : '/my-tenants')}
         />
       </Panel>
     )

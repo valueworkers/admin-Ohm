@@ -115,9 +115,10 @@ export const extractAuthTokens = (data) => {
 }
 
 const normalizeApiUserType = (raw) => {
-  if (raw == null || raw === '') return USER_TYPES.SUPER_ADMIN
+  // null / missing role → tenant owner (not Super Admin)
+  if (raw == null || raw === '') return USER_TYPES.TENANT_OWNER
   const t = String(raw).trim().toUpperCase()
-  if (!t || t === 'NULL' || t === 'NONE') return USER_TYPES.SUPER_ADMIN
+  if (!t || t === 'NULL' || t === 'NONE') return USER_TYPES.TENANT_OWNER
   if (t === 'MASTER_ADMIN' || t === 'SUPER_ADMIN' || t === 'ADMIN') {
     return USER_TYPES.SUPER_ADMIN
   }
@@ -152,7 +153,7 @@ const sessionFromApiUser = (apiUser, data = {}, usernameFallback = '') => {
     is_active: apiUser.is_active !== false,
     date_joined: apiUser.date_joined || null,
     role: apiUser.role ?? null,
-    user_type: userType || USER_TYPES.SUPER_ADMIN,
+    user_type: userType || USER_TYPES.TENANT_OWNER,
     organization_name:
       apiUser.organization_name ||
       apiUser.tenant_name ||
