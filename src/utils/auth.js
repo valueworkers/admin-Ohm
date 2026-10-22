@@ -28,20 +28,41 @@ export const getAuthUser = () => {
   }
 }
 
+const normalizeRoleKey = (raw) =>
+  String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_')
+
 export const getUserType = (userOrType) => {
   if (userOrType == null) return ''
-  if (typeof userOrType === 'string') return String(userOrType).trim().toUpperCase()
-  return String(userOrType?.user_type || userOrType?.userType || '').trim().toUpperCase()
+  if (typeof userOrType === 'string') return normalizeRoleKey(userOrType)
+  const fromType = normalizeRoleKey(userOrType?.user_type || userOrType?.userType)
+  if (fromType) return fromType
+  // Fallback: login API may only send user.role ("Super Admin")
+  return normalizeRoleKey(userOrType?.role)
 }
 
 export const isSuperAdmin = (userOrType) => {
   const t = getUserType(userOrType)
-  return t === USER_TYPES.SUPER_ADMIN || t === 'MASTER_ADMIN'
+  if (t === USER_TYPES.SUPER_ADMIN || t === 'MASTER_ADMIN' || t === 'ADMIN') return true
+  if (userOrType && typeof userOrType === 'object') {
+    const role = normalizeRoleKey(userOrType.role)
+    return role === 'SUPER_ADMIN' || role === 'MASTER_ADMIN' || role === 'ADMIN'
+  }
+  return false
 }
 
 export const isTenantOwner = (userOrType) => {
+  if (isSuperAdmin(userOrType)) return false
   const t = getUserType(userOrType)
-  return t === USER_TYPES.TENANT_OWNER || t === 'VSRE_OWNER'
+  return (
+    t === USER_TYPES.TENANT_OWNER ||
+    t === 'VSRE_OWNER' ||
+    t === 'OWNER' ||
+    t === 'TENANT_ADMIN' ||
+    t === 'OPS_ADMIN'
+  )
 }
 
 /** @deprecated use isSuperAdmin */
@@ -117,12 +138,18 @@ export const extractAuthTokens = (data) => {
 const normalizeApiUserType = (raw) => {
   // null / missing role → tenant owner (not Super Admin)
   if (raw == null || raw === '') return USER_TYPES.TENANT_OWNER
-  const t = String(raw).trim().toUpperCase()
+  const t = normalizeRoleKey(raw)
   if (!t || t === 'NULL' || t === 'NONE') return USER_TYPES.TENANT_OWNER
   if (t === 'MASTER_ADMIN' || t === 'SUPER_ADMIN' || t === 'ADMIN') {
     return USER_TYPES.SUPER_ADMIN
   }
-  if (t === 'VSRE_OWNER' || t === 'TENANT_OWNER' || t === 'OWNER') {
+  if (
+    t === 'VSRE_OWNER' ||
+    t === 'TENANT_OWNER' ||
+    t === 'OWNER' ||
+    t === 'TENANT_ADMIN' ||
+    t === 'OPS_ADMIN'
+  ) {
     return USER_TYPES.TENANT_OWNER
   }
   return t
@@ -140,9 +167,12 @@ const splitFullName = (fullName = '') => {
 
 const sessionFromApiUser = (apiUser, data = {}, usernameFallback = '') => {
   const fromFull = splitFullName(apiUser.full_name)
+  const roleDisplay = String(apiUser.role || apiUser.role_label || '').trim()
   const userType = normalizeApiUserType(
     apiUser.user_type || apiUser.userType || apiUser.role
   )
+  const schemaName =
+    data.schema_name || apiUser.schema_name || apiUser.tenant_slug || ''
   const base = {
     id: apiUser.id ?? apiUser.pk ?? (usernameFallback || 'api-user'),
     email: apiUser.email || apiUser.username || usernameFallback || '',
@@ -152,7 +182,9 @@ const sessionFromApiUser = (apiUser, data = {}, usernameFallback = '') => {
     phone: apiUser.mobile_number || apiUser.phone || '',
     is_active: apiUser.is_active !== false,
     date_joined: apiUser.date_joined || null,
-    role: apiUser.role ?? null,
+    role: roleDisplay || null,
+    schema_name: schemaName || '',
+    tenant_slug: schemaName || '',
     user_type: userType || USER_TYPES.TENANT_OWNER,
     organization_name:
       apiUser.organization_name ||
@@ -167,6 +199,7 @@ const sessionFromApiUser = (apiUser, data = {}, usernameFallback = '') => {
     return {
       ...base,
       user_type: USER_TYPES.SUPER_ADMIN,
+      role: roleDisplay || 'Super Admin',
       first_name: base.first_name || 'Super',
       last_name: base.last_name || 'Admin',
       tenant_id: null,
@@ -177,9 +210,11 @@ const sessionFromApiUser = (apiUser, data = {}, usernameFallback = '') => {
   return {
     ...base,
     user_type: USER_TYPES.TENANT_OWNER,
+    role: roleDisplay || (tenantRole === TENANT_ROLES.OPS_ADMIN ? 'Ops Admin' : 'Tenant Admin'),
     tenant_role: tenantRole,
     role_label:
       apiUser.role_label ||
+      roleDisplay ||
       (tenantRole === TENANT_ROLES.OPS_ADMIN ? 'Ops Admin' : 'Tenant Admin'),
   }
 }

@@ -45,15 +45,14 @@ const Layout = () => {
     hasFeature,
   } = useAccess()
   const { tenants, selectedId, selectTenant } = usePlatformTenants()
-  const displayName = isSuperAdmin
-    ? 'Super Admin'
-    : user?.full_name ||
-      [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() ||
-      user?.email ||
-      'Tenant Admin'
+  const displayName =
+    user?.full_name ||
+    [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() ||
+    user?.email ||
+    (isSuperAdmin ? 'Super Admin' : 'Tenant Admin')
   const roleLabel = isSuperAdmin
-    ? 'Platform · Super Admin'
-    : `${tenant?.name || 'Organization'} · ${isOpsAdmin ? 'Ops Admin' : 'Tenant Admin'}`
+    ? `Platform · ${user?.role || 'Super Admin'}`
+    : `${tenant?.name || 'Organization'} · ${user?.role || (isOpsAdmin ? 'Ops Admin' : 'Tenant Admin')}`
   const [logoutOpen, setLogoutOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState(loadOpenGroups)
@@ -316,7 +315,7 @@ const Layout = () => {
               </span>
             )}
             <span className={`hidden sm:inline ${brandChipClass}`}>
-              {isSuperAdmin ? 'SUPER_ADMIN' : 'TENANT'}
+              {user?.role || (isSuperAdmin ? 'Super Admin' : 'Tenant Admin')}
             </span>
             <button
               type="button"

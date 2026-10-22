@@ -8,6 +8,7 @@ import {
   FiPlayCircle,
   FiPlus,
   FiRefreshCw,
+  FiShield,
   FiTrash2,
 } from 'react-icons/fi'
 import { createOnboardingRequest } from '../api/onboarding'
@@ -15,11 +16,14 @@ import {
   activateTenant,
   deleteTenantById,
   fetchTenantById,
+  fetchTenantPermissions,
   fetchTenants,
   suspendTenant,
   updateTenantById,
+  updateTenantPermissions,
 } from '../api/tenants'
 import { FEATURE_CATALOG } from '../config/features'
+import { useAccess } from '../hooks/useAccess'
 import { saveStoredTenants } from '../utils/tenants'
 import OnboardTenantModal from '../components/OnboardTenantModal'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
@@ -154,6 +158,7 @@ const formatDateTime = (value) => {
 
 const Tenants = () => {
   const navigate = useNavigate()
+  const { isSuperAdmin } = useAccess()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -166,6 +171,18 @@ const Tenants = () => {
   const [editTarget, setEditTarget] = useState(null)
   const [editForm, setEditForm] = useState(EMPTY_EDIT)
   const [saving, setSaving] = useState(false)
+  const [permsOpen, setPermsOpen] = useState(false)
+  const [permsTenantId, setPermsTenantId] = useState('')
+  const [permsLoading, setPermsLoading] = useState(false)
+  const [permsSaving, setPermsSaving] = useState(false)
+  const [permsCatalogLoading, setPermsCatalogLoading] = useState(false)
+  const [permsError, setPermsError] = useState('')
+  const [permsStatus, setPermsStatus] = useState({ type: '', message: '' })
+  const [permsItems, setPermsItems] = useState([])
+  const [permsEnabled, setPermsEnabled] = useState([])
+  const [permsAvailable, setPermsAvailable] = useState([])
+  const [permsAddOpen, setPermsAddOpen] = useState(false)
+  const [permsLoadedFor, setPermsLoadedFor] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -297,6 +314,145 @@ const Tenants = () => {
       throw new Error(apiErrorMessage(err, 'Could not create onboarding request.'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const openManagePermissions = () => {
+    if (!isSuperAdmin) return
+    setPermsOpen(true)
+    setPermsTenantId(rows[0]?.id != null ? String(rows[0].id) : '')
+    setPermsItems([])
+    setPermsEnabled([])
+    setPermsAvailable([])
+    setPermsAddOpen(false)
+    setPermsError('')
+    setPermsStatus({ type: '', message: '' })
+    setPermsLoadedFor('')
+  }
+
+  const closePermissions = () => {
+    if (permsLoading || permsSaving || permsCatalogLoading) return
+    setPermsOpen(false)
+    setPermsTenantId('')
+    setPermsItems([])
+    setPermsEnabled([])
+    setPermsAvailable([])
+    setPermsAddOpen(false)
+    setPermsError('')
+    setPermsStatus({ type: '', message: '' })
+    setPermsLoadedFor('')
+  }
+
+  const loadTenantPermissions = async (tenantId = permsTenantId) => {
+    const id = String(tenantId || '').trim()
+    if (!id) {
+      setPermsError('Select a tenant first.')
+      setPermsItems([])
+      setPermsEnabled([])
+      return
+    }
+    setPermsLoading(true)
+    setPermsError('')
+    setPermsStatus({ type: '', message: '' })
+    setPermsAddOpen(false)
+    setPermsAvailable([])
+    setPermsItems([])
+    setPermsEnabled([])
+    try {
+      const result = await fetchTenantPermissions(id)
+      setPermsItems(result.items || [])
+      setPermsEnabled(result.enabledModules || [])
+      setPermsLoadedFor(id)
+    } catch (err) {
+      setPermsItems([])
+      setPermsEnabled([])
+      setPermsLoadedFor('')
+      setPermsError(apiErrorMessage(err, 'Could not load tenant permissions.'))
+    } finally {
+      setPermsLoading(false)
+    }
+  }
+
+  /** Current modules shown from tenant GET response. */
+  const currentPermRows = (() => {
+    if (permsItems.length) {
+      return permsItems.filter((i) => i.enabled !== false || permsEnabled.includes(i.code))
+    }
+    return permsEnabled.map((code) => ({
+      code,
+      name: FEATURE_CATALOG.find((f) => f.key === code)?.label || code,
+      description: FEATURE_CATALOG.find((f) => f.key === code)?.description || '',
+      enabled: true,
+    }))
+  })()
+
+  const openAddPermissions = () => {
+    setPermsStatus({ type: '', message: '' })
+    setPermsAddOpen(true)
+    setPermsCatalogLoading(true)
+    // All existing platform modules (includes accounts) + tenant response codes
+    const catalog = FEATURE_CATALOG.map((f) => ({
+      code: f.key,
+      name: f.label,
+      description: f.description || '',
+    }))
+    const extras = [
+      { code: 'accounts', name: 'Accounts', description: 'Accounts module for the tenant.' },
+      ...permsItems.map((i) => ({
+        code: i.code,
+        name: i.name || i.code,
+        description: i.description || '',
+      })),
+      ...permsEnabled.map((code) => ({
+        code,
+        name: FEATURE_CATALOG.find((f) => f.key === code)?.label || code,
+        description: '',
+      })),
+    ]
+    const byCode = new Map()
+    ;[...catalog, ...extras].forEach((row) => {
+      if (!row.code) return
+      if (!byCode.has(row.code)) byCode.set(row.code, row)
+    })
+    setPermsAvailable([...byCode.values()].sort((a, b) => a.code.localeCompare(b.code)))
+    setPermsCatalogLoading(false)
+  }
+
+  const togglePermModule = (code) => {
+    setPermsEnabled((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    )
+    setPermsStatus({ type: '', message: '' })
+  }
+
+  const removePermModule = (code) => {
+    setPermsEnabled((prev) => prev.filter((c) => c !== code))
+    setPermsStatus({ type: '', message: '' })
+  }
+
+  const saveTenantPermissions = async () => {
+    const id = String(permsTenantId || permsLoadedFor || '').trim()
+    if (!id) {
+      setPermsStatus({ type: 'error', message: 'Select a tenant first.' })
+      return
+    }
+    setPermsSaving(true)
+    setPermsStatus({ type: '', message: '' })
+    try {
+      await updateTenantPermissions(id, permsEnabled)
+      setPermsStatus({
+        type: 'success',
+        message: `Saved ${permsEnabled.length} enabled module${permsEnabled.length === 1 ? '' : 's'}.`,
+      })
+      setPermsAddOpen(false)
+      await loadTenantPermissions(id)
+    } catch (err) {
+      setPermsStatus({
+        type: 'error',
+        message: apiErrorMessage(err, 'Could not save tenant permissions.'),
+      })
+    } finally {
+      setPermsSaving(false)
     }
   }
 
@@ -473,6 +629,17 @@ const Tenants = () => {
               <FiPlus className="h-4 w-4" aria-hidden />
               Create tenant
             </button>
+            {isSuperAdmin ? (
+              <button
+                type="button"
+                className={btnSecondary}
+                onClick={openManagePermissions}
+                disabled={loading || rows.length === 0}
+              >
+                <FiShield className="h-4 w-4" aria-hidden />
+                Manage tenant permissions
+              </button>
+            ) : null}
             <Link to="/lobby" className={btnSecondary}>
               Go to Lobby
             </Link>
@@ -615,6 +782,217 @@ const Tenants = () => {
         onSubmit={handleCreate}
         saving={saving}
       />
+
+      <Modal
+        open={permsOpen && isSuperAdmin}
+        onClose={closePermissions}
+        title="Manage tenant permissions"
+        wide
+      >
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <label className="block min-w-0 flex-1">
+              <span className={labelClass}>Tenant</span>
+              <select
+                className={fieldClass}
+                value={permsTenantId}
+                onChange={(e) => {
+                  setPermsTenantId(e.target.value)
+                  setPermsItems([])
+                  setPermsEnabled([])
+                  setPermsAvailable([])
+                  setPermsAddOpen(false)
+                  setPermsError('')
+                  setPermsStatus({ type: '', message: '' })
+                  setPermsLoadedFor('')
+                }}
+                disabled={
+                  permsLoading || permsSaving || permsCatalogLoading || rows.length === 0
+                }
+              >
+                <option value="">Select tenant…</option>
+                {rows.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name || t.schema_name || t.id}
+                    {t.schema_name ? ` (${t.schema_name})` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className={btnSecondary}
+              onClick={() => loadTenantPermissions()}
+              disabled={permsLoading || permsSaving || !permsTenantId}
+            >
+              {permsLoading ? (
+                <>
+                  <FiLoader className="h-4 w-4 animate-spin" aria-hidden />
+                  Loading…
+                </>
+              ) : (
+                'Load permissions'
+              )}
+            </button>
+          </div>
+
+          <StatusBanner type={permsStatus.type} message={permsStatus.message} />
+
+          {permsLoading ? <LoadingState label="Loading permissions…" /> : null}
+          {!permsLoading && permsError ? (
+            <ErrorState message={permsError} onRetry={() => loadTenantPermissions()} />
+          ) : null}
+          {!permsLoading && !permsError && !permsLoadedFor ? (
+            <EmptyState
+              bare
+              title="Choose a tenant"
+              hint="Select a tenant, then load permissions."
+            />
+          ) : null}
+
+          {!permsLoading && !permsError && permsLoadedFor ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-stone-900">Current permissions</p>
+                  <button
+                    type="button"
+                    className={btnPrimary}
+                    onClick={openAddPermissions}
+                    disabled={permsSaving || permsCatalogLoading}
+                  >
+                    <FiPlus className="h-4 w-4" aria-hidden />
+                    Add permissions
+                  </button>
+                </div>
+
+                {currentPermRows.length === 0 && permsEnabled.length === 0 ? (
+                  <EmptyState
+                    bare
+                    title="No permissions yet"
+                    hint="Click Add permissions to choose modules for this tenant."
+                  />
+                ) : (
+                  <div className="max-h-[28vh] space-y-2 overflow-y-auto rounded-xl border border-stone-200 p-3">
+                    {(permsEnabled.length
+                      ? permsEnabled.map((code) => {
+                          const row =
+                            currentPermRows.find((i) => i.code === code) || {
+                              code,
+                              name:
+                                FEATURE_CATALOG.find((f) => f.key === code)?.label || code,
+                              description:
+                                FEATURE_CATALOG.find((f) => f.key === code)?.description ||
+                                '',
+                            }
+                          return row
+                        })
+                      : currentPermRows
+                    ).map((item) => (
+                      <div
+                        key={item.code || item.name}
+                        className="flex items-start justify-between gap-3 rounded-lg border border-stone-100 bg-stone-50/80 px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-stone-900">
+                            {item.name || item.code}
+                          </p>
+                          {item.code ? (
+                            <p className="font-mono text-[11px] text-stone-400">{item.code}</p>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          className={btnGhost}
+                          onClick={() => removePermModule(item.code)}
+                          disabled={permsSaving}
+                          aria-label={`Remove ${item.code}`}
+                        >
+                          <FiTrash2 className="h-3.5 w-3.5 text-rose-600" aria-hidden />
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {permsAddOpen ? (
+                <div className="space-y-2 rounded-xl border border-stone-200 p-3">
+                  <p className="text-sm font-semibold text-stone-900">
+                    All existing permissions
+                  </p>
+                  <p className="text-xs text-stone-500">
+                    Select modules to add, then save. Already-enabled ones stay checked.
+                  </p>
+                  {permsCatalogLoading ? (
+                    <LoadingState label="Loading all permissions…" />
+                  ) : (
+                    <div className="max-h-[32vh] space-y-1 overflow-y-auto">
+                      {permsAvailable.map((item) => {
+                        const checked = permsEnabled.includes(item.code)
+                        return (
+                          <label
+                            key={item.code}
+                            className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover:bg-stone-50"
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 accent-brand-500"
+                              checked={checked}
+                              disabled={permsSaving}
+                              onChange={() => togglePermModule(item.code)}
+                            />
+                            <span className="min-w-0">
+                              <span className="block text-sm font-medium text-stone-800">
+                                {item.name}
+                              </span>
+                              <span className="block font-mono text-[11px] text-stone-400">
+                                {item.code}
+                              </span>
+                              {item.description ? (
+                                <span className="mt-0.5 block text-xs text-stone-500">
+                                  {item.description}
+                                </span>
+                              ) : null}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className={btnSecondary}
+              onClick={closePermissions}
+              disabled={permsLoading || permsSaving || permsCatalogLoading}
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              className={btnPrimary}
+              onClick={saveTenantPermissions}
+              disabled={permsLoading || permsSaving || !permsLoadedFor}
+            >
+              {permsSaving ? (
+                <>
+                  <FiLoader className="h-4 w-4 animate-spin" aria-hidden />
+                  Saving…
+                </>
+              ) : (
+                'Save permissions'
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={Boolean(editTarget)}

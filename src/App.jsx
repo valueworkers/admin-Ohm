@@ -16,6 +16,7 @@ import ModulePlaceholder from './pages/ModulePlaceholder'
 import MyTenants from './pages/MyTenants'
 import PatientsPage from './pages/PatientsPage'
 import Profile from './pages/Profile'
+import Roles from './pages/Roles'
 import ServicesPage from './pages/ServicesPage'
 import StaffPayoutsPage from './pages/StaffPayoutsPage'
 import TenantDetail from './pages/TenantDetail'
@@ -39,6 +40,8 @@ const App = () => (
             <Route path="profile" element={<Profile />} />
           </Route>
 
+          <Route path="roles" element={<Roles />} />
+
           <Route element={<RequireSuperAdmin />}>
             <Route path="lobby" element={<Lobby />} />
             <Route path="tenants" element={<Tenants />} />
@@ -46,6 +49,7 @@ const App = () => (
             <Route path="tenants/:tenantId" element={<TenantDetail />} />
             <Route path="platform/analytics" element={<PlatformAnalytics />} />
             <Route path="platform/permissions" element={<PlatformPermissions />} />
+            <Route path="platform/roles" element={<Navigate to="/roles" replace />} />
             <Route path="platform/subscription-plans" element={<SubscriptionPlans />} />
             <Route path="platform/tenant-subscriptions" element={<TenantSubscriptions />} />
           </Route>

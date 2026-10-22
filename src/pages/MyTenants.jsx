@@ -11,7 +11,7 @@ import StatusBanner from '../components/ui/StatusBanner'
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/PageState'
 import { getAuthUser, persistAuthSession } from '../utils/auth'
 import { apiErrorMessage } from '../utils/errors'
-import { setSelectedTenantId } from '../utils/tenants'
+import { saveStoredTenants, setSelectedTenantId } from '../utils/tenants'
 import {
   btnGhost,
   btnPrimary,
@@ -52,6 +52,7 @@ const MyTenants = () => {
     setError('')
     try {
       const list = await fetchMyTenants()
+      saveStoredTenants(list)
       setRows(list)
     } catch (err) {
       setRows([])
@@ -113,10 +114,13 @@ const MyTenants = () => {
       setSelectedTenantId(row.id)
       const user = getAuthUser()
       if (user) {
+        const slug = row.schema_name || row.slug || ''
         persistAuthSession({
           user: {
             ...user,
             tenant_id: row.id,
+            tenant_slug: slug,
+            schema_name: slug,
             organization_name: row.name || user.organization_name || '',
           },
         })

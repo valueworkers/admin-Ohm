@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchTenants } from '../api/tenants'
+import { getAuthUser, isSuperAdmin } from '../utils/auth'
 import {
   clearSelectedTenant,
   getSelectedTenant,
@@ -28,7 +29,6 @@ export const usePlatformTenants = () => {
     const list = getStoredTenants()
     let id = getSelectedTenantId()
     if (id && !list.some((t) => String(t.id) === String(id))) {
-      // Clear without re-entry if already missing
       if (id) clearSelectedTenant()
       id = ''
     }
@@ -38,11 +38,16 @@ export const usePlatformTenants = () => {
   }, [])
 
   const load = useCallback(async () => {
+    // Platform tenants list is Super Admin only — never call it for tenant sessions
+    // (401 would force-logout via axios interceptor).
+    if (!isSuperAdmin(getAuthUser())) {
+      syncFromStorage()
+      return
+    }
     setLoading(true)
     try {
       const list = await fetchTenants()
       saveStoredTenants(list)
-      // syncFromStorage will run via tenants-changed listener
     } catch {
       syncFromStorage()
     } finally {

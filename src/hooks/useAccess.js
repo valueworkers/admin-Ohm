@@ -40,6 +40,24 @@ export const useAccess = () => {
 
   const user = getAuthUser()
   const superAdmin = isSuperAdmin(user)
+
+  useEffect(() => {
+    // Heal stale sessions where role is Super Admin but user_type was wrong (once).
+    if (!user || !superAdmin) return
+    if (String(user.user_type || '').toUpperCase().replace(/[\s-]+/g, '_') === 'SUPER_ADMIN') {
+      return
+    }
+    try {
+      const healed = { ...user, user_type: 'SUPER_ADMIN', tenant_id: null }
+      localStorage.setItem('authUser', JSON.stringify(healed))
+      localStorage.setItem('user_type', 'SUPER_ADMIN')
+      // Defer event so we don't re-enter effects in the same tick
+      window.setTimeout(() => window.dispatchEvent(new Event('auth-changed')), 0)
+    } catch {
+      // ignore
+    }
+  }, [superAdmin, user?.id, user?.user_type, user?.role])
+
   const tenantId = superAdmin
     ? getSelectedTenantId() || null
     : user?.tenant_id || null

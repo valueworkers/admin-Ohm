@@ -275,8 +275,19 @@ const Lobby = () => {
   const submitEdit = async (event) => {
     event.preventDefault()
     if (!selected?.id || !editForm || !editBaseline) return
+    const completeBranches = normalizeBranches(editForm.branches).filter((b) => b.name)
+    if (!completeBranches.length) {
+      setBanner({
+        type: 'error',
+        message: 'At least one branch with a name is required.',
+      })
+      return
+    }
     const name = editForm.organization_name.trim() || selected.organization_name || 'Request'
-    const payload = buildEditPayload(editForm, editBaseline)
+    const payload = buildEditPayload(
+      { ...editForm, branches: completeBranches },
+      editBaseline,
+    )
     if (Object.keys(payload).length === 0) {
       setBanner({ type: 'success', message: 'No changes to save.' })
       closeEdit()
@@ -434,6 +445,7 @@ const Lobby = () => {
                     <th className="px-4 py-3">Ops Admin</th>
                     <th className="px-4 py-3">Phone</th>
                     <th className="px-4 py-3">Branches</th>
+                    <th className="px-4 py-3">Custom website</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Submitted</th>
                   </tr>
@@ -505,6 +517,17 @@ const Lobby = () => {
                                 </div>
                               ))}
                             </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {row.wants_custom_website === true ||
+                          row.wants_custom_website === 'true' ||
+                          row.wants_custom_website === 1 ? (
+                            <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800 ring-1 ring-brand-100">
+                              Custom website required
+                            </span>
+                          ) : (
+                            <span className="text-stone-400">—</span>
                           )}
                         </td>
                         <td className="px-4 py-3">
@@ -703,7 +726,12 @@ const Lobby = () => {
 
             <div>
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-stone-900">Branches</p>
+                <div>
+                  <p className="text-sm font-semibold text-stone-900">
+                    Branches <span className="text-rose-600">*</span>
+                  </p>
+                  <p className="text-xs text-stone-500">At least one branch is required.</p>
+                </div>
                 <button
                   type="button"
                   className={btnGhost}
@@ -722,7 +750,7 @@ const Lobby = () => {
                   >
                     <div>
                       <label className={labelClass} htmlFor={`branch-name-${index}`}>
-                        Name
+                        Name <span className="text-rose-600">*</span>
                       </label>
                       <input
                         id={`branch-name-${index}`}
@@ -730,6 +758,7 @@ const Lobby = () => {
                         value={branch.name}
                         onChange={(e) => setBranchField(index, 'name', e.target.value)}
                         disabled={saving}
+                        required={index === 0}
                       />
                     </div>
                     <div>
@@ -750,7 +779,7 @@ const Lobby = () => {
                         className={`${btnGhost} text-rose-600`}
                         onClick={() => removeBranch(index)}
                         aria-label="Remove branch"
-                        disabled={saving}
+                        disabled={saving || editForm.branches.length <= 1}
                       >
                         <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
                       </button>

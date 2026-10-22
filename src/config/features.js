@@ -148,6 +148,22 @@ export const FEATURE_CATALOG = [
     core: false,
     route: '/ops/n8n-templates',
   },
+  {
+    key: 'accounts',
+    label: 'Accounts',
+    description: 'Accounts module for the tenant.',
+    group: 'Operations',
+    core: false,
+    route: '',
+  },
+  {
+    key: 'booking',
+    label: 'Booking',
+    description: 'Booking module (platform permission code).',
+    group: 'Manage Customer',
+    core: false,
+    route: '/ops/bookings',
+  },
 ]
 
 export const FEATURE_KEYS = FEATURE_CATALOG.map((f) => f.key)

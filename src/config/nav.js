@@ -48,6 +48,13 @@ export const NAV_ITEMS = [
     ownerOnly: true,
   },
   {
+    type: 'link',
+    to: '/roles',
+    title: 'Roles',
+    icon: FiShield,
+    needsTenant: false,
+  },
+  {
     type: 'group',
     id: 'tenants',
     title: 'Manage Tenants',
@@ -243,7 +250,7 @@ export const NAV_ITEMS = [
   {
     type: 'link',
     to: '/platform/permissions',
-    title: 'Permissions',
+    title: 'Feature flags',
     icon: FiShield,
     needsTenant: false,
     superOnly: true,

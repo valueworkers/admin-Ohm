@@ -110,3 +110,89 @@ export const activateTenant = async (tenantId) => {
   const { data } = await api.post(`api/platform/tenants/${tenantId}/activate/`)
   return data?.data || data
 }
+
+const asStringList = (value) => {
+  if (!Array.isArray(value)) return []
+  return value.map((v) => String(v || '').trim()).filter(Boolean)
+}
+
+/**
+ * GET /api/platform/tenants/:id/permissions/
+ * Supports enabled_modules[] and/or a permissions list.
+ */
+export const fetchTenantPermissions = async (tenantId) => {
+  const { data } = await api.get(`api/platform/tenants/${tenantId}/permissions/`)
+  const root = data?.data || data || {}
+
+  const enabledModules = asStringList(
+    root.enabled_modules || root.enabledModules || root.modules,
+  )
+
+  let raw = []
+  if (Array.isArray(root)) raw = root
+  else if (Array.isArray(root.permissions)) raw = root.permissions
+  else if (Array.isArray(root.results)) raw = root.results
+  else if (Array.isArray(root.available_modules)) {
+    raw = root.available_modules
+  } else if (root.permissions && typeof root.permissions === 'object') {
+    raw = Object.entries(root.permissions).map(([code, value]) => {
+      if (typeof value === 'boolean') return { code, name: code, enabled: value }
+      if (value && typeof value === 'object') return { code, ...value }
+      return { code, name: String(value) }
+    })
+  }
+
+  const items = raw.map((item) => {
+    if (typeof item === 'string') {
+      return {
+        code: item,
+        name: item,
+        description: '',
+        enabled: enabledModules.length ? enabledModules.includes(item) : true,
+      }
+    }
+    const code = String(item.code || item.codename || item.key || item.id || '').trim()
+    return {
+      code,
+      name: item.name || item.label || code || '—',
+      description: item.description || '',
+      enabled:
+        item.enabled != null
+          ? Boolean(item.enabled)
+          : item.is_enabled != null
+            ? Boolean(item.is_enabled)
+            : item.granted != null
+              ? Boolean(item.granted)
+              : enabledModules.length
+                ? enabledModules.includes(code)
+                : true,
+    }
+  })
+
+  // If API only returned enabled_modules, surface those as enabled items
+  if (!items.length && enabledModules.length) {
+    enabledModules.forEach((code) => {
+      items.push({ code, name: code, description: '', enabled: true })
+    })
+  }
+
+  const fromItems = items.filter((i) => i.enabled).map((i) => i.code).filter(Boolean)
+
+  return {
+    raw: root,
+    items,
+    enabledModules: enabledModules.length ? enabledModules : fromItems,
+  }
+}
+
+/** PATCH /api/platform/tenants/:id/permissions/ — { enabled_modules: string[] } */
+export const updateTenantPermissions = async (tenantId, enabledModules) => {
+  const payload = {
+    enabled_modules: asStringList(enabledModules),
+  }
+  const { data } = await api.patch(
+    `api/platform/tenants/${tenantId}/permissions/`,
+    payload,
+  )
+  return data?.data || data
+}

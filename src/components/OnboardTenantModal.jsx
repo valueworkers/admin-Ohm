@@ -477,7 +477,12 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
 
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-slate-900">Branches</p>
+            <div>
+              <p className="text-sm font-semibold text-slate-900">
+                Branches <span className="text-rose-600">*</span>
+              </p>
+              <p className="text-xs text-stone-500">At least one complete branch is required.</p>
+            </div>
             <button type="button" className={btnGhost} disabled={saving} onClick={addBranch}>
               <FiPlus className="h-4 w-4" />
               Add branch
@@ -501,21 +506,27 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block sm:col-span-2">
-                  <span className={labelClass}>Name</span>
+                  <span className={labelClass}>
+                    Name <span className="text-rose-600">*</span>
+                  </span>
                   <input
                     className={fieldClass}
                     value={branch.name}
                     onChange={(e) => updateBranch(index, 'name', e.target.value)}
                     disabled={saving}
+                    required={index === 0}
                   />
                 </label>
                 <label className="block sm:col-span-2">
-                  <span className={labelClass}>Address line 1</span>
+                  <span className={labelClass}>
+                    Address line 1 <span className="text-rose-600">*</span>
+                  </span>
                   <input
                     className={fieldClass}
                     value={branch.addressLine1}
                     onChange={(e) => updateBranch(index, 'addressLine1', e.target.value)}
                     disabled={saving}
+                    required={index === 0}
                   />
                 </label>
                 <label className="block sm:col-span-2">
@@ -528,25 +539,33 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
                   />
                 </label>
                 <label className="block">
-                  <span className={labelClass}>Locality</span>
+                  <span className={labelClass}>
+                    Locality <span className="text-rose-600">*</span>
+                  </span>
                   <input
                     className={fieldClass}
                     value={branch.locality}
                     onChange={(e) => updateBranch(index, 'locality', e.target.value)}
                     disabled={saving}
+                    required={index === 0}
                   />
                 </label>
                 <label className="block">
-                  <span className={labelClass}>City</span>
+                  <span className={labelClass}>
+                    City <span className="text-rose-600">*</span>
+                  </span>
                   <input
                     className={fieldClass}
                     value={branch.city}
                     onChange={(e) => updateBranch(index, 'city', e.target.value)}
                     disabled={saving}
+                    required={index === 0}
                   />
                 </label>
                 <label className="block">
-                  <span className={labelClass}>Pincode</span>
+                  <span className={labelClass}>
+                    Pincode <span className="text-rose-600">*</span>
+                  </span>
                   <input
                     className={fieldClass}
                     value={branch.pincode}
@@ -556,6 +575,7 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
                     disabled={saving}
                     inputMode="numeric"
                     maxLength={6}
+                    required={index === 0}
                   />
                 </label>
               </div>

@@ -1,24 +1,52 @@
 import axios from 'axios'
+import { isSuperAdminSession, resolveRolesTenantSlug } from '../utils/tenantHeader'
 
 const baseURL = String(import.meta.env.VITE_BASEURL_CARE || '').replace(/\/?$/, '/')
 
 const api = axios.create({
   baseURL,
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  },
 })
+
+const clearHeader = (headers, key) => {
+  if (!headers) return
+  if (typeof headers.delete === 'function') headers.delete(key)
+  else {
+    delete headers[key]
+    delete headers[key.toLowerCase()]
+  }
+}
+
+const setHeader = (headers, key, value) => {
+  if (!headers) return
+  if (typeof headers.set === 'function') headers.set(key, value)
+  else headers[key] = value
+}
+
+const isRolesApiRequest = (config) => {
+  const url = String(config?.url || '')
+  return url.includes('api/roles') || url.includes('api/role-assignments')
+}
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token')
   if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+    setHeader(config.headers, 'Authorization', `Bearer ${token}`)
   }
+  setHeader(config.headers, 'Accept', 'application/json')
+
+  // X-Tenant only on roles / role-assignments, and only for Tenant Admin (never Super Admin).
+  clearHeader(config.headers, 'X-Tenant')
+  if (isRolesApiRequest(config) && !isSuperAdminSession()) {
+    const slug = resolveRolesTenantSlug()
+    if (slug) setHeader(config.headers, 'X-Tenant', slug)
+  }
+
   if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
-    // Let the browser set multipart boundary.
-    if (config.headers && typeof config.headers.delete === 'function') {
-      config.headers.delete('Content-Type')
-    } else if (config.headers) {
-      delete config.headers['Content-Type']
-    }
+    clearHeader(config.headers, 'Content-Type')
   }
   return config
 })
@@ -76,7 +104,16 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const hasSession = Boolean(localStorage.getItem('access_token'))
-    if (hasSession && !isLoginRequest(error?.config) && isAuthFailure(error)) {
+    const url = String(error?.config?.url || '')
+    // Roles APIs may 401/403 for missing X-Tenant — show page error, don't kick session.
+    const isRolesUrl =
+      url.includes('api/roles') || url.includes('api/role-assignments')
+    if (
+      hasSession &&
+      !isLoginRequest(error?.config) &&
+      !isRolesUrl &&
+      isAuthFailure(error)
+    ) {
       forceLogoutToLogin()
     }
     return Promise.reject(error)
