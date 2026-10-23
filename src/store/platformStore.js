@@ -309,6 +309,9 @@ export const updateTenant = (tenantId, patch = {}) => {
   allowed.forEach((key) => {
     if (patch[key] !== undefined) next[key] = String(patch[key] ?? '').trim()
   })
+  if (patch.settings != null && typeof patch.settings === 'object') {
+    next.settings = { ...(next.settings || {}), ...patch.settings }
+  }
   if (!next.name) throw new Error('Organization name is required.')
   state.tenants[idx] = next
   write(state)

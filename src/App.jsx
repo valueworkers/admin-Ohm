@@ -16,8 +16,10 @@ import ModulePlaceholder from './pages/ModulePlaceholder'
 import MyTenants from './pages/MyTenants'
 import PatientsPage from './pages/PatientsPage'
 import Profile from './pages/Profile'
+import ResourcesPage from './pages/ResourcesPage'
 import Roles from './pages/Roles'
 import ServicesPage from './pages/ServicesPage'
+import SettingsPage from './pages/SettingsPage'
 import StaffPayoutsPage from './pages/StaffPayoutsPage'
 import TenantDetail from './pages/TenantDetail'
 import Tenants from './pages/Tenants'
@@ -58,7 +60,7 @@ const App = () => (
             <Route element={<RequireFeature />}>
               <Route path="ops/venues" element={<VenuesPage />} />
               <Route path="ops/services" element={<ServicesPage />} />
-              <Route path="ops/resources" element={<ModulePlaceholder />} />
+              <Route path="ops/resources" element={<ResourcesPage />} />
               <Route path="ops/emr" element={<ModulePlaceholder />} />
               <Route path="ops/analytics/attendance-master" element={<ModulePlaceholder />} />
               <Route path="ops/analytics/reminders" element={<ModulePlaceholder />} />
@@ -72,10 +74,13 @@ const App = () => (
               <Route path="ops/customers" element={<PatientsPage />} />
               <Route path="ops/bookings" element={<BookingsPage />} />
               <Route path="ops/customer-lobby" element={<ModulePlaceholder />} />
+              <Route path="ops/leads" element={<ModulePlaceholder />} />
+              <Route path="ops/quotations" element={<ModulePlaceholder />} />
               <Route path="ops/invoices" element={<ModulePlaceholder />} />
               <Route path="ops/payments" element={<ModulePlaceholder />} />
               <Route path="ops/location-packages" element={<LocationPackagesPage />} />
               <Route path="ops/n8n-templates" element={<ModulePlaceholder />} />
+              <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Route>
         </Route>

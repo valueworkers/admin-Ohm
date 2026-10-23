@@ -84,16 +84,34 @@ const Layout = () => {
     setMobileOpen(false)
   }, [location.pathname])
 
+  const pathMatchesEntry = (entry, pathname) => {
+    if (!entry) return false
+    if (entry.type === 'group') {
+      return (entry.children || []).some((c) => pathMatchesEntry(c, pathname))
+    }
+    if (!entry.to) return false
+    return pathname === entry.to || pathname.startsWith(`${entry.to}/`)
+  }
+
   useEffect(() => {
-    const match = NAV_ITEMS.find(
-      (item) =>
-        item.type === 'group' &&
-        item.children?.some(
-          (c) => location.pathname === c.to || location.pathname.startsWith(`${c.to}/`)
-        )
-    )
-    if (!match) return
-    setOpenGroups((prev) => (prev.includes(match.id) ? prev : [...prev, match.id]))
+    const toOpen = []
+    const walk = (entries, parents = []) => {
+      for (const entry of entries || []) {
+        if (entry.type !== 'group') continue
+        const chain = [...parents, entry.id]
+        if (pathMatchesEntry(entry, location.pathname)) {
+          toOpen.push(...chain)
+        }
+        walk(entry.children, chain)
+      }
+    }
+    walk(NAV_ITEMS)
+    if (!toOpen.length) return
+    setOpenGroups((prev) => {
+      const next = new Set(prev)
+      toOpen.forEach((id) => next.add(id))
+      return [...next]
+    })
   }, [location.pathname])
 
   const closeMobile = () => setMobileOpen(false)
@@ -118,29 +136,31 @@ const Layout = () => {
     return hasFeature(entry.featureKey)
   }
 
+  const filterNavTree = (entry) => {
+    if (!allowedForRole(entry)) return null
+    if (entry.type === 'group') {
+      const children = (entry.children || []).map(filterNavTree).filter(Boolean)
+      if (!children.length) return null
+      return { ...entry, children }
+    }
+    return entry
+  }
+
   const items = useMemo(
-    () =>
-      NAV_ITEMS.map((item) => {
-        if (!allowedForRole(item)) return null
-        if (item.type === 'group') {
-          const children = (item.children || []).filter(allowedForRole)
-          if (!children.length) return null
-          return { ...item, children }
-        }
-        return item
-      }).filter(Boolean),
+    () => NAV_ITEMS.map(filterNavTree).filter(Boolean),
     [isSuperAdmin, isTenantOwner, hasFeature]
   )
 
-  const renderLink = (item, { nested = false } = {}) => {
+  const renderLink = (item, { nested = false, deep = false } = {}) => {
     const locked = isSuperAdmin && item.needsTenant && !hasTenantSelected
+    const pad = deep ? 'pl-12' : nested ? 'pl-9' : ''
     return (
       <NavLink
         key={item.to}
         to={item.to}
         end={item.end}
         className={({ isActive }) =>
-          `${linkClass({ isActive })} ${nested && !rail ? 'pl-9' : ''} ${
+          `${linkClass({ isActive })} ${pad && !rail ? pad : ''} ${
             locked && !isActive ? 'opacity-55' : ''
           }`
         }
@@ -160,73 +180,77 @@ const Layout = () => {
     )
   }
 
+  const renderGroup = (item, { nested = false } = {}) => {
+    const expanded = openGroups.includes(item.id)
+    const groupActive = pathMatchesEntry(item, location.pathname)
+    const locked = isSuperAdmin && item.needsTenant && !hasTenantSelected
+
+    if (rail && !nested) {
+      return (
+        <button
+          key={item.id}
+          type="button"
+          className={`sc-nav-item relative flex w-full items-center justify-center rounded-r-lg py-2.5 text-stone-500 hover:bg-stone-50 hover:text-stone-800 ${
+            groupActive ? 'is-active text-stone-900' : ''
+          }`}
+          title={item.title}
+          onClick={() => {
+            setCollapsed(false)
+            if (!expanded) toggleGroup(item.id)
+          }}
+        >
+          <item.icon className="h-4 w-4" aria-hidden />
+        </button>
+      )
+    }
+
+    return (
+      <div key={item.id} className="space-y-0.5">
+        <div
+          className={`flex items-center gap-1 rounded-r-lg ${
+            groupActive && !expanded ? 'is-active sc-nav-item relative bg-brand-50' : ''
+          } ${nested && !rail ? 'pl-3' : ''}`}
+        >
+          <button
+            type="button"
+            className={`relative flex min-w-0 flex-1 items-center gap-3 rounded-r-lg px-3 py-2.5 text-left text-sm font-medium ${
+              groupActive ? 'text-stone-900' : 'text-stone-500 hover:text-stone-800'
+            } ${locked ? 'opacity-55' : ''}`}
+            onClick={() => toggleGroup(item.id)}
+            aria-expanded={expanded}
+          >
+            <item.icon className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1 truncate">{item.title}</span>
+          </button>
+          <button
+            type="button"
+            className="mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
+            onClick={() => toggleGroup(item.id)}
+            aria-label={expanded ? `Collapse ${item.title}` : `Expand ${item.title}`}
+          >
+            {expanded ? (
+              <FiMinus className="h-3.5 w-3.5" aria-hidden />
+            ) : (
+              <FiPlus className="h-3.5 w-3.5" aria-hidden />
+            )}
+          </button>
+        </div>
+        {expanded
+          ? item.children.map((child) =>
+              child.type === 'group'
+                ? renderGroup(child, { nested: true })
+                : renderLink(child, { nested: true, deep: nested }),
+            )
+          : null}
+      </div>
+    )
+  }
+
   const nav = (
     <nav className={`flex-1 space-y-0.5 overflow-y-auto pb-4 pt-2 ${rail ? 'px-2' : 'px-3'}`}>
-      {items.map((item) => {
-        if (item.type === 'link') return renderLink(item)
-
-        const expanded = openGroups.includes(item.id)
-        const groupActive = item.children.some(
-          (c) => location.pathname === c.to || location.pathname.startsWith(`${c.to}/`)
-        )
-        const locked = isSuperAdmin && item.needsTenant && !hasTenantSelected
-
-        if (rail) {
-          return (
-            <button
-              key={item.id}
-              type="button"
-              className={`sc-nav-item relative flex w-full items-center justify-center rounded-r-lg py-2.5 text-stone-500 hover:bg-stone-50 hover:text-stone-800 ${
-                groupActive ? 'is-active text-stone-900' : ''
-              }`}
-              title={item.title}
-              onClick={() => {
-                setCollapsed(false)
-                if (!expanded) toggleGroup(item.id)
-              }}
-            >
-              <item.icon className="h-4 w-4" aria-hidden />
-            </button>
-          )
-        }
-
-        return (
-          <div key={item.id} className="space-y-0.5">
-            <div
-              className={`flex items-center gap-1 rounded-r-lg ${
-                groupActive && !expanded ? 'is-active sc-nav-item relative bg-brand-50' : ''
-              }`}
-            >
-              <button
-                type="button"
-                className={`relative flex min-w-0 flex-1 items-center gap-3 rounded-r-lg px-3 py-2.5 text-left text-sm font-medium ${
-                  groupActive ? 'text-stone-900' : 'text-stone-500 hover:text-stone-800'
-                } ${locked ? 'opacity-55' : ''}`}
-                onClick={() => toggleGroup(item.id)}
-                aria-expanded={expanded}
-              >
-                <item.icon className="h-4 w-4 shrink-0" aria-hidden />
-                <span className="min-w-0 flex-1 truncate">{item.title}</span>
-              </button>
-              <button
-                type="button"
-                className="mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
-                onClick={() => toggleGroup(item.id)}
-                aria-label={expanded ? `Collapse ${item.title}` : `Expand ${item.title}`}
-              >
-                {expanded ? (
-                  <FiMinus className="h-3.5 w-3.5" aria-hidden />
-                ) : (
-                  <FiPlus className="h-3.5 w-3.5" aria-hidden />
-                )}
-              </button>
-            </div>
-            {expanded
-              ? item.children.map((child) => renderLink(child, { nested: true }))
-              : null}
-          </div>
-        )
-      })}
+      {items.map((item) =>
+        item.type === 'link' ? renderLink(item) : renderGroup(item),
+      )}
     </nav>
   )
 

@@ -4,7 +4,6 @@ import { Panel } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
 
 const TITLES = {
-  '/ops/resources': 'Resources',
   '/ops/emr': 'Document Manager',
   '/ops/analytics/attendance-master': 'Attendance Master',
   '/ops/analytics/reminders': 'Reminders',
@@ -13,8 +12,10 @@ const TITLES = {
   '/ops/staff/payroll': 'Payroll',
   '/ops/staff/for-hire': 'Staff for hire',
   '/ops/customer-lobby': 'Customer Lobby',
+  '/ops/leads': 'Leads',
+  '/ops/quotations': 'Quotations',
   '/ops/invoices': 'Invoices',
-  '/ops/payments': 'Payment',
+  '/ops/payments': 'Payments',
   '/ops/n8n-templates': 'N8N Templates',
 }
 
