@@ -15,6 +15,20 @@ import {
 } from './wixCatalog.js'
 
 const readJson = async (req) => {
+  // Vercel / some hosts pre-parse JSON onto req.body
+  if (req.body != null && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+    return req.body
+  }
+  if (typeof req.body === 'string') {
+    if (!req.body) return {}
+    try {
+      return JSON.parse(req.body)
+    } catch {
+      const err = new Error('Invalid JSON body')
+      err.status = 400
+      throw err
+    }
+  }
   const chunks = []
   for await (const chunk of req) chunks.push(chunk)
   const raw = Buffer.concat(chunks).toString('utf8')

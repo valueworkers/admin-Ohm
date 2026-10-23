@@ -38,6 +38,15 @@ const request = async (path, { method = 'GET', body } = {}) => {
     body: body != null ? JSON.stringify(body) : undefined,
   })
   const { text, data } = await parseJson(res)
+  const looksLikeHtml =
+    typeof text === 'string' &&
+    (text.trimStart().startsWith('<!DOCTYPE') ||
+      text.trimStart().startsWith('<html'))
+  if (looksLikeHtml) {
+    throw new Error(
+      'Products API is not available on this host. Deploy the /api/products serverless route and set WIX_API_KEY + WIX_SITE_ID (not VITE_) in production env.',
+    )
+  }
   if (!res.ok) throw apiError(res, data, text)
   return data
 }
