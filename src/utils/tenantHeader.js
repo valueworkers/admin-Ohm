@@ -25,7 +25,7 @@ export const isSuperAdminSession = () => {
       .replace(/[\s-]+/g, '_')
     const rawUser = localStorage.getItem('authUser')
     const user = rawUser ? JSON.parse(rawUser) : null
-    const roleKey = String(user?.role || '')
+    const roleKey = String(user?.primary_role || user?.role || '')
       .trim()
       .toUpperCase()
       .replace(/[\s-]+/g, '_')
@@ -33,7 +33,8 @@ export const isSuperAdminSession = () => {
       userType === 'SUPER_ADMIN' ||
       userType === 'MASTER_ADMIN' ||
       roleKey === 'SUPER_ADMIN' ||
-      roleKey === 'MASTER_ADMIN'
+      roleKey === 'MASTER_ADMIN' ||
+      roleKey === 'ADMIN'
     )
   } catch {
     return false

@@ -42,9 +42,8 @@ const App = () => (
             <Route path="profile" element={<Profile />} />
           </Route>
 
-          <Route path="roles" element={<Roles />} />
-
           <Route element={<RequireSuperAdmin />}>
+            <Route path="roles" element={<Roles />} />
             <Route path="lobby" element={<Lobby />} />
             <Route path="tenants" element={<Tenants />} />
             <Route path="tenants/offboarded" element={<PlatformOffboarded />} />
@@ -74,13 +73,15 @@ const App = () => (
               <Route path="ops/customers" element={<PatientsPage />} />
               <Route path="ops/bookings" element={<BookingsPage />} />
               <Route path="ops/customer-lobby" element={<ModulePlaceholder />} />
+              <Route path="ops/location-packages" element={<LocationPackagesPage />} />
+              <Route path="ops/n8n-templates" element={<ModulePlaceholder />} />
+              <Route path="settings" element={<SettingsPage />} />
+            </Route>
+            <Route element={<RequireSuperAdmin />}>
               <Route path="ops/leads" element={<ModulePlaceholder />} />
               <Route path="ops/quotations" element={<ModulePlaceholder />} />
               <Route path="ops/invoices" element={<ModulePlaceholder />} />
               <Route path="ops/payments" element={<ModulePlaceholder />} />
-              <Route path="ops/location-packages" element={<LocationPackagesPage />} />
-              <Route path="ops/n8n-templates" element={<ModulePlaceholder />} />
-              <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Route>
         </Route>

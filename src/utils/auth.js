@@ -34,20 +34,27 @@ const normalizeRoleKey = (raw) =>
     .toUpperCase()
     .replace(/[\s-]+/g, '_')
 
+const roleFromUser = (user) =>
+  user?.user_type ||
+  user?.userType ||
+  user?.primary_role ||
+  user?.role ||
+  user?.role_label ||
+  ''
+
 export const getUserType = (userOrType) => {
   if (userOrType == null) return ''
   if (typeof userOrType === 'string') return normalizeRoleKey(userOrType)
-  const fromType = normalizeRoleKey(userOrType?.user_type || userOrType?.userType)
-  if (fromType) return fromType
-  // Fallback: login API may only send user.role ("Super Admin")
-  return normalizeRoleKey(userOrType?.role)
+  return normalizeRoleKey(roleFromUser(userOrType))
 }
 
 export const isSuperAdmin = (userOrType) => {
   const t = getUserType(userOrType)
   if (t === USER_TYPES.SUPER_ADMIN || t === 'MASTER_ADMIN' || t === 'ADMIN') return true
   if (userOrType && typeof userOrType === 'object') {
-    const role = normalizeRoleKey(userOrType.role)
+    const role = normalizeRoleKey(
+      userOrType.primary_role || userOrType.role || userOrType.role_label
+    )
     return role === 'SUPER_ADMIN' || role === 'MASTER_ADMIN' || role === 'ADMIN'
   }
   return false
@@ -167,9 +174,11 @@ const splitFullName = (fullName = '') => {
 
 const sessionFromApiUser = (apiUser, data = {}, usernameFallback = '') => {
   const fromFull = splitFullName(apiUser.full_name)
-  const roleDisplay = String(apiUser.role || apiUser.role_label || '').trim()
+  const roleDisplay = String(
+    apiUser.primary_role || apiUser.role || apiUser.role_label || ''
+  ).trim()
   const userType = normalizeApiUserType(
-    apiUser.user_type || apiUser.userType || apiUser.role
+    apiUser.user_type || apiUser.userType || apiUser.primary_role || apiUser.role
   )
   const schemaName =
     data.schema_name || apiUser.schema_name || apiUser.tenant_slug || ''
@@ -178,10 +187,13 @@ const sessionFromApiUser = (apiUser, data = {}, usernameFallback = '') => {
     email: apiUser.email || apiUser.username || usernameFallback || '',
     full_name: apiUser.full_name || '',
     first_name: apiUser.first_name || fromFull.first_name || '',
+    middle_name: apiUser.middle_name || '',
     last_name: apiUser.last_name || fromFull.last_name || '',
     phone: apiUser.mobile_number || apiUser.phone || '',
+    profile_pic: apiUser.profile_pic || null,
     is_active: apiUser.is_active !== false,
     date_joined: apiUser.date_joined || null,
+    primary_role: roleDisplay || null,
     role: roleDisplay || null,
     schema_name: schemaName || '',
     tenant_slug: schemaName || '',

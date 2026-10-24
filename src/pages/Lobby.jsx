@@ -59,20 +59,53 @@ const canReview = (status) => {
   return s === 'submitted' || s === 'pending' || !s
 }
 
-const emptyBranch = () => ({ name: '', address: '' })
+const emptyBranch = () => ({
+  name: '',
+  line1: '',
+  line2: '',
+  locality: '',
+  city: '',
+  pincode: '',
+})
+
+const mapBranch = (b = {}) => ({
+  name: b.name || '',
+  line1: b.line1 || b.address || '',
+  line2: b.line2 || '',
+  locality: b.locality || '',
+  city: b.city || '',
+  pincode: b.pincode || '',
+})
+
+const formatBranchLine = (b) => {
+  const parts = [b.line1, b.line2, b.locality, b.city, b.pincode]
+    .map((p) => String(p || '').trim())
+    .filter(Boolean)
+  return parts.join(', ')
+}
+
+const emailsToText = (emails) =>
+  Array.isArray(emails) ? emails.filter(Boolean).join('\n') : String(emails || '').trim()
+
+const textToEmails = (text) =>
+  String(text || '')
+    .split(/[\n,;]+/)
+    .map((e) => e.trim())
+    .filter(Boolean)
 
 const formFromRow = (row) => ({
   organization_name: row.organization_name || '',
-  email: row.email || '',
+  email: row.email || row.applicant_email || '',
   contact_phone: row.contact_phone || '',
-  address: row.address || '',
+  gst_number: row.gst_number || '',
   ops_admin_email: row.ops_admin_email || '',
+  co_owner_emails: emailsToText(row.co_owner_emails),
   slug: row.slug || '',
   custom_domain: row.custom_domain || '',
   wants_custom_website: Boolean(row.wants_custom_website),
   branches:
     Array.isArray(row.branches) && row.branches.length > 0
-      ? row.branches.map((b) => ({ name: b.name || '', address: b.address || '' }))
+      ? row.branches.map(mapBranch)
       : [emptyBranch()],
 })
 
@@ -80,17 +113,22 @@ const normalizeBranches = (branches) =>
   (branches || [])
     .map((b) => ({
       name: String(b.name || '').trim(),
-      address: String(b.address || '').trim(),
+      line1: String(b.line1 || '').trim(),
+      line2: String(b.line2 || '').trim(),
+      locality: String(b.locality || '').trim(),
+      city: String(b.city || '').trim(),
+      pincode: String(b.pincode || '').trim(),
     }))
-    .filter((b) => b.name || b.address)
+    .filter((b) => b.name || b.line1 || b.city || b.pincode)
 
 const buildEditPayload = (current, baseline) => {
   const next = {
     organization_name: String(current.organization_name || '').trim(),
     email: String(current.email || '').trim(),
     contact_phone: String(current.contact_phone || '').trim(),
-    address: String(current.address || '').trim(),
+    gst_number: String(current.gst_number || '').trim().toUpperCase(),
     ops_admin_email: String(current.ops_admin_email || '').trim(),
+    co_owner_emails: textToEmails(current.co_owner_emails),
     slug: String(current.slug || '').trim(),
     custom_domain: String(current.custom_domain || '').trim(),
     wants_custom_website: Boolean(current.wants_custom_website),
@@ -100,8 +138,9 @@ const buildEditPayload = (current, baseline) => {
     organization_name: String(baseline.organization_name || '').trim(),
     email: String(baseline.email || '').trim(),
     contact_phone: String(baseline.contact_phone || '').trim(),
-    address: String(baseline.address || '').trim(),
+    gst_number: String(baseline.gst_number || '').trim().toUpperCase(),
     ops_admin_email: String(baseline.ops_admin_email || '').trim(),
+    co_owner_emails: textToEmails(baseline.co_owner_emails),
     slug: String(baseline.slug || '').trim(),
     custom_domain: String(baseline.custom_domain || '').trim(),
     wants_custom_website: Boolean(baseline.wants_custom_website),
@@ -113,13 +152,16 @@ const buildEditPayload = (current, baseline) => {
     'organization_name',
     'email',
     'contact_phone',
-    'address',
+    'gst_number',
     'ops_admin_email',
     'slug',
     'custom_domain',
     'wants_custom_website',
   ]) {
     if (next[key] !== prev[key]) payload[key] = next[key]
+  }
+  if (JSON.stringify(next.co_owner_emails) !== JSON.stringify(prev.co_owner_emails)) {
+    payload.co_owner_emails = next.co_owner_emails
   }
   if (JSON.stringify(next.branches) !== JSON.stringify(prev.branches)) {
     payload.branches = next.branches
@@ -443,8 +485,10 @@ const Lobby = () => {
                     <th className="px-4 py-3">Organization</th>
                     <th className="px-4 py-3">Owner email</th>
                     <th className="px-4 py-3">Ops Admin</th>
+                    <th className="px-4 py-3">Co-owners</th>
                     <th className="px-4 py-3">Phone</th>
                     <th className="px-4 py-3">Branches</th>
+                    <th className="px-4 py-3">Plan</th>
                     <th className="px-4 py-3">Custom website</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Submitted</th>
@@ -453,6 +497,9 @@ const Lobby = () => {
                 <tbody className="divide-y divide-stone-100">
                   {rows.map((row) => {
                     const branches = Array.isArray(row.branches) ? row.branches : []
+                    const coOwners = Array.isArray(row.co_owner_emails)
+                      ? row.co_owner_emails.filter(Boolean)
+                      : []
                     const isSelected = String(row.id) === String(selectedId)
                     return (
                       <tr
@@ -489,15 +536,33 @@ const Lobby = () => {
                               <p className="truncate text-xs text-stone-400">
                                 {row.slug || row.applicant_email || '—'}
                               </p>
+                              {row.gst_number ? (
+                                <p className="truncate text-xs text-stone-400">
+                                  GST: {row.gst_number}
+                                </p>
+                              ) : null}
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-stone-600">{row.email || '—'}</td>
+                        <td className="px-4 py-3 text-stone-600">
+                          {row.email || row.applicant_email || '—'}
+                        </td>
                         <td className="px-4 py-3 text-stone-600">
                           {row.ops_admin_email ? (
                             row.ops_admin_email
                           ) : (
                             <span className="text-amber-800">Not set</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-stone-600">
+                          {coOwners.length === 0 ? (
+                            '—'
+                          ) : (
+                            <div className="space-y-0.5 text-xs">
+                              {coOwners.map((email) => (
+                                <div key={email}>{email}</div>
+                              ))}
+                            </div>
                           )}
                         </td>
                         <td className="px-4 py-3 text-stone-600">{row.contact_phone || '—'}</td>
@@ -506,18 +571,25 @@ const Lobby = () => {
                             '—'
                           ) : (
                             <div className="space-y-0.5">
-                              {branches.map((b, i) => (
-                                <div key={`${row.id}-b-${i}`}>
-                                  <span className="font-medium text-stone-800">
-                                    {b.name || 'Branch'}
-                                  </span>
-                                  {b.address ? (
-                                    <span className="block text-xs text-stone-400">{b.address}</span>
-                                  ) : null}
-                                </div>
-                              ))}
+                              {branches.map((b, i) => {
+                                const line = formatBranchLine(mapBranch(b))
+                                return (
+                                  <div key={`${row.id}-b-${i}`}>
+                                    <span className="font-medium text-stone-800">
+                                      {b.name || 'Branch'}
+                                    </span>
+                                    {line ? (
+                                      <span className="block text-xs text-stone-400">{line}</span>
+                                    ) : null}
+                                  </div>
+                                )
+                              })}
                             </div>
                           )}
+                        </td>
+                        <td className="px-4 py-3 text-stone-600">
+                          {row.requested_plan_name ||
+                            (row.requested_plan != null ? String(row.requested_plan) : '—')}
                         </td>
                         <td className="px-4 py-3">
                           {row.wants_custom_website === true ||
@@ -675,6 +747,18 @@ const Lobby = () => {
                 />
               </div>
               <div>
+                <label htmlFor="edit-gst" className={labelClass}>
+                  GST number
+                </label>
+                <input
+                  id="edit-gst"
+                  className={fieldClass}
+                  value={editForm.gst_number}
+                  onChange={(e) => setEditField('gst_number', e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+              <div>
                 <label htmlFor="edit-slug" className={labelClass}>
                   Slug
                 </label>
@@ -683,18 +767,6 @@ const Lobby = () => {
                   className={fieldClass}
                   value={editForm.slug}
                   onChange={(e) => setEditField('slug', e.target.value)}
-                  disabled={saving}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label htmlFor="edit-address" className={labelClass}>
-                  Address
-                </label>
-                <textarea
-                  id="edit-address"
-                  className={`${fieldClass} min-h-[72px] resize-y`}
-                  value={editForm.address}
-                  onChange={(e) => setEditField('address', e.target.value)}
                   disabled={saving}
                 />
               </div>
@@ -707,6 +779,19 @@ const Lobby = () => {
                   className={fieldClass}
                   value={editForm.custom_domain}
                   onChange={(e) => setEditField('custom_domain', e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label htmlFor="edit-co-owners" className={labelClass}>
+                  Co-owner emails
+                </label>
+                <textarea
+                  id="edit-co-owners"
+                  className={`${fieldClass} min-h-[72px] resize-y`}
+                  value={editForm.co_owner_emails}
+                  onChange={(e) => setEditField('co_owner_emails', e.target.value)}
+                  placeholder="One email per line"
                   disabled={saving}
                 />
               </div>
@@ -746,34 +831,12 @@ const Lobby = () => {
                 {editForm.branches.map((branch, index) => (
                   <div
                     key={`branch-${index}`}
-                    className="grid gap-2 rounded-lg border border-stone-200 p-3 sm:grid-cols-[1fr_1fr_auto]"
+                    className="space-y-2 rounded-lg border border-stone-200 p-3"
                   >
-                    <div>
-                      <label className={labelClass} htmlFor={`branch-name-${index}`}>
-                        Name <span className="text-rose-600">*</span>
-                      </label>
-                      <input
-                        id={`branch-name-${index}`}
-                        className={fieldClass}
-                        value={branch.name}
-                        onChange={(e) => setBranchField(index, 'name', e.target.value)}
-                        disabled={saving}
-                        required={index === 0}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass} htmlFor={`branch-address-${index}`}>
-                        Address
-                      </label>
-                      <input
-                        id={`branch-address-${index}`}
-                        className={fieldClass}
-                        value={branch.address}
-                        onChange={(e) => setBranchField(index, 'address', e.target.value)}
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="flex items-end">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
+                        Branch {index + 1}
+                      </p>
                       <button
                         type="button"
                         className={`${btnGhost} text-rose-600`}
@@ -783,6 +846,81 @@ const Lobby = () => {
                       >
                         <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
                       </button>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
+                        <label className={labelClass} htmlFor={`branch-name-${index}`}>
+                          Name <span className="text-rose-600">*</span>
+                        </label>
+                        <input
+                          id={`branch-name-${index}`}
+                          className={fieldClass}
+                          value={branch.name}
+                          onChange={(e) => setBranchField(index, 'name', e.target.value)}
+                          disabled={saving}
+                          required={index === 0}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelClass} htmlFor={`branch-line1-${index}`}>
+                          Address line 1
+                        </label>
+                        <input
+                          id={`branch-line1-${index}`}
+                          className={fieldClass}
+                          value={branch.line1}
+                          onChange={(e) => setBranchField(index, 'line1', e.target.value)}
+                          disabled={saving}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelClass} htmlFor={`branch-line2-${index}`}>
+                          Address line 2
+                        </label>
+                        <input
+                          id={`branch-line2-${index}`}
+                          className={fieldClass}
+                          value={branch.line2}
+                          onChange={(e) => setBranchField(index, 'line2', e.target.value)}
+                          disabled={saving}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelClass} htmlFor={`branch-locality-${index}`}>
+                          Locality
+                        </label>
+                        <input
+                          id={`branch-locality-${index}`}
+                          className={fieldClass}
+                          value={branch.locality}
+                          onChange={(e) => setBranchField(index, 'locality', e.target.value)}
+                          disabled={saving}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelClass} htmlFor={`branch-city-${index}`}>
+                          City
+                        </label>
+                        <input
+                          id={`branch-city-${index}`}
+                          className={fieldClass}
+                          value={branch.city}
+                          onChange={(e) => setBranchField(index, 'city', e.target.value)}
+                          disabled={saving}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelClass} htmlFor={`branch-pincode-${index}`}>
+                          Pincode
+                        </label>
+                        <input
+                          id={`branch-pincode-${index}`}
+                          className={fieldClass}
+                          value={branch.pincode}
+                          onChange={(e) => setBranchField(index, 'pincode', e.target.value)}
+                          disabled={saving}
+                        />
+                      </div>
                     </div>
                   </div>
                 ))}

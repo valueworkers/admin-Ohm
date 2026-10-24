@@ -56,7 +56,7 @@ export const useAccess = () => {
     } catch {
       // ignore
     }
-  }, [superAdmin, user?.id, user?.user_type, user?.role])
+  }, [superAdmin, user?.id, user?.user_type, user?.role, user?.primary_role])
 
   const tenantId = superAdmin
     ? getSelectedTenantId() || null

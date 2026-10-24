@@ -4,6 +4,8 @@ const asList = (data) => {
   if (Array.isArray(data)) return data
   if (Array.isArray(data?.results)) return data.results
   if (Array.isArray(data?.data)) return data.data
+  if (Array.isArray(data?.data?.results)) return data.data.results
+  if (Array.isArray(data?.requests)) return data.requests
   return []
 }
 

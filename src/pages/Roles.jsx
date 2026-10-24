@@ -374,7 +374,7 @@ const Roles = () => {
         title={superAdmin ? 'Roles' : 'Roles & assignments'}
         description={
           superAdmin
-            ? 'Create and manage roles. Super Admin does not send X-Tenant.'
+            ? 'Create and manage platform roles.'
             : `Workspace roles and assignments for ${tenantSlug || 'your tenant'} (X-Tenant = tenant slug).`
         }
         actions={
@@ -420,9 +420,7 @@ const Roles = () => {
         />
       ) : null}
 
-      {superAdmin ? (
-        <StatusBanner type="info" message="Super Admin — X-Tenant is not sent on roles APIs." />
-      ) : tenantSlug ? (
+      {!superAdmin && tenantSlug ? (
         <StatusBanner type="info" message={`X-Tenant: ${tenantSlug}`} />
       ) : null}
 

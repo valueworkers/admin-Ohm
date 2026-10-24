@@ -57,6 +57,7 @@ export const NAV_ITEMS = [
     title: 'Roles',
     icon: FiShield,
     needsTenant: false,
+    superOnly: true,
   },
   {
     type: 'group',
@@ -265,6 +266,7 @@ export const NAV_ITEMS = [
     title: 'Operations',
     icon: FiBriefcase,
     needsTenant: true,
+    superOnly: true,
     children: [
       {
         type: 'link',
@@ -273,6 +275,7 @@ export const NAV_ITEMS = [
         icon: FiTarget,
         needsTenant: true,
         featureKey: 'leads',
+        superOnly: true,
       },
       {
         type: 'link',
@@ -281,6 +284,7 @@ export const NAV_ITEMS = [
         icon: FiEdit3,
         needsTenant: true,
         featureKey: 'quotations',
+        superOnly: true,
       },
       {
         type: 'link',
@@ -289,6 +293,7 @@ export const NAV_ITEMS = [
         icon: FiFileText,
         needsTenant: true,
         featureKey: 'invoices',
+        superOnly: true,
       },
       {
         type: 'link',
@@ -297,6 +302,7 @@ export const NAV_ITEMS = [
         icon: FiCreditCard,
         needsTenant: true,
         featureKey: 'payments',
+        superOnly: true,
       },
     ],
   },
