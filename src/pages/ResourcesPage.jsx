@@ -228,6 +228,7 @@ const ResourcesPage = () => {
       const data = await listProducts({ cursor, q: query, limit: 50 })
       const list = data?.products || []
       setRows((prev) => (append ? [...prev, ...list] : list))
+      if (!append) setVariantsById({})
       setNextCursor(data?.nextCursor || null)
       if (data?.currency) setCurrency(data.currency)
     } catch (err) {
@@ -924,28 +925,51 @@ const ResourcesPage = () => {
                                 </p>
                               ) : (
                                 <ul className="ml-10 divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white">
-                                  {variants.map((v) => (
-                                    <li
-                                      key={v.id}
-                                      className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
-                                    >
-                                      <span className="font-medium text-stone-800">
-                                        {(v.choices || [])
-                                          .map((c) => c.choiceName)
-                                          .join(' / ') || 'Default'}
-                                      </span>
-                                      <span className="text-stone-700">
-                                        {v.price != null
-                                          ? `₹${v.price}`
-                                          : '—'}
-                                        {v.compareAtPrice != null ? (
-                                          <span className="ml-2 text-stone-400 line-through">
-                                            ₹{v.compareAtPrice}
+                                  {variants.map((v) => {
+                                    const label =
+                                      (v.choices || [])
+                                        .map((c) => c.choiceName)
+                                        .join(' / ') || 'Default'
+                                    const img =
+                                      v.image ||
+                                      (v.choices || [])
+                                        .map((c) => c.image)
+                                        .find(Boolean) ||
+                                      ''
+                                    return (
+                                      <li
+                                        key={v.id}
+                                        className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+                                      >
+                                        <div className="flex min-w-0 items-center gap-2.5">
+                                          {img ? (
+                                            <img
+                                              src={img}
+                                              alt=""
+                                              className="h-9 w-9 shrink-0 rounded-md object-cover ring-1 ring-stone-200"
+                                            />
+                                          ) : (
+                                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-stone-100 text-[10px] text-stone-400">
+                                              —
+                                            </span>
+                                          )}
+                                          <span className="font-medium text-stone-800">
+                                            {label}
                                           </span>
-                                        ) : null}
-                                      </span>
-                                    </li>
-                                  ))}
+                                        </div>
+                                        <span className="text-stone-700">
+                                          {v.price != null
+                                            ? `₹${v.price}`
+                                            : '—'}
+                                          {v.compareAtPrice != null ? (
+                                            <span className="ml-2 text-stone-400 line-through">
+                                              ₹{v.compareAtPrice}
+                                            </span>
+                                          ) : null}
+                                        </span>
+                                      </li>
+                                    )
+                                  })}
                                 </ul>
                               )}
                             </td>
@@ -1003,19 +1027,41 @@ const ResourcesPage = () => {
                     </div>
                   </div>
                   {open ? (
-                    <ul className="mt-3 space-y-1 border-t border-stone-100 pt-2 text-sm">
-                      {variants.map((v) => (
-                        <li key={v.id} className="flex justify-between gap-2">
-                          <span>
-                            {(v.choices || [])
-                              .map((c) => c.choiceName)
-                              .join(' / ')}
-                          </span>
-                          <span>
-                            {v.price != null ? `₹${v.price}` : '—'}
-                          </span>
-                        </li>
-                      ))}
+                    <ul className="mt-3 space-y-2 border-t border-stone-100 pt-2 text-sm">
+                      {variants.map((v) => {
+                        const img =
+                          v.image ||
+                          (v.choices || []).map((c) => c.image).find(Boolean) ||
+                          ''
+                        return (
+                          <li
+                            key={v.id}
+                            className="flex items-center justify-between gap-2"
+                          >
+                            <div className="flex min-w-0 items-center gap-2">
+                              {img ? (
+                                <img
+                                  src={img}
+                                  alt=""
+                                  className="h-8 w-8 shrink-0 rounded-md object-cover ring-1 ring-stone-200"
+                                />
+                              ) : (
+                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-stone-100 text-[10px] text-stone-400">
+                                  —
+                                </span>
+                              )}
+                              <span className="truncate">
+                                {(v.choices || [])
+                                  .map((c) => c.choiceName)
+                                  .join(' / ')}
+                              </span>
+                            </div>
+                            <span className="shrink-0">
+                              {v.price != null ? `₹${v.price}` : '—'}
+                            </span>
+                          </li>
+                        )
+                      })}
                     </ul>
                   ) : null}
                   <div className="mt-3 flex gap-2">

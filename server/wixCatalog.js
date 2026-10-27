@@ -177,16 +177,33 @@ export const mapProductListItem = (product = {}) => {
  * Source of truth for per-variant data: Get Product → variantsInfo.variants
  * (with fields VARIANT_OPTION_CHOICE_NAMES for optionName/choiceName).
  */
+const choiceMediaUrl = (choice = {}) => {
+  const media = Array.isArray(choice.linkedMedia) ? choice.linkedMedia[0] : null
+  if (!media) return ''
+  return media?.image?.url || media?.url || media?.image?.image?.url || ''
+}
+
 export const mapVariantDetail = (variant = {}, options = []) => {
   const choiceList = Array.isArray(variant.choices) ? variant.choices : []
   const lookup = new Map()
   ;(options || []).forEach((opt) => {
     ;(opt.choicesSettings?.choices || []).forEach((c) => {
+      const image = choiceMediaUrl(c)
       const cid = c.choiceId || c.id
       if (cid) {
         lookup.set(String(cid), {
           optionName: opt.name || '',
           choiceName: c.name || c.key || '',
+          image,
+        })
+      }
+      const on = opt.name || ''
+      const cn = c.name || c.key || ''
+      if (on && cn) {
+        lookup.set(`${on}::${cn}`, {
+          optionName: on,
+          choiceName: cn,
+          image,
         })
       }
     })
@@ -196,7 +213,12 @@ export const mapVariantDetail = (variant = {}, options = []) => {
     .map((c) => {
       const names = c.optionChoiceNames
       if (names?.optionName && names?.choiceName) {
-        return { optionName: names.optionName, choiceName: names.choiceName }
+        const byName = lookup.get(`${names.optionName}::${names.choiceName}`)
+        return {
+          optionName: names.optionName,
+          choiceName: names.choiceName,
+          image: byName?.image || '',
+        }
       }
       const cid = c.optionChoiceIds?.choiceId || c.choiceId
       const hit = cid ? lookup.get(String(cid)) : null
@@ -207,9 +229,11 @@ export const mapVariantDetail = (variant = {}, options = []) => {
 
   const amount = variant.price?.actualPrice?.amount
   const compare = variant.price?.compareAtPrice?.amount
+  const image = choices.map((c) => c.image).find(Boolean) || ''
   return {
     id: variant.id,
     choices,
+    image,
     price: amount != null && amount !== '' ? Number(amount) : null,
     compareAtPrice:
       compare != null && compare !== '' ? Number(compare) : null,
