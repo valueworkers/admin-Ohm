@@ -10,30 +10,49 @@ const asList = (data) => {
   return []
 }
 
-const normalizeRole = (row = {}) => ({
-  ...row,
-  id: row.id ?? row.pk ?? null,
-  code: row.code || '',
-  name: row.name || '',
-  rank: row.rank != null ? Number(row.rank) : 0,
-  permissions: Array.isArray(row.permissions) ? row.permissions : [],
-  is_system: Boolean(row.is_system || row.is_builtin || row.system),
-})
-
 const normalizePermission = (row, fallbackCode = '') => {
-  if (typeof row === 'string') {
-    return { code: row, name: row, description: '' }
+  if (typeof row === 'string' || typeof row === 'number') {
+    const code = String(row)
+    return { id: typeof row === 'number' ? row : null, code, name: code, description: '' }
   }
   if (row == null || typeof row !== 'object') {
-    return { code: fallbackCode, name: fallbackCode, description: '' }
+    return { id: null, code: fallbackCode, name: fallbackCode, description: '' }
   }
   const code = String(
     row.code || row.codename || row.key || row.slug || row.id || fallbackCode || '',
   ).trim()
   return {
+    id: row.id ?? row.pk ?? null,
     code,
     name: String(row.name || row.label || row.title || code).trim() || code,
     description: String(row.description || row.help_text || '').trim(),
+  }
+}
+
+const permissionsFromRole = (row = {}) => {
+  if (Array.isArray(row.permission_details) && row.permission_details.length) {
+    return row.permission_details
+  }
+  if (Array.isArray(row.permissions) && row.permissions.length) {
+    return row.permissions
+  }
+  if (Array.isArray(row.permission_ids) && row.permission_ids.length) {
+    return row.permission_ids
+  }
+  return []
+}
+
+const normalizeRole = (row = {}) => {
+  const permissions = permissionsFromRole(row).map((p) => normalizePermission(p))
+  return {
+    ...row,
+    id: row.id ?? row.pk ?? null,
+    code: row.code || '',
+    name: row.name || '',
+    rank: row.rank != null ? Number(row.rank) : 0,
+    permissions,
+    permission_details: permissions,
+    is_system: Boolean(row.is_system || row.is_builtin || row.system),
   }
 }
 
@@ -116,11 +135,11 @@ export const fetchRolePermissions = async () => {
   const { data } = await api.get('api/roles/permissions/')
   return permissionsFromPayload(data)
     .map((row) =>
-      typeof row === 'string'
+      typeof row === 'string' || typeof row === 'number'
         ? normalizePermission(row)
         : normalizePermission(row, row?.code || row?.key || ''),
     )
-    .filter((p) => p.code)
+    .filter((p) => p.code && p.id != null)
 }
 
 /** GET /api/role-assignments/?user_id= */

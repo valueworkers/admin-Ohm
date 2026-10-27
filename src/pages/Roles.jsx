@@ -43,15 +43,24 @@ const emptyRoleForm = () => ({
   permissions: [],
 })
 
+const permissionIdsFromRole = (role = {}) => {
+  const list = role.permissions || role.permission_details || []
+  if (!Array.isArray(list)) return []
+  return list
+    .map((p) => {
+      if (typeof p === 'number') return p
+      if (typeof p === 'string' && /^\d+$/.test(p)) return Number(p)
+      const id = p?.id ?? p?.pk
+      return id != null && id !== '' ? Number(id) : null
+    })
+    .filter((id) => Number.isFinite(id))
+}
+
 const toRoleForm = (role = {}) => ({
   code: role.code || '',
   name: role.name || '',
   rank: role.rank != null ? String(role.rank) : '50',
-  permissions: Array.isArray(role.permissions)
-    ? role.permissions
-        .map((p) => (typeof p === 'string' ? p : p.code || p.codename || ''))
-        .filter(Boolean)
-    : [],
+  permissions: permissionIdsFromRole(role),
 })
 
 const emptyAssignForm = () => ({
@@ -216,11 +225,13 @@ const Roles = () => {
     setRoleForm(null)
   }
 
-  const togglePermission = (code) => {
+  const togglePermission = (permId) => {
+    const id = Number(permId)
+    if (!Number.isFinite(id)) return
     setRoleForm((prev) => {
-      const set = new Set(prev.permissions || [])
-      if (set.has(code)) set.delete(code)
-      else set.add(code)
+      const set = new Set((prev.permissions || []).map(Number))
+      if (set.has(id)) set.delete(id)
+      else set.add(id)
       return { ...prev, permissions: [...set] }
     })
   }
@@ -231,6 +242,9 @@ const Roles = () => {
     const code = String(roleForm.code || '').trim().toUpperCase()
     const name = String(roleForm.name || '').trim()
     const rank = Number(roleForm.rank)
+    const permissions = (roleForm.permissions || [])
+      .map(Number)
+      .filter((id) => Number.isFinite(id))
     if (!code || !name || !Number.isFinite(rank)) {
       setStatus({ type: 'error', message: 'Code, name, and rank are required.' })
       return
@@ -239,13 +253,13 @@ const Roles = () => {
     setStatus({ type: '', message: '' })
     try {
       if (modalMode === 'create') {
-        await createRole({ code, name, rank, permissions: roleForm.permissions || [] })
+        await createRole({ code, name, rank, permissions })
         setStatus({ type: 'success', message: `${name} created.` })
       } else {
         await updateRole(editTarget.id, {
           name,
           rank,
-          permissions: roleForm.permissions || [],
+          permissions,
         })
         setStatus({ type: 'success', message: `${name} updated.` })
       }
@@ -485,7 +499,32 @@ const Roles = () => {
                         </td>
                         <td className="px-4 py-3 text-stone-600">{row.rank}</td>
                         <td className="px-4 py-3 text-stone-600">
-                          {(row.permissions || []).length}
+                          {(() => {
+                            const perms = row.permissions || row.permission_details || []
+                            if (!perms.length) {
+                              return <span className="text-stone-400">0</span>
+                            }
+                            const preview = perms
+                              .slice(0, 2)
+                              .map((p) => (typeof p === 'string' ? p : p.name || p.code || ''))
+                              .filter(Boolean)
+                              .join(', ')
+                            const extra = perms.length > 2 ? ` +${perms.length - 2}` : ''
+                            return (
+                              <div className="min-w-0">
+                                <p className="font-medium text-stone-800">{perms.length}</p>
+                                {preview ? (
+                                  <p className="truncate text-xs text-stone-400" title={perms
+                                    .map((p) => (typeof p === 'string' ? p : p.name || p.code || ''))
+                                    .filter(Boolean)
+                                    .join(', ')}>
+                                    {preview}
+                                    {extra}
+                                  </p>
+                                ) : null}
+                              </div>
+                            )
+                          })()}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-1.5">
@@ -667,18 +706,21 @@ const Roles = () => {
               {!permsLoading && !permsError && permissionOptions.length > 0 ? (
                 <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-stone-200 p-3">
                   {permissionOptions.map((perm) => {
-                    const checked = (roleForm.permissions || []).includes(perm.code)
+                    const permId = Number(perm.id)
+                    const checked =
+                      Number.isFinite(permId) &&
+                      (roleForm.permissions || []).map(Number).includes(permId)
                     return (
                       <label
-                        key={perm.code}
+                        key={perm.id ?? perm.code}
                         className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover:bg-stone-50"
                       >
                         <input
                           type="checkbox"
                           className="mt-0.5 accent-brand-500"
                           checked={checked}
-                          disabled={saving}
-                          onChange={() => togglePermission(perm.code)}
+                          disabled={saving || !Number.isFinite(permId)}
+                          onChange={() => togglePermission(permId)}
                         />
                         <span className="min-w-0">
                           <span className="block text-sm font-medium text-stone-800">
