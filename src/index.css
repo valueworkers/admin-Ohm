@@ -29,14 +29,37 @@
   --sc-navy: #1e1e2c;
   --sc-sidebar: #ffffff;
   --sc-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --sc-font-family: "Segoe UI";
 
-  font-family: "Segoe UI", system-ui, sans-serif;
+  font-family: var(--sc-font-family), system-ui, sans-serif;
   line-height: 1.5;
   color: var(--sc-ink);
   background-color: var(--sc-canvas);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+}
+
+html[data-font-size='small'] {
+  font-size: 14px;
+}
+html[data-font-size='medium'] {
+  font-size: 16px;
+}
+html[data-font-size='large'] {
+  font-size: 18px;
+}
+
+html[data-theme='dark'] {
+  --sc-canvas: #121214;
+  --sc-ink: #ededed;
+  --sc-sidebar: #1a1a1c;
+  color-scheme: dark;
+}
+html[data-theme='dark'] body,
+html[data-theme='dark'] #root {
+  background-color: var(--sc-canvas);
+  color: var(--sc-ink);
 }
 
 html,

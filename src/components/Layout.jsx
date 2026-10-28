@@ -10,6 +10,68 @@ import { brandChipClass, fieldClass } from '../utils/ui'
 
 const SIDEBAR_KEY = 'admin_sidebar_collapsed'
 const NAV_OPEN_KEY = 'admin_nav_open_groups'
+const NAV_ORDER_KEY = 'admin_nav_order_v2'
+const ROOT_SCOPE = '__root__'
+
+const navItemKey = (entry) =>
+  entry?.type === 'group' ? `group:${entry.id}` : `link:${entry.to}`
+
+const loadNavOrderMap = () => {
+  try {
+    const raw = localStorage.getItem(NAV_ORDER_KEY)
+    if (!raw) {
+      // migrate v1 flat array
+      const legacy = localStorage.getItem('admin_nav_order_v1')
+      if (legacy) {
+        const arr = JSON.parse(legacy)
+        if (Array.isArray(arr)) return { [ROOT_SCOPE]: arr.map(String) }
+      }
+      return {}
+    }
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return { [ROOT_SCOPE]: parsed.map(String) }
+    if (parsed && typeof parsed === 'object') {
+      const out = {}
+      for (const [k, v] of Object.entries(parsed)) {
+        if (Array.isArray(v)) out[k] = v.map(String)
+      }
+      return out
+    }
+    return {}
+  } catch {
+    return {}
+  }
+}
+
+const saveNavOrderMap = (map) => {
+  try {
+    localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(map))
+  } catch {
+    // ignore
+  }
+}
+
+const sortBySavedOrder = (list, orderKeys) => {
+  if (!orderKeys?.length) return list
+  const rank = new Map(orderKeys.map((k, i) => [k, i]))
+  return [...list].sort((a, b) => {
+    const ka = navItemKey(a)
+    const kb = navItemKey(b)
+    const ra = rank.has(ka) ? rank.get(ka) : Number.MAX_SAFE_INTEGER
+    const rb = rank.has(kb) ? rank.get(kb) : Number.MAX_SAFE_INTEGER
+    if (ra !== rb) return ra - rb
+    return 0
+  })
+}
+
+const applyOrderTree = (list, orderMap, scope = ROOT_SCOPE) =>
+  sortBySavedOrder(list, orderMap[scope]).map((entry) => {
+    if (entry.type !== 'group' || !entry.children?.length) return entry
+    return {
+      ...entry,
+      children: applyOrderTree(entry.children, orderMap, entry.id),
+    }
+  })
 
 const navClass =
   ({ collapsed }) =>
@@ -56,6 +118,10 @@ const Layout = () => {
   const [logoutOpen, setLogoutOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState(loadOpenGroups)
+  const [navOrderMap, setNavOrderMap] = useState(loadNavOrderMap)
+  const [dragKey, setDragKey] = useState(null)
+  const [dragScope, setDragScope] = useState(null)
+  const [overKey, setOverKey] = useState(null)
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(SIDEBAR_KEY) === '1'
@@ -146,66 +212,184 @@ const Layout = () => {
     return entry
   }
 
-  const items = useMemo(
-    () => NAV_ITEMS.map(filterNavTree).filter(Boolean),
-    [isSuperAdmin, isTenantOwner, hasFeature]
-  )
+  const items = useMemo(() => {
+    const filtered = NAV_ITEMS.map(filterNavTree).filter(Boolean)
+    return applyOrderTree(filtered, navOrderMap, ROOT_SCOPE)
+  }, [isSuperAdmin, isTenantOwner, hasFeature, navOrderMap])
 
-  const renderLink = (item, { nested = false, deep = false } = {}) => {
+  const findSiblings = (scope) => {
+    if (scope === ROOT_SCOPE) return items
+    const walk = (list) => {
+      for (const entry of list || []) {
+        if (entry.type === 'group' && entry.id === scope) return entry.children || []
+        if (entry.type === 'group') {
+          const hit = walk(entry.children)
+          if (hit) return hit
+        }
+      }
+      return null
+    }
+    return walk(items) || []
+  }
+
+  const reorderInScope = (scope, fromKey, toKey) => {
+    if (!scope || !fromKey || !toKey || fromKey === toKey) return
+    const siblings = findSiblings(scope)
+    const keys = siblings.map(navItemKey)
+    const from = keys.indexOf(fromKey)
+    const to = keys.indexOf(toKey)
+    if (from < 0 || to < 0) return
+    const nextKeys = [...keys]
+    const [moved] = nextKeys.splice(from, 1)
+    nextKeys.splice(to, 0, moved)
+    const nextMap = { ...navOrderMap, [scope]: nextKeys }
+    setNavOrderMap(nextMap)
+    saveNavOrderMap(nextMap)
+  }
+
+  const dragProps = (scope, key) => ({
+    draggable: !rail,
+    onDragStart: (e) => {
+      if (rail) return
+      e.stopPropagation()
+      setDragKey(key)
+      setDragScope(scope)
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', key)
+      try {
+        e.dataTransfer.setData('application/x-nav-key', key)
+        e.dataTransfer.setData('application/x-nav-scope', scope)
+      } catch {
+        // ignore
+      }
+    },
+    onDragOver: (e) => {
+      if (rail || !dragKey) return
+      if (dragScope && dragScope !== scope) return
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = 'move'
+      if (overKey !== key) setOverKey(key)
+    },
+    onDragLeave: () => {
+      if (overKey === key) setOverKey(null)
+    },
+    onDrop: (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const from =
+        e.dataTransfer.getData('application/x-nav-key') ||
+        e.dataTransfer.getData('text/plain') ||
+        dragKey
+      const scopeFrom =
+        e.dataTransfer.getData('application/x-nav-scope') || dragScope || scope
+      if (scopeFrom !== scope) {
+        setDragKey(null)
+        setDragScope(null)
+        setOverKey(null)
+        return
+      }
+      reorderInScope(scope, from, key)
+      setDragKey(null)
+      setDragScope(null)
+      setOverKey(null)
+    },
+    onDragEnd: () => {
+      setDragKey(null)
+      setDragScope(null)
+      setOverKey(null)
+    },
+  })
+
+  const dropHintClass = (scope, key) => {
+    if (!dragKey || dragKey === key || overKey !== key) return ''
+    if (dragScope && dragScope !== scope) return ''
+    return 'ring-2 ring-inset ring-brand-400/70 bg-brand-50/50'
+  }
+
+  const renderLink = (item, { nested = false, deep = false, scope = ROOT_SCOPE } = {}) => {
     const locked = isSuperAdmin && item.needsTenant && !hasTenantSelected
     const pad = deep ? 'pl-12' : nested ? 'pl-9' : ''
+    const key = navItemKey(item)
+    const canDrag = !rail
     return (
-      <NavLink
+      <div
         key={item.to}
-        to={item.to}
-        end={item.end}
-        className={({ isActive }) =>
-          `${linkClass({ isActive })} ${pad && !rail ? pad : ''} ${
-            locked && !isActive ? 'opacity-55' : ''
-          }`
-        }
-        onClick={closeMobile}
-        title={locked ? `${item.title} (select a tenant first)` : item.title}
+        className={`rounded-r-lg transition-colors ${dropHintClass(scope, key)} ${
+          dragKey === key ? 'opacity-50' : ''
+        }`}
+        {...(canDrag ? dragProps(scope, key) : {})}
       >
-        <item.icon className="h-4 w-4 shrink-0" aria-hidden />
-        {!rail ? (
-          <span className="min-w-0 truncate">
-            {item.title}
-            {locked ? (
-              <span className="ml-1 text-[10px] font-normal text-stone-400">tenant</span>
-            ) : null}
-          </span>
-        ) : null}
-      </NavLink>
+        <NavLink
+          to={item.to}
+          end={item.end}
+          className={({ isActive }) =>
+            `${linkClass({ isActive })} ${pad && !rail ? pad : ''} ${
+              locked && !isActive ? 'opacity-55' : ''
+            } ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`
+          }
+          onClick={closeMobile}
+          title={
+            canDrag
+              ? `${item.title} — drag to reorder`
+              : locked
+                ? `${item.title} (select a tenant first)`
+                : item.title
+          }
+          draggable={false}
+        >
+          <item.icon className="h-4 w-4 shrink-0" aria-hidden />
+          {!rail ? (
+            <span className="min-w-0 truncate">
+              {item.title}
+              {locked ? (
+                <span className="ml-1 text-[10px] font-normal text-stone-400">tenant</span>
+              ) : null}
+            </span>
+          ) : null}
+        </NavLink>
+      </div>
     )
   }
 
-  const renderGroup = (item, { nested = false } = {}) => {
+  const renderGroup = (item, { nested = false, scope = ROOT_SCOPE } = {}) => {
     const expanded = openGroups.includes(item.id)
     const groupActive = pathMatchesEntry(item, location.pathname)
     const locked = isSuperAdmin && item.needsTenant && !hasTenantSelected
+    const key = navItemKey(item)
+    const canDrag = !rail
 
     if (rail && !nested) {
       return (
-        <button
+        <div
           key={item.id}
-          type="button"
-          className={`sc-nav-item relative flex w-full items-center justify-center rounded-r-lg py-2.5 text-stone-500 hover:bg-stone-50 hover:text-stone-800 ${
-            groupActive ? 'is-active text-stone-900' : ''
-          }`}
-          title={item.title}
-          onClick={() => {
-            setCollapsed(false)
-            if (!expanded) toggleGroup(item.id)
-          }}
+          className={`rounded-r-lg ${dropHintClass(scope, key)} ${dragKey === key ? 'opacity-50' : ''}`}
         >
-          <item.icon className="h-4 w-4" aria-hidden />
-        </button>
+          <button
+            type="button"
+            className={`sc-nav-item relative flex w-full items-center justify-center rounded-r-lg py-2.5 text-stone-500 hover:bg-stone-50 hover:text-stone-800 ${
+              groupActive ? 'is-active text-stone-900' : ''
+            }`}
+            title={item.title}
+            onClick={() => {
+              setCollapsed(false)
+              if (!expanded) toggleGroup(item.id)
+            }}
+          >
+            <item.icon className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
       )
     }
 
     return (
-      <div key={item.id} className="space-y-0.5">
+      <div
+        key={item.id}
+        className={`space-y-0.5 rounded-r-lg transition-colors ${dropHintClass(scope, key)} ${
+          dragKey === key ? 'opacity-50' : ''
+        }`}
+        {...(canDrag ? dragProps(scope, key) : {})}
+      >
         <div
           className={`flex items-center gap-1 rounded-r-lg ${
             groupActive && !expanded ? 'is-active sc-nav-item relative bg-brand-50' : ''
@@ -215,9 +399,10 @@ const Layout = () => {
             type="button"
             className={`relative flex min-w-0 flex-1 items-center gap-3 rounded-r-lg px-3 py-2.5 text-left text-sm font-medium ${
               groupActive ? 'text-stone-900' : 'text-stone-500 hover:text-stone-800'
-            } ${locked ? 'opacity-55' : ''}`}
+            } ${locked ? 'opacity-55' : ''} ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`}
             onClick={() => toggleGroup(item.id)}
             aria-expanded={expanded}
+            title={canDrag ? `${item.title} — drag to reorder` : item.title}
           >
             <item.icon className="h-4 w-4 shrink-0" aria-hidden />
             <span className="min-w-0 flex-1 truncate">{item.title}</span>
@@ -227,6 +412,7 @@ const Layout = () => {
             className="mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
             onClick={() => toggleGroup(item.id)}
             aria-label={expanded ? `Collapse ${item.title}` : `Expand ${item.title}`}
+            draggable={false}
           >
             {expanded ? (
               <FiMinus className="h-3.5 w-3.5" aria-hidden />
@@ -238,8 +424,8 @@ const Layout = () => {
         {expanded
           ? item.children.map((child) =>
               child.type === 'group'
-                ? renderGroup(child, { nested: true })
-                : renderLink(child, { nested: true, deep: nested }),
+                ? renderGroup(child, { nested: true, scope: item.id })
+                : renderLink(child, { nested: true, deep: nested, scope: item.id }),
             )
           : null}
       </div>
@@ -247,9 +433,19 @@ const Layout = () => {
   }
 
   const nav = (
-    <nav className={`flex-1 space-y-0.5 overflow-y-auto pb-4 pt-2 ${rail ? 'px-2' : 'px-3'}`}>
+    <nav
+      className={`flex-1 space-y-0.5 overflow-y-auto pb-4 pt-2 ${rail ? 'px-2' : 'px-3'}`}
+      aria-label="Main navigation. Drag top-level items to reorder."
+    >
+      {!rail ? (
+        <p className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wide text-stone-400">
+          Drag tabs (and + items) to reorder
+        </p>
+      ) : null}
       {items.map((item) =>
-        item.type === 'link' ? renderLink(item) : renderGroup(item),
+        item.type === 'link'
+          ? renderLink(item, { scope: ROOT_SCOPE })
+          : renderGroup(item, { scope: ROOT_SCOPE }),
       )}
     </nav>
   )

@@ -258,6 +258,13 @@ export const NAV_ITEMS = [
         needsTenant: true,
         featureKey: 'n8n_templates',
       },
+      {
+        type: 'link',
+        to: '/ops/settings',
+        title: 'Settings (tenant)',
+        icon: FiSettings,
+        needsTenant: true,
+      },
     ],
   },
   {
@@ -311,7 +318,7 @@ export const NAV_ITEMS = [
     to: '/settings',
     title: 'Settings',
     icon: FiSettings,
-    needsTenant: true,
+    needsTenant: false,
   },
   {
     type: 'link',

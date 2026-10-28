@@ -55,7 +55,10 @@ const App = () => (
             <Route path="platform/tenant-subscriptions" element={<TenantSubscriptions />} />
           </Route>
 
+          <Route path="settings" element={<SettingsPage mode="account" />} />
+
           <Route element={<RequireSelectedTenant />}>
+            <Route path="ops/settings" element={<SettingsPage mode="tenant" />} />
             <Route element={<RequireFeature />}>
               <Route path="ops/venues" element={<VenuesPage />} />
               <Route path="ops/services" element={<ServicesPage />} />
@@ -75,7 +78,6 @@ const App = () => (
               <Route path="ops/customer-lobby" element={<ModulePlaceholder />} />
               <Route path="ops/location-packages" element={<LocationPackagesPage />} />
               <Route path="ops/n8n-templates" element={<ModulePlaceholder />} />
-              <Route path="settings" element={<SettingsPage />} />
             </Route>
             <Route element={<RequireSuperAdmin />}>
               <Route path="ops/leads" element={<ModulePlaceholder />} />
