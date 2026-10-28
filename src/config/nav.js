@@ -20,7 +20,6 @@ import {
   FiFolder,
   FiGrid,
   FiShield,
-  FiUser,
   FiSettings,
   FiTarget,
   FiEdit3,
@@ -40,14 +39,6 @@ export const NAV_ITEMS = [
     to: '/my-tenants',
     title: 'My tenants',
     icon: FiLayers,
-    needsTenant: false,
-    ownerOnly: true,
-  },
-  {
-    type: 'link',
-    to: '/profile',
-    title: 'Profile',
-    icon: FiUser,
     needsTenant: false,
     ownerOnly: true,
   },
@@ -261,7 +252,7 @@ export const NAV_ITEMS = [
       {
         type: 'link',
         to: '/ops/settings',
-        title: 'Settings (tenant)',
+        title: 'Settings',
         icon: FiSettings,
         needsTenant: true,
       },
@@ -316,9 +307,10 @@ export const NAV_ITEMS = [
   {
     type: 'link',
     to: '/settings',
-    title: 'Settings',
+    title: 'Account settings',
     icon: FiSettings,
     needsTenant: false,
+    superOnly: true,
   },
   {
     type: 'link',
