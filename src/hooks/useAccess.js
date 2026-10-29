@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   defaultTenantFeatures,
   normalizeTenantRole,
@@ -71,6 +71,8 @@ export const useAccess = () => {
     ? getTenantFeatures(tenantId, tenantRole)
     : defaultTenantFeatures()
 
+  const hasFeature = useCallback((key) => Boolean(features?.[key]), [features])
+
   return {
     user,
     isSuperAdmin: superAdmin,
@@ -81,7 +83,7 @@ export const useAccess = () => {
     tenantId: tenant ? String(tenant.id) : null,
     tenant,
     features,
-    hasFeature: (key) => Boolean(features?.[key]),
+    hasFeature,
     canWrite: canWriteTenantData(user),
     canSwitch: canSwitchTenants(user),
     hasTenantSelected: Boolean(tenant),

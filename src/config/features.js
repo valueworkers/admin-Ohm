@@ -87,7 +87,7 @@ export const FEATURE_CATALOG = [
   {
     key: 'quotations',
     label: 'Quotations',
-    description: 'Quotes and proposals for customers.',
+    description: 'Quotes for your organization (tenant view).',
     group: 'Operations',
     core: true,
     route: '/ops/quotations',
@@ -95,7 +95,7 @@ export const FEATURE_CATALOG = [
   {
     key: 'invoices',
     label: 'Invoices',
-    description: 'Customer invoices.',
+    description: 'Invoices for your organization (tenant view).',
     group: 'Operations',
     core: true,
     route: '/ops/invoices',
@@ -103,7 +103,7 @@ export const FEATURE_CATALOG = [
   {
     key: 'payments',
     label: 'Payments',
-    description: 'Customer payments.',
+    description: 'Payments for your organization (tenant view).',
     group: 'Operations',
     core: true,
     route: '/ops/payments',
@@ -228,6 +228,9 @@ export const normalizeTenantRole = (role) => {
 /** Default map for one role (Admin or Ops Admin). */
 export const defaultTenantFeatures = () =>
   Object.fromEntries(FEATURE_CATALOG.map((f) => [f.key, Boolean(f.core)]))
+
+/** Features shown on tenant Permissions. */
+export const TENANT_FEATURE_CATALOG = FEATURE_CATALOG
 
 /** Flat boolean map → merged with catalog defaults. */
 export const mergeTenantFeatures = (features) => {

@@ -4,8 +4,8 @@ import PageHeader from '../../components/ui/PageHeader'
 import StatusBanner from '../../components/ui/StatusBanner'
 import { EmptyState, Panel } from '../../components/ui/PageState'
 import {
-  FEATURE_CATALOG,
   FEATURE_GROUPS,
+  TENANT_FEATURE_CATALOG,
   getFeaturesForRole,
   normalizeRoleFeatures,
   TENANT_ROLE_OPTIONS,
@@ -78,8 +78,8 @@ const PlatformPermissions = () => {
     () =>
       TENANT_ROLE_OPTIONS.map((role) => {
         const map = getFeaturesForRole(roleFeatures, role.id)
-        const on = FEATURE_CATALOG.filter((f) => map[f.key]).length
-        return { ...role, on, total: FEATURE_CATALOG.length }
+        const on = TENANT_FEATURE_CATALOG.filter((f) => map[f.key]).length
+        return { ...role, on, total: TENANT_FEATURE_CATALOG.length }
       }),
     [roleFeatures]
   )
@@ -88,7 +88,8 @@ const PlatformPermissions = () => {
     if (!tenantId) return
     setTenantFeature(tenantId, featureKey, next, roleId)
     refresh(tenantId)
-    const featureLabel = FEATURE_CATALOG.find((f) => f.key === featureKey)?.label || featureKey
+    const featureLabel =
+      TENANT_FEATURE_CATALOG.find((f) => f.key === featureKey)?.label || featureKey
     const roleLabel = TENANT_ROLE_OPTIONS.find((r) => r.id === roleId)?.label || roleId
     setStatus({
       type: 'success',
@@ -171,7 +172,8 @@ const PlatformPermissions = () => {
         />
       ) : (
         FEATURE_GROUPS.map((group) => {
-          const items = FEATURE_CATALOG.filter((f) => f.group === group)
+          const items = TENANT_FEATURE_CATALOG.filter((f) => f.group === group)
+          if (!items.length) return null
           return (
             <Panel key={group} className="overflow-x-auto">
               <div className="mb-3 flex min-w-[28rem] items-end justify-between gap-3">

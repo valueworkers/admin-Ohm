@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import RequireFeature from './components/RequireFeature'
+import RequireOpsAccess from './components/RequireOpsAccess'
 import RequireSelectedTenant from './components/RequireSelectedTenant'
 import RequireSuperAdmin from './components/RequireSuperAdmin'
 import RequireTenantOwner from './components/RequireTenantOwner'
@@ -16,6 +17,13 @@ import ModulePlaceholder from './pages/ModulePlaceholder'
 import MyTenants from './pages/MyTenants'
 import PatientsPage from './pages/PatientsPage'
 import Profile from './pages/Profile'
+import QuoteEditorPage from './pages/QuoteEditorPage'
+import InvoiceCreatePage from './pages/InvoiceCreatePage'
+import InvoiceDetailPage from './pages/InvoiceDetailPage'
+import InvoicesPage from './pages/InvoicesPage'
+import PaymentDetailPage from './pages/PaymentDetailPage'
+import PaymentsPage from './pages/PaymentsPage'
+import QuotationsPage from './pages/QuotationsPage'
 import ResourcesPage from './pages/ResourcesPage'
 import Roles from './pages/Roles'
 import ServicesPage from './pages/ServicesPage'
@@ -57,6 +65,19 @@ const App = () => (
 
           <Route path="settings" element={<SettingsPage mode="account" />} />
 
+          <Route element={<RequireOpsAccess />}>
+            <Route path="ops/leads" element={<ModulePlaceholder />} />
+            <Route path="ops/quotations/new" element={<QuoteEditorPage />} />
+            <Route path="ops/quotations/:quoteId" element={<QuoteEditorPage />} />
+            <Route path="ops/quotations" element={<QuotationsPage />} />
+            <Route path="ops/invoices/new" element={<InvoiceCreatePage />} />
+            <Route path="ops/invoices/:invoiceId/edit" element={<InvoiceCreatePage />} />
+            <Route path="ops/invoices/:invoiceId" element={<InvoiceDetailPage />} />
+            <Route path="ops/invoices" element={<InvoicesPage />} />
+            <Route path="ops/payments/:paymentId" element={<PaymentDetailPage />} />
+            <Route path="ops/payments" element={<PaymentsPage />} />
+          </Route>
+
           <Route element={<RequireSelectedTenant />}>
             <Route path="ops/settings" element={<SettingsPage mode="tenant" />} />
             <Route element={<RequireFeature />}>
@@ -78,12 +99,6 @@ const App = () => (
               <Route path="ops/customer-lobby" element={<ModulePlaceholder />} />
               <Route path="ops/location-packages" element={<LocationPackagesPage />} />
               <Route path="ops/n8n-templates" element={<ModulePlaceholder />} />
-            </Route>
-            <Route element={<RequireSuperAdmin />}>
-              <Route path="ops/leads" element={<ModulePlaceholder />} />
-              <Route path="ops/quotations" element={<ModulePlaceholder />} />
-              <Route path="ops/invoices" element={<ModulePlaceholder />} />
-              <Route path="ops/payments" element={<ModulePlaceholder />} />
             </Route>
           </Route>
         </Route>

@@ -212,15 +212,18 @@ export const normalizePdfTemplates = (list) => {
 
 export const defaultUserSettings = (user = {}) => ({
   profile: {
+    id: null,
     first_name: '',
     last_name: '',
     email: '',
     email_verified: false,
+    email_verified_at: null,
     pending_email: '',
   },
   organization: {
     name: user.organization_name || '',
     email: '',
+    website: '',
     address_line1: '',
     address_line2: '',
     city: '',
@@ -300,6 +303,39 @@ export const defaultUserSettings = (user = {}) => ({
     backupsEnabled: true,
     lastBackupAt: new Date(Date.now() - 86400000).toISOString(),
     exportJobs: [],
+  },
+  payments: {
+    defaultMode: 'razorpay',
+    razorpay: {
+      enabled: true,
+      connected: false,
+      keyId: '',
+      keySecret: '',
+      webhookSecret: '',
+      accountId: '',
+      connectedAt: null,
+    },
+    cashfree: {
+      enabled: false,
+      connected: false,
+      appId: '',
+      secretKey: '',
+      environment: 'sandbox',
+      connectedAt: null,
+    },
+    cod: {
+      enabled: true,
+      instructions: 'Pay cash to the caregiver or front desk on delivery / visit.',
+    },
+    manual: {
+      enabled: true,
+      instructions: 'Record offline UPI / bank transfer and mark paid manually.',
+      bankName: '',
+      accountName: '',
+      accountNumber: '',
+      ifsc: '',
+      upiId: '',
+    },
   },
   pdfTemplates: defaultPdfTemplates(),
 })

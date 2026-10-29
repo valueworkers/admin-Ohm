@@ -63,6 +63,7 @@ const seedFromTenant = (tenant = {}) => {
       ...base.organization,
       name: tenant.name || tenant.organization_name || base.organization.name || '',
       email: tenant.contact_email || tenant.email || base.organization.email || '',
+      website: tenant.website || tenant.website_url || base.organization.website || '',
       address_line1: tenant.address_line1 || tenant.address || base.organization.address_line1 || '',
       address_line2: tenant.address_line2 || base.organization.address_line2 || '',
       city: tenant.city || base.organization.city || '',

@@ -94,6 +94,14 @@ const loadOpenGroups = () => {
   }
 }
 
+/** Platform Operations — no tenant switcher. Everything else under /ops is Tenant Info. */
+const PLATFORM_OPS_PATHS = ['/ops/leads', '/ops/quotations', '/ops/invoices', '/ops/payments']
+
+const isTenantInfoPath = (pathname) => {
+  if (!pathname.startsWith('/ops/')) return false
+  return !PLATFORM_OPS_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+}
+
 const Layout = () => {
   const navigate = useNavigate()
   const location = useLocation()
@@ -107,6 +115,7 @@ const Layout = () => {
     hasFeature,
   } = useAccess()
   const { tenants, selectedId, selectTenant } = usePlatformTenants()
+  const showTenantSwitcher = isSuperAdmin && isTenantInfoPath(location.pathname)
   const displayName =
     user?.full_name ||
     [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() ||
@@ -159,27 +168,6 @@ const Layout = () => {
     return pathname === entry.to || pathname.startsWith(`${entry.to}/`)
   }
 
-  useEffect(() => {
-    const toOpen = []
-    const walk = (entries, parents = []) => {
-      for (const entry of entries || []) {
-        if (entry.type !== 'group') continue
-        const chain = [...parents, entry.id]
-        if (pathMatchesEntry(entry, location.pathname)) {
-          toOpen.push(...chain)
-        }
-        walk(entry.children, chain)
-      }
-    }
-    walk(NAV_ITEMS)
-    if (!toOpen.length) return
-    setOpenGroups((prev) => {
-      const next = new Set(prev)
-      toOpen.forEach((id) => next.add(id))
-      return [...next]
-    })
-  }, [location.pathname])
-
   const closeMobile = () => setMobileOpen(false)
   const linkClass = navClass({ collapsed: collapsed && !mobileOpen })
   const rail = collapsed && !mobileOpen
@@ -216,6 +204,30 @@ const Layout = () => {
     const filtered = NAV_ITEMS.map(filterNavTree).filter(Boolean)
     return applyOrderTree(filtered, navOrderMap, ROOT_SCOPE)
   }, [isSuperAdmin, isTenantOwner, hasFeature, navOrderMap])
+
+  // Only expand groups visible for this role (avoids SA Operations also opening Tenant Info).
+  useEffect(() => {
+    const toOpen = []
+    const walk = (entries, parents = []) => {
+      for (const entry of entries || []) {
+        if (entry.type !== 'group') continue
+        const chain = [...parents, entry.id]
+        if (pathMatchesEntry(entry, location.pathname)) {
+          toOpen.push(...chain)
+        }
+        walk(entry.children, chain)
+      }
+    }
+    walk(items)
+    if (!toOpen.length) return
+    setOpenGroups((prev) => {
+      const missing = toOpen.filter((id) => !prev.includes(id))
+      if (!missing.length) return prev
+      return [...prev, ...missing]
+    })
+    // `items` identity churns when hasFeature is recreated; pathname + role is enough.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname, isSuperAdmin, isTenantOwner])
 
   const findSiblings = (scope) => {
     if (scope === ROOT_SCOPE) return items
@@ -308,10 +320,11 @@ const Layout = () => {
   }
 
   const renderLink = (item, { nested = false, deep = false, scope = ROOT_SCOPE } = {}) => {
-    const locked = isSuperAdmin && item.needsTenant && !hasTenantSelected
     const pad = deep ? 'pl-12' : nested ? 'pl-9' : ''
     const key = navItemKey(item)
     const canDrag = !rail
+    const needsTenantHint =
+      isSuperAdmin && item.needsTenant && !hasTenantSelected
     return (
       <div
         key={item.to}
@@ -325,14 +338,14 @@ const Layout = () => {
           end={item.end}
           className={({ isActive }) =>
             `${linkClass({ isActive })} ${pad && !rail ? pad : ''} ${
-              locked && !isActive ? 'opacity-55' : ''
-            } ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`
+              canDrag ? 'cursor-grab active:cursor-grabbing' : ''
+            }`
           }
           onClick={closeMobile}
           title={
             canDrag
               ? `${item.title} — drag to reorder`
-              : locked
+              : needsTenantHint
                 ? `${item.title} (select a tenant first)`
                 : item.title
           }
@@ -340,12 +353,7 @@ const Layout = () => {
         >
           <item.icon className="h-4 w-4 shrink-0" aria-hidden />
           {!rail ? (
-            <span className="min-w-0 truncate">
-              {item.title}
-              {locked ? (
-                <span className="ml-1 text-[10px] font-normal text-stone-400">tenant</span>
-              ) : null}
-            </span>
+            <span className="min-w-0 truncate">{item.title}</span>
           ) : null}
         </NavLink>
       </div>
@@ -355,7 +363,6 @@ const Layout = () => {
   const renderGroup = (item, { nested = false, scope = ROOT_SCOPE } = {}) => {
     const expanded = openGroups.includes(item.id)
     const groupActive = pathMatchesEntry(item, location.pathname)
-    const locked = isSuperAdmin && item.needsTenant && !hasTenantSelected
     const key = navItemKey(item)
     const canDrag = !rail
 
@@ -399,7 +406,7 @@ const Layout = () => {
             type="button"
             className={`relative flex min-w-0 flex-1 items-center gap-3 rounded-r-lg px-3 py-2.5 text-left text-sm font-medium ${
               groupActive ? 'text-stone-900' : 'text-stone-500 hover:text-stone-800'
-            } ${locked ? 'opacity-55' : ''} ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`}
+            } ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`}
             onClick={() => toggleGroup(item.id)}
             aria-expanded={expanded}
             title={canDrag ? `${item.title} — drag to reorder` : item.title}
@@ -510,7 +517,7 @@ const Layout = () => {
           </div>
 
           <div className="flex min-w-0 items-center gap-2">
-            {isSuperAdmin ? (
+            {showTenantSwitcher ? (
               <>
                 <label className="sr-only" htmlFor="tenant-switcher">
                   Select tenant
@@ -529,11 +536,11 @@ const Layout = () => {
                   ))}
                 </select>
               </>
-            ) : (
+            ) : !isSuperAdmin ? (
               <span className="hidden max-w-[12rem] truncate rounded-md border border-stone-200 bg-white px-2.5 py-1.5 text-xs font-medium text-stone-700 sm:inline">
                 {tenant?.name || 'Organization'}
               </span>
-            )}
+            ) : null}
             <span className={`hidden sm:inline ${brandChipClass}`}>
               {user?.role || (isSuperAdmin ? 'Super Admin' : 'Tenant Admin')}
             </span>
@@ -549,10 +556,9 @@ const Layout = () => {
           </div>
         </header>
 
-        {isSuperAdmin && !hasTenantSelected ? (
+        {showTenantSwitcher && !hasTenantSelected ? (
           <div className="shrink-0 border-b border-amber-100 bg-amber-50 px-4 py-2 text-sm text-amber-900 md:px-6">
-            No tenant selected. Manage Tenants and Lobby work anytime; other modules need a tenant
-            from the switcher above.
+            No tenant selected. Choose a tenant above to use Tenant Info modules.
           </div>
         ) : null}
 

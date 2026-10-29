@@ -5,21 +5,23 @@ import {
   FiCheck,
   FiCreditCard,
   FiDatabase,
-  FiEdit2,
+  FiDollarSign,
   FiEye,
   FiFileText,
+  FiInfo,
   FiLoader,
   FiLock,
   FiPlus,
   FiShield,
   FiSidebar,
-  FiTrash2,
   FiUser,
 } from 'react-icons/fi'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
-import Modal from '../components/ui/Modal'
+import { LoadingState, ErrorState } from '../components/ui/PageState'
+import { fetchSettingsProfile, updateSettingsProfile } from '../api/settings'
+import { apiErrorMessage } from '../utils/errors'
 import {
   EXPORT_FORMATS,
   FONT_FAMILIES,
@@ -67,9 +69,17 @@ const SECTIONS = [
   { id: 'appearance', label: 'Appearance', hint: 'Theme & type', icon: FiEye },
   { id: 'notifications', label: 'Notifications', hint: 'Channels', icon: FiBell },
   { id: 'security', label: 'Security', hint: 'Password & 2FA', icon: FiLock },
-  { id: 'billing', label: 'Billing', hint: 'Plan & invoices', icon: FiCreditCard },
+  { id: 'billing', label: 'Billing', hint: 'Plan & tax', icon: FiCreditCard },
+  { id: 'payments', label: 'Payments', hint: 'Gateways & COD', icon: FiDollarSign },
   { id: 'data', label: 'Data', hint: 'Export & storage', icon: FiDatabase },
   { id: 'pdf', label: 'PDF templates', hint: 'Layout & fonts', icon: FiFileText },
+]
+
+const PAYMENT_MODES = [
+  { id: 'razorpay', label: 'Razorpay', hint: 'Cards, UPI, netbanking' },
+  { id: 'cashfree', label: 'Cashfree', hint: 'UPI & payouts' },
+  { id: 'cod', label: 'COD', hint: 'Cash on delivery' },
+  { id: 'manual', label: 'Manual', hint: 'Offline / bank' },
 ]
 
 const SECTION_META = {
@@ -79,7 +89,7 @@ const SECTION_META = {
   },
   organization: {
     title: 'Organization',
-    description: 'Organization name, contact email, address, and logo for this tenant.',
+    description: 'Organization name, contact email, website, address, and logo for this tenant.',
   },
   appearance: {
     title: 'Appearance',
@@ -95,7 +105,11 @@ const SECTION_META = {
   },
   billing: {
     title: 'Billing & subscription',
-    description: 'Plan, payment methods, tax details, and invoices.',
+    description: 'Plan, seats, tax details, and renewal. Gateways live under Payments.',
+  },
+  payments: {
+    title: 'Payments',
+    description: 'Connect Razorpay or Cashfree, and enable COD or manual collection.',
   },
   data: {
     title: 'Data management',
@@ -106,18 +120,6 @@ const SECTION_META = {
     description: 'Template 1–3 with exact A4/Letter PDF layout, margins, type, and borders.',
   },
 }
-
-const CARD_BRANDS = ['Visa', 'Mastercard', 'RuPay', 'American Express', 'Other']
-
-const emptyPaymentForm = () => ({
-  id: '',
-  brand: 'Visa',
-  cardNumber: '',
-  last4: '',
-  expMonth: '',
-  expYear: '',
-  isDefault: false,
-})
 
 const formatWhen = (value) => {
   if (!value) return '—'
@@ -138,7 +140,8 @@ const SETTINGS_NAV_KEY = 'sc_settings_nav_collapsed'
 
 const SettingsPage = ({ mode = 'account' } = {}) => {
   const isTenantMode = mode === 'tenant'
-  const { tenant, tenantId, canWrite } = useAccess()
+  const { tenant, tenantId, canWrite, isSuperAdmin } = useAccess()
+  const useApiProfile = !isTenantMode && isSuperAdmin
   const [section, setSection] = useState(isTenantMode ? 'organization' : 'profile')
   const [navCollapsed, setNavCollapsed] = useState(() => {
     try {
@@ -152,6 +155,8 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
   )
   const [status, setStatus] = useState({ type: '', message: '' })
   const [saving, setSaving] = useState(false)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileError, setProfileError] = useState('')
   const [emailDraft, setEmailDraft] = useState('')
   const [verifyCode, setVerifyCode] = useState('')
   const [passwordForm, setPasswordForm] = useState({
@@ -162,10 +167,48 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
   const [signOutOpen, setSignOutOpen] = useState(false)
   const [activeTemplateId, setActiveTemplateId] = useState('template-1')
   const [recoveryCodes, setRecoveryCodes] = useState([])
-  const [paymentModal, setPaymentModal] = useState(null) // 'create' | 'edit' | null
-  const [paymentForm, setPaymentForm] = useState(emptyPaymentForm)
-  const [paymentDelete, setPaymentDelete] = useState(null)
-  const [paymentSaving, setPaymentSaving] = useState(false)
+  const [payMode, setPayMode] = useState('razorpay')
+  const [razorConnecting, setRazorConnecting] = useState(false)
+  const [razorManageOpen, setRazorManageOpen] = useState(false)
+  const [cashManageOpen, setCashManageOpen] = useState(false)
+
+  const maskAccount = (value) => {
+    const s = String(value || '').trim()
+    if (!s) return '******'
+    if (s.length <= 4) return '******'
+    return `******${s.slice(-4)}`
+  }
+
+  const applyApiProfile = (profile) => {
+    setSettings((s) => ({
+      ...s,
+      profile: {
+        ...s.profile,
+        id: profile.id ?? null,
+        first_name: profile.first_name || '',
+        last_name: profile.last_name || '',
+        email: profile.email || '',
+        email_verified: Boolean(profile.email_verified),
+        email_verified_at: profile.email_verified_at || null,
+        pending_email: profile.pending_email || '',
+      },
+    }))
+    syncProfileToSession(profile)
+  }
+
+  const loadSaProfile = async () => {
+    if (!useApiProfile) return
+    setProfileLoading(true)
+    setProfileError('')
+    try {
+      const profile = await fetchSettingsProfile()
+      applyApiProfile(profile)
+    } catch (err) {
+      setProfileError(apiErrorMessage(err, 'Could not load profile.'))
+    } finally {
+      setProfileLoading(false)
+    }
+  }
 
   const reload = () => {
     const next = loadSettingsForMode(mode, { tenantId, tenant })
@@ -175,13 +218,60 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
     setVerifyCode('')
     setActiveTemplateId(next.pdfTemplates?.[0]?.id || 'template-1')
     setStatus({ type: '', message: '' })
+    setProfileError('')
+    if (useApiProfile) loadSaProfile()
   }
 
   useEffect(() => {
-    reload()
+    const next = loadSettingsForMode(mode, { tenantId, tenant })
+    next.pdfTemplates = normalizePdfTemplates(next.pdfTemplates)
+    setSettings(next)
+    setEmailDraft('')
+    setVerifyCode('')
+    setActiveTemplateId(next.pdfTemplates?.[0]?.id || 'template-1')
+    setStatus({ type: '', message: '' })
+    setProfileError('')
     if (isTenantMode) setSection('organization')
+
+    if (!useApiProfile) {
+      setProfileLoading(false)
+      return undefined
+    }
+
+    let cancelled = false
+    ;(async () => {
+      setProfileLoading(true)
+      try {
+        const profile = await fetchSettingsProfile()
+        if (cancelled) return
+        setSettings((s) => ({
+          ...s,
+          profile: {
+            ...s.profile,
+            id: profile.id ?? null,
+            first_name: profile.first_name || '',
+            last_name: profile.last_name || '',
+            email: profile.email || '',
+            email_verified: Boolean(profile.email_verified),
+            email_verified_at: profile.email_verified_at || null,
+            pending_email: profile.pending_email || '',
+          },
+        }))
+        syncProfileToSession(profile)
+        setProfileError('')
+      } catch (err) {
+        if (!cancelled) {
+          setProfileError(apiErrorMessage(err, 'Could not load profile.'))
+        }
+      } finally {
+        if (!cancelled) setProfileLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, tenantId])
+  }, [mode, tenantId, useApiProfile])
 
   useEffect(() => {
     try {
@@ -237,7 +327,7 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
   }
 
   /* —— Profile —— */
-  const saveProfile = () => {
+  const saveProfile = async () => {
     const first = trimName(settings.profile.first_name)
     const last = trimName(settings.profile.last_name)
     if (!first) {
@@ -248,6 +338,39 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
       setStatus({ type: 'error', message: 'Names must be 1–60 characters.' })
       return
     }
+
+    if (useApiProfile) {
+      setSaving(true)
+      setStatus({ type: '', message: '' })
+      try {
+        const profile = await updateSettingsProfile({
+          first_name: first,
+          last_name: last,
+        })
+        const next = {
+          ...settings,
+          profile: {
+            ...settings.profile,
+            ...profile,
+            first_name: profile.first_name || first,
+            last_name: profile.last_name || last,
+          },
+        }
+        saveSettingsForMode(mode, next, { tenantId })
+        setSettings(next)
+        syncProfileToSession(next.profile)
+        setStatus({ type: 'success', message: 'Profile updated.' })
+      } catch (err) {
+        setStatus({
+          type: 'error',
+          message: apiErrorMessage(err, 'Could not update profile.'),
+        })
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
     const next = {
       ...settings,
       profile: { ...settings.profile, first_name: first, last_name: last },
@@ -430,122 +553,115 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
     persist(settings, 'Billing details saved.')
   }
 
-  const openAddPayment = () => {
-    setPaymentForm({ ...emptyPaymentForm(), isDefault: !(settings.billing.paymentMethods || []).length })
-    setPaymentModal('create')
+  const payments = settings.payments || {}
+
+  const patchPaymentMode = (modeId, patch) => {
+    setSettings((s) => ({
+      ...s,
+      payments: {
+        ...s.payments,
+        [modeId]: { ...(s.payments?.[modeId] || {}), ...patch },
+      },
+    }))
   }
 
-  const openEditPayment = (pm) => {
-    setPaymentForm({
-      id: pm.id,
-      brand: pm.brand || 'Visa',
-      cardNumber: '',
-      last4: pm.last4 || '',
-      expMonth: String(pm.expMonth || ''),
-      expYear: String(pm.expYear || ''),
-      isDefault: Boolean(pm.isDefault),
-    })
-    setPaymentModal('edit')
-  }
-
-  const closePaymentModal = () => {
-    if (paymentSaving) return
-    setPaymentModal(null)
-    setPaymentForm(emptyPaymentForm())
-  }
-
-  const savePaymentMethod = (event) => {
-    event.preventDefault()
-    const brand = String(paymentForm.brand || '').trim() || 'Other'
-    const digits = String(paymentForm.cardNumber || '').replace(/\D/g, '')
-    let last4 = String(paymentForm.last4 || '').replace(/\D/g, '').slice(-4)
-    if (paymentModal === 'create') {
-      if (digits.length < 12 || digits.length > 19) {
-        setStatus({ type: 'error', message: 'Enter a valid card number (12–19 digits).' })
+  const savePayments = () => {
+    const rp = payments.razorpay || {}
+    if (rp.enabled && rp.connected) {
+      if (!String(rp.keyId || '').trim()) {
+        setStatus({ type: 'error', message: 'Razorpay Key ID is required when connected.' })
+        setPayMode('razorpay')
         return
       }
-      last4 = digits.slice(-4)
-    } else if (last4.length !== 4) {
-      setStatus({ type: 'error', message: 'Last 4 digits must be 4 numbers.' })
-      return
     }
-    const expMonth = Number(paymentForm.expMonth)
-    const expYear = Number(paymentForm.expYear)
-    if (!Number.isFinite(expMonth) || expMonth < 1 || expMonth > 12) {
-      setStatus({ type: 'error', message: 'Expiry month must be 1–12.' })
-      return
-    }
-    if (!Number.isFinite(expYear) || expYear < new Date().getFullYear()) {
-      setStatus({ type: 'error', message: 'Enter a valid expiry year.' })
-      return
-    }
-
-    setPaymentSaving(true)
-    try {
-      const list = [...(settings.billing.paymentMethods || [])]
-      const makeDefault = Boolean(paymentForm.isDefault) || list.length === 0
-      let nextList
-      if (paymentModal === 'create') {
-        const row = {
-          id: `pm-${Date.now()}`,
-          brand,
-          last4,
-          expMonth,
-          expYear,
-          isDefault: makeDefault,
-        }
-        nextList = makeDefault
-          ? [row, ...list.map((p) => ({ ...p, isDefault: false }))]
-          : [...list, row]
-      } else {
-        nextList = list.map((p) => {
-          if (String(p.id) !== String(paymentForm.id)) {
-            return makeDefault ? { ...p, isDefault: false } : p
-          }
-          return {
-            ...p,
-            brand,
-            last4,
-            expMonth,
-            expYear,
-            isDefault: makeDefault,
-          }
-        })
-        if (makeDefault && !nextList.some((p) => p.isDefault)) {
-          nextList = nextList.map((p, i) => ({ ...p, isDefault: i === 0 }))
-        }
+    const cf = payments.cashfree || {}
+    if (cf.enabled && cf.connected) {
+      if (!String(cf.appId || '').trim() || !String(cf.secretKey || '').trim()) {
+        setStatus({ type: 'error', message: 'Cashfree App ID and Secret Key are required when connected.' })
+        setPayMode('cashfree')
+        return
       }
-      const next = {
+    }
+    persist(
+      {
         ...settings,
-        billing: { ...settings.billing, paymentMethods: nextList },
-      }
-      persist(
-        next,
-        paymentModal === 'create'
-          ? 'Payment method added (tokenized — full card/CVV not stored).'
-          : 'Payment method updated.',
-      )
-      setPaymentModal(null)
-      setPaymentForm(emptyPaymentForm())
-    } finally {
-      setPaymentSaving(false)
-    }
+        payments: {
+          ...payments,
+          defaultMode: payments.defaultMode || 'razorpay',
+        },
+      },
+      'Payment settings saved.',
+    )
   }
 
-  const confirmDeletePayment = () => {
-    if (!paymentDelete?.id) return
-    const list = (settings.billing.paymentMethods || []).filter(
-      (p) => String(p.id) !== String(paymentDelete.id),
-    )
-    if (list.length && !list.some((p) => p.isDefault)) {
-      list[0] = { ...list[0], isDefault: true }
+  const connectRazorpay = () => {
+    const rp = payments.razorpay || {}
+    const keyId = String(rp.keyId || '').trim()
+    const keySecret = String(rp.keySecret || '').trim()
+    if (!keyId || !keySecret) {
+      setStatus({
+        type: 'error',
+        message: 'Enter Razorpay Key ID and Key Secret, then connect.',
+      })
+      return
     }
-    const next = {
-      ...settings,
-      billing: { ...settings.billing, paymentMethods: list },
+    setRazorConnecting(true)
+    window.setTimeout(() => {
+      setSettings((s) => ({
+        ...s,
+        payments: {
+          ...s.payments,
+          defaultMode: s.payments?.defaultMode || 'razorpay',
+          razorpay: {
+            ...(s.payments?.razorpay || {}),
+            enabled: true,
+            connected: true,
+            keyId,
+            keySecret,
+            accountId: keyId.startsWith('rzp_') ? keyId : `rzp_live_${keyId.slice(0, 8)}`,
+            connectedAt: new Date().toISOString(),
+          },
+        },
+      }))
+      setRazorConnecting(false)
+      setRazorManageOpen(false)
+      setStatus({
+        type: 'success',
+        message: 'Razorpay connected (demo). Save changes to keep credentials locally.',
+      })
+    }, 700)
+  }
+
+  const disconnectRazorpay = () => {
+    patchPaymentMode('razorpay', {
+      connected: false,
+      accountId: '',
+      connectedAt: null,
+    })
+    setStatus({ type: 'success', message: 'Razorpay disconnected. Save to confirm.' })
+  }
+
+  const connectCashfree = () => {
+    const cf = payments.cashfree || {}
+    if (!String(cf.appId || '').trim() || !String(cf.secretKey || '').trim()) {
+      setStatus({ type: 'error', message: 'Enter Cashfree App ID and Secret Key first.' })
+      return
     }
-    persist(next, 'Payment method removed.')
-    setPaymentDelete(null)
+    patchPaymentMode('cashfree', {
+      enabled: true,
+      connected: true,
+      connectedAt: new Date().toISOString(),
+    })
+    setCashManageOpen(false)
+    setStatus({ type: 'success', message: 'Cashfree connected (demo). Save changes to keep.' })
+  }
+
+  const disconnectCashfree = () => {
+    patchPaymentMode('cashfree', {
+      connected: false,
+      connectedAt: null,
+    })
+    setStatus({ type: 'success', message: 'Cashfree disconnected. Save to confirm.' })
   }
 
   /* —— Data —— */
@@ -627,6 +743,7 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
     const org = settings.organization || {}
     const name = trimName(org.name, 120)
     const email = String(org.email || '').trim().toLowerCase()
+    const website = String(org.website || '').trim().slice(0, 200)
     if (!name) {
       setStatus({ type: 'error', message: 'Organization name is required.' })
       return
@@ -635,11 +752,21 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
       setStatus({ type: 'error', message: 'Enter a valid organization email.' })
       return
     }
+    if (website) {
+      try {
+        const parsed = new URL(website.startsWith('http') ? website : `https://${website}`)
+        if (!parsed.hostname) throw new Error('invalid')
+      } catch {
+        setStatus({ type: 'error', message: 'Enter a valid website URL.' })
+        return
+      }
+    }
     const next = {
       ...settings,
       organization: {
         name,
         email,
+        website,
         address_line1: String(org.address_line1 || '').trim().slice(0, 120),
         address_line2: String(org.address_line2 || '').trim().slice(0, 120),
         city: String(org.city || '').trim().slice(0, 80),
@@ -679,6 +806,7 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
     else if (section === 'appearance') saveAppearance()
     else if (section === 'notifications') saveNotifications()
     else if (section === 'billing') saveBillingDetails()
+    else if (section === 'payments') savePayments()
     else if (section === 'data') saveDataPrefs()
     else if (section === 'pdf') savePdfTemplates()
     else if (section === 'security')
@@ -825,6 +953,13 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
             {/* PROFILE */}
             {section === 'profile' ? (
               <>
+                {useApiProfile && profileLoading ? (
+                  <LoadingState label="Loading profile…" />
+                ) : null}
+                {useApiProfile && profileError && !profileLoading ? (
+                  <ErrorState message={profileError} onRetry={loadSaProfile} />
+                ) : null}
+                {!(useApiProfile && profileLoading) && !(useApiProfile && profileError) ? (
                 <SectionCard
                   title="Personal details"
                   description="Displayed across the admin panel. Names are trimmed and limited to 60 characters."
@@ -873,7 +1008,9 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
                     </div>
                   </div>
                 </SectionCard>
+                ) : null}
 
+                {!(useApiProfile && profileLoading) && !(useApiProfile && profileError) ? (
                 <SectionCard
                   title="Change email"
                   description="We send a one-time code to the new address. Demo code: 123456."
@@ -907,6 +1044,7 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
                     </button>
                   </div>
                 </SectionCard>
+                ) : null}
               </>
             ) : null}
 
@@ -937,6 +1075,18 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
                       onChange={(e) => patchNested('organization', 'email', e.target.value)}
                       autoComplete="email"
                       placeholder="ops@organization.com"
+                    />
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <span className={labelClass}>Website</span>
+                    <input
+                      type="url"
+                      className={fieldClass}
+                      value={settings.organization?.website || ''}
+                      onChange={(e) => patchNested('organization', 'website', e.target.value)}
+                      autoComplete="url"
+                      placeholder="https://www.example.com"
+                      maxLength={200}
                     />
                   </label>
                   <label className="block sm:col-span-2">
@@ -1284,6 +1434,13 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
                   <StatTile label="Renewal" value={settings.billing.renewalDate} />
                 </div>
 
+                <ToggleRow
+                  label="Auto-renewal enabled"
+                  description="Renew the subscription automatically at the end of each billing cycle."
+                  checked={Boolean(settings.billing.autoRenew)}
+                  onChange={(v) => patchNested('billing', 'autoRenew', v)}
+                />
+
                 <SectionCard
                   title="Plan usage"
                   description="Limits included with your subscription."
@@ -1313,15 +1470,6 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
                       </p>
                     </div>
                   </div>
-                  <label className="mt-4 flex items-center gap-2 text-sm text-stone-700">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-brand-500"
-                      checked={settings.billing.autoRenew}
-                      onChange={(e) => patchNested('billing', 'autoRenew', e.target.checked)}
-                    />
-                    Auto-renewal enabled
-                  </label>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <select
                       className={fieldClass}
@@ -1397,93 +1545,497 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
                     />
                   </label>
                 </div>
+              </div>
+            ) : null}
 
+            {/* PAYMENTS */}
+            {section === 'payments' ? (
+              <div className="space-y-4">
                 <SectionCard
-                  title="Payment methods"
-                  description="Only brand, last four digits, and expiry are kept. Full card number and CVV are never stored."
-                  action={
-                    <button type="button" className={btnPrimary} onClick={openAddPayment}>
-                      <FiPlus className="h-3.5 w-3.5" aria-hidden />
-                      Add method
-                    </button>
-                  }
+                  title="Payment modes"
+                  description="Enable gateways customers can pay with. Razorpay and Cashfree need API keys; COD and Manual stay offline."
                 >
-                  {(settings.billing.paymentMethods || []).length === 0 ? (
-                    <p className="text-sm text-stone-500">
-                      No payment methods yet. Add a card to enable auto-renewal charges.
-                    </p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {(settings.billing.paymentMethods || []).map((pm) => (
-                        <li
-                          key={pm.id}
-                          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-stone-200 px-3.5 py-3 text-sm transition-colors hover:bg-stone-50/80"
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    {PAYMENT_MODES.map((m) => {
+                      const cfg = payments[m.id] || {}
+                      const on = payMode === m.id
+                      const live =
+                        m.id === 'razorpay' || m.id === 'cashfree'
+                          ? Boolean(cfg.connected)
+                          : Boolean(cfg.enabled)
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => setPayMode(m.id)}
+                          className={`rounded-2xl border p-3.5 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${
+                            on
+                              ? 'border-brand-300 bg-brand-50 shadow-sm ring-1 ring-brand-100'
+                              : 'border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-50'
+                          }`}
                         >
-                          <div className="flex min-w-0 items-center gap-3">
-                            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-stone-100 text-stone-600">
-                              <FiCreditCard className="h-4 w-4" aria-hidden />
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-semibold text-stone-900">{m.label}</span>
+                            <SoftBadge tone={live ? 'success' : 'neutral'}>
+                              {live ? (m.id === 'cod' || m.id === 'manual' ? 'On' : 'Connected') : 'Off'}
+                            </SoftBadge>
+                          </div>
+                          <p className="mt-1 text-[11px] text-stone-500">{m.hint}</p>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-4">
+                    <span className={labelClass}>Default checkout mode</span>
+                    <select
+                      className={fieldClass}
+                      value={payments.defaultMode || 'razorpay'}
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          payments: { ...s.payments, defaultMode: e.target.value },
+                        }))
+                      }
+                    >
+                      {PAYMENT_MODES.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </SectionCard>
+
+                {payMode === 'razorpay' ? (
+                  <div className="space-y-3">
+                    {payments.razorpay?.connected ? (
+                      <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+                        <div className="flex items-start justify-between gap-3 p-4">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <span
+                              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#072654] text-[11px] font-bold tracking-tight text-white"
+                              aria-hidden
+                            >
+                              rzp
                             </span>
-                            <div>
-                              <p className="flex flex-wrap items-center gap-2 font-medium text-stone-900">
-                                <span>
-                                  {pm.brand} ···· {pm.last4}
-                                </span>
-                                {pm.isDefault ? (
-                                  <SoftBadge tone="brand">Default</SoftBadge>
-                                ) : null}
-                              </p>
-                              <p className="text-xs text-stone-500">
-                                Expires {String(pm.expMonth).padStart(2, '0')}/{pm.expYear}
+                            <div className="min-w-0">
+                              <p className="text-base font-semibold text-stone-900">Razorpay</p>
+                              <p className="mt-0.5 text-sm text-stone-500">
+                                You are accepting Razorpay
                               </p>
                             </div>
                           </div>
-                          <div className="flex gap-1.5">
+                          <div className="shrink-0 text-right">
                             <button
                               type="button"
-                              className={btnGhost}
-                              onClick={() => openEditPayment(pm)}
-                              aria-label={`Edit ${pm.brand} ending ${pm.last4}`}
+                              className="text-sm font-medium text-sky-600 hover:text-sky-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30"
+                              onClick={() => setRazorManageOpen((v) => !v)}
                             >
-                              <FiEdit2 className="h-3.5 w-3.5" aria-hidden />
-                              Edit
+                              Manage
                             </button>
-                            <button
-                              type="button"
-                              className={`${btnGhost} text-rose-600`}
-                              onClick={() => setPaymentDelete(pm)}
-                              aria-label={`Delete ${pm.brand} ending ${pm.last4}`}
-                            >
-                              <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
-                              Delete
-                            </button>
+                            <p className="mt-2 text-[11px] text-stone-400">Checkout</p>
+                            <span className="mt-0.5 inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                              Active
+                            </span>
                           </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </SectionCard>
-
-                <div>
-                  <p className="mb-2 text-sm font-semibold text-stone-900">Invoices</p>
-                  <ul className="divide-y divide-stone-100 rounded-xl border border-stone-200">
-                    {(settings.billing.invoices || []).map((inv) => (
-                      <li
-                        key={inv.id}
-                        className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm"
-                      >
-                        <span>
-                          {inv.id} · {inv.date}
-                        </span>
-                        <span className="flex items-center gap-2">
-                          ₹{inv.amount} · {inv.status}
-                          <button type="button" className={btnGhost}>
-                            Download PDF
+                        </div>
+                        <div className="border-t border-stone-100 px-4 py-3 text-sm text-stone-600">
+                          Provider: Razorpay{' '}
+                          <span className="mx-2 text-stone-300">·</span>
+                          Account:{' '}
+                          <span className="font-medium tracking-wide text-stone-800">
+                            {maskAccount(
+                              payments.razorpay.accountId || payments.razorpay.keyId,
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="overflow-hidden rounded-2xl border border-dashed border-stone-300 bg-white p-4 shadow-sm">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            <span
+                              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#072654] text-[11px] font-bold tracking-tight text-white"
+                              aria-hidden
+                            >
+                              rzp
+                            </span>
+                            <div>
+                              <p className="text-base font-semibold text-stone-900">Razorpay</p>
+                              <p className="mt-0.5 flex items-center gap-1.5 text-sm text-stone-500">
+                                Not Connected
+                                <FiInfo className="h-3.5 w-3.5 text-stone-400" aria-hidden />
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className={btnPrimary}
+                            onClick={() => setRazorManageOpen(true)}
+                          >
+                            Connect
                           </button>
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {razorManageOpen || !payments.razorpay?.connected ? (
+                      <SectionCard
+                        title={payments.razorpay?.connected ? 'Manage Razorpay' : 'Connect Razorpay'}
+                        description="Keys from the Razorpay dashboard. Stored locally until the live API is wired."
+                      >
+                        <div className="space-y-3">
+                          <ToggleRow
+                            label="Enable Razorpay at checkout"
+                            description="Customers can pay with cards, UPI, and netbanking."
+                            checked={Boolean(payments.razorpay?.enabled)}
+                            onChange={(v) => patchPaymentMode('razorpay', { enabled: v })}
+                          />
+                          <label className="block">
+                            <span className={labelClass}>Key ID</span>
+                            <input
+                              className={fieldClass}
+                              placeholder="rzp_live_••••••••"
+                              value={payments.razorpay?.keyId || ''}
+                              onChange={(e) =>
+                                patchPaymentMode('razorpay', { keyId: e.target.value })
+                              }
+                              autoComplete="off"
+                            />
+                          </label>
+                          <label className="block">
+                            <span className={labelClass}>Key Secret</span>
+                            <input
+                              type="password"
+                              className={fieldClass}
+                              placeholder="••••••••••••••••"
+                              value={payments.razorpay?.keySecret || ''}
+                              onChange={(e) =>
+                                patchPaymentMode('razorpay', { keySecret: e.target.value })
+                              }
+                              autoComplete="new-password"
+                            />
+                          </label>
+                          <label className="block">
+                            <span className={labelClass}>Webhook secret (optional)</span>
+                            <input
+                              type="password"
+                              className={fieldClass}
+                              placeholder="whsec_••••"
+                              value={payments.razorpay?.webhookSecret || ''}
+                              onChange={(e) =>
+                                patchPaymentMode('razorpay', { webhookSecret: e.target.value })
+                              }
+                              autoComplete="new-password"
+                            />
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            {payments.razorpay?.connected ? (
+                              <>
+                                <a
+                                  className={btnSecondary}
+                                  href="https://dashboard.razorpay.com/"
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  Open dashboard
+                                </a>
+                                <button
+                                  type="button"
+                                  className={btnGhost}
+                                  onClick={() => {
+                                    disconnectRazorpay()
+                                    setRazorManageOpen(false)
+                                  }}
+                                >
+                                  Disconnect
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  className={btnPrimary}
+                                  disabled={razorConnecting}
+                                  onClick={connectRazorpay}
+                                >
+                                  {razorConnecting ? (
+                                    <>
+                                      <FiLoader className="h-4 w-4 animate-spin" aria-hidden />
+                                      Connecting…
+                                    </>
+                                  ) : (
+                                    'Connect Razorpay'
+                                  )}
+                                </button>
+                                <a
+                                  className={btnSecondary}
+                                  href="https://dashboard.razorpay.com/app/keys"
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  Get API keys
+                                </a>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </SectionCard>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {payMode === 'cashfree' ? (
+                  <div className="space-y-3">
+                    {payments.cashfree?.connected ? (
+                      <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+                        <div className="flex items-start justify-between gap-3 p-4">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <span
+                              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#ff7a45] text-[10px] font-bold text-white"
+                              aria-hidden
+                            >
+                              CF
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-base font-semibold text-stone-900">Cashfree</p>
+                              <p className="mt-0.5 text-sm text-stone-500">
+                                You are accepting Cashfree
+                              </p>
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <button
+                              type="button"
+                              className="text-sm font-medium text-sky-600 hover:text-sky-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30"
+                              onClick={() => setCashManageOpen((v) => !v)}
+                            >
+                              Manage
+                            </button>
+                            <p className="mt-2 text-[11px] text-stone-400">Checkout</p>
+                            <span className="mt-0.5 inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                              Active
+                            </span>
+                          </div>
+                        </div>
+                        <div className="border-t border-stone-100 px-4 py-3 text-sm text-stone-600">
+                          Provider: Cashfree{' '}
+                          <span className="mx-2 text-stone-300">·</span>
+                          Account:{' '}
+                          <span className="font-medium tracking-wide text-stone-800">
+                            {maskAccount(payments.cashfree.appId)}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="overflow-hidden rounded-2xl border border-dashed border-stone-300 bg-white p-4 shadow-sm">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            <span
+                              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#ff7a45] text-[10px] font-bold text-white"
+                              aria-hidden
+                            >
+                              CF
+                            </span>
+                            <div>
+                              <p className="text-base font-semibold text-stone-900">Cashfree</p>
+                              <p className="mt-0.5 flex items-center gap-1.5 text-sm text-stone-500">
+                                Not Connected
+                                <FiInfo className="h-3.5 w-3.5 text-stone-400" aria-hidden />
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className={btnPrimary}
+                            onClick={() => setCashManageOpen(true)}
+                          >
+                            Connect
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {cashManageOpen || !payments.cashfree?.connected ? (
+                      <SectionCard
+                        title={
+                          payments.cashfree?.connected ? 'Manage Cashfree' : 'Connect Cashfree'
+                        }
+                        description="App ID and Secret Key from the Cashfree merchant dashboard."
+                      >
+                        <div className="space-y-3">
+                          <ToggleRow
+                            label="Enable Cashfree at checkout"
+                            description="UPI and gateway checkout via Cashfree."
+                            checked={Boolean(payments.cashfree?.enabled)}
+                            onChange={(v) => patchPaymentMode('cashfree', { enabled: v })}
+                          />
+                          <label className="block">
+                            <span className={labelClass}>Environment</span>
+                            <select
+                              className={fieldClass}
+                              value={payments.cashfree?.environment || 'sandbox'}
+                              onChange={(e) =>
+                                patchPaymentMode('cashfree', { environment: e.target.value })
+                              }
+                            >
+                              <option value="sandbox">Sandbox</option>
+                              <option value="production">Production</option>
+                            </select>
+                          </label>
+                          <label className="block">
+                            <span className={labelClass}>App ID</span>
+                            <input
+                              className={fieldClass}
+                              value={payments.cashfree?.appId || ''}
+                              onChange={(e) =>
+                                patchPaymentMode('cashfree', { appId: e.target.value })
+                              }
+                              autoComplete="off"
+                            />
+                          </label>
+                          <label className="block">
+                            <span className={labelClass}>Secret Key</span>
+                            <input
+                              type="password"
+                              className={fieldClass}
+                              value={payments.cashfree?.secretKey || ''}
+                              onChange={(e) =>
+                                patchPaymentMode('cashfree', { secretKey: e.target.value })
+                              }
+                              autoComplete="new-password"
+                            />
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            {payments.cashfree?.connected ? (
+                              <button
+                                type="button"
+                                className={btnGhost}
+                                onClick={() => {
+                                  disconnectCashfree()
+                                  setCashManageOpen(false)
+                                }}
+                              >
+                                Disconnect
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className={btnPrimary}
+                                onClick={connectCashfree}
+                              >
+                                Connect Cashfree
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </SectionCard>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {payMode === 'cod' ? (
+                  <SectionCard
+                    title="Cash on delivery (COD)"
+                    description="Collect cash at the venue or during a home visit."
+                  >
+                    <div className="space-y-3">
+                      <ToggleRow
+                        label="Enable COD"
+                        description="Customers can choose pay-on-delivery / pay-on-visit."
+                        checked={Boolean(payments.cod?.enabled)}
+                        onChange={(v) => patchPaymentMode('cod', { enabled: v })}
+                      />
+                      <label className="block">
+                        <span className={labelClass}>Instructions shown to customer</span>
+                        <textarea
+                          className={`${fieldClass} min-h-[88px]`}
+                          value={payments.cod?.instructions || ''}
+                          onChange={(e) =>
+                            patchPaymentMode('cod', { instructions: e.target.value })
+                          }
+                          maxLength={500}
+                        />
+                      </label>
+                    </div>
+                  </SectionCard>
+                ) : null}
+
+                {payMode === 'manual' ? (
+                  <SectionCard
+                    title="Manual payment"
+                    description="Offline UPI or bank transfer — staff marks the booking paid."
+                  >
+                    <div className="space-y-3">
+                      <ToggleRow
+                        label="Enable manual payments"
+                        description="Show bank / UPI details for offline settlement."
+                        checked={Boolean(payments.manual?.enabled)}
+                        onChange={(v) => patchPaymentMode('manual', { enabled: v })}
+                      />
+                      <label className="block">
+                        <span className={labelClass}>Instructions</span>
+                        <textarea
+                          className={`${fieldClass} min-h-[72px]`}
+                          value={payments.manual?.instructions || ''}
+                          onChange={(e) =>
+                            patchPaymentMode('manual', { instructions: e.target.value })
+                          }
+                          maxLength={500}
+                        />
+                      </label>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block">
+                          <span className={labelClass}>Bank name</span>
+                          <input
+                            className={fieldClass}
+                            value={payments.manual?.bankName || ''}
+                            onChange={(e) =>
+                              patchPaymentMode('manual', { bankName: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="block">
+                          <span className={labelClass}>Account name</span>
+                          <input
+                            className={fieldClass}
+                            value={payments.manual?.accountName || ''}
+                            onChange={(e) =>
+                              patchPaymentMode('manual', { accountName: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="block">
+                          <span className={labelClass}>Account number</span>
+                          <input
+                            className={fieldClass}
+                            value={payments.manual?.accountNumber || ''}
+                            onChange={(e) =>
+                              patchPaymentMode('manual', { accountNumber: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="block">
+                          <span className={labelClass}>IFSC</span>
+                          <input
+                            className={fieldClass}
+                            value={payments.manual?.ifsc || ''}
+                            onChange={(e) => patchPaymentMode('manual', { ifsc: e.target.value })}
+                          />
+                        </label>
+                        <label className="block sm:col-span-2">
+                          <span className={labelClass}>UPI ID</span>
+                          <input
+                            className={fieldClass}
+                            placeholder="org@upi"
+                            value={payments.manual?.upiId || ''}
+                            onChange={(e) => patchPaymentMode('manual', { upiId: e.target.value })}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </SectionCard>
+                ) : null}
               </div>
             ) : null}
 
@@ -1633,151 +2185,6 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
         onClose={() => setSignOutOpen(false)}
       />
 
-      <ConfirmDialog
-        open={Boolean(paymentDelete)}
-        title="Remove payment method?"
-        message={
-          paymentDelete
-            ? `Remove ${paymentDelete.brand} ending in ${paymentDelete.last4}? If it was default, another card becomes default.`
-            : 'Remove this payment method?'
-        }
-        confirmLabel="Delete"
-        onConfirm={confirmDeletePayment}
-        onClose={() => setPaymentDelete(null)}
-      />
-
-      <Modal
-        open={Boolean(paymentModal)}
-        title={paymentModal === 'edit' ? 'Edit payment method' : 'Add payment method'}
-        onClose={closePaymentModal}
-        footer={
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              className={btnSecondary}
-              onClick={closePaymentModal}
-              disabled={paymentSaving}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              form="payment-method-form"
-              className={btnPrimary}
-              disabled={paymentSaving}
-            >
-              {paymentSaving ? (
-                <>
-                  <FiLoader className="h-4 w-4 animate-spin" aria-hidden />
-                  Saving…
-                </>
-              ) : paymentModal === 'edit' ? (
-                'Save changes'
-              ) : (
-                'Add card'
-              )}
-            </button>
-          </div>
-        }
-      >
-        <form id="payment-method-form" className="space-y-4" onSubmit={savePaymentMethod}>
-          <p className="text-xs leading-relaxed text-stone-500">
-            Demo form — in production the card is tokenized by the payment provider. We only keep
-            brand, last 4, and expiry.
-          </p>
-          <label className="block">
-            <span className={labelClass}>Card brand</span>
-            <select
-              className={fieldClass}
-              value={paymentForm.brand}
-              onChange={(e) => setPaymentForm((f) => ({ ...f, brand: e.target.value }))}
-              disabled={paymentSaving}
-            >
-              {CARD_BRANDS.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
-          </label>
-          {paymentModal === 'create' ? (
-            <label className="block">
-              <span className={labelClass}>Card number</span>
-              <input
-                className={fieldClass}
-                inputMode="numeric"
-                autoComplete="cc-number"
-                placeholder="•••• •••• •••• ••••"
-                value={paymentForm.cardNumber}
-                onChange={(e) =>
-                  setPaymentForm((f) => ({
-                    ...f,
-                    cardNumber: e.target.value.replace(/[^\d\s]/g, '').slice(0, 23),
-                  }))
-                }
-                disabled={paymentSaving}
-                required
-              />
-            </label>
-          ) : (
-            <label className="block">
-              <span className={labelClass}>Last 4 digits</span>
-              <input
-                className={fieldClass}
-                inputMode="numeric"
-                value={paymentForm.last4}
-                onChange={(e) =>
-                  setPaymentForm((f) => ({
-                    ...f,
-                    last4: e.target.value.replace(/\D/g, '').slice(0, 4),
-                  }))
-                }
-                disabled={paymentSaving}
-                required
-              />
-            </label>
-          )}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className={labelClass}>Expiry month</span>
-              <input
-                className={fieldClass}
-                type="number"
-                min={1}
-                max={12}
-                placeholder="MM"
-                value={paymentForm.expMonth}
-                onChange={(e) => setPaymentForm((f) => ({ ...f, expMonth: e.target.value }))}
-                disabled={paymentSaving}
-                required
-              />
-            </label>
-            <label className="block">
-              <span className={labelClass}>Expiry year</span>
-              <input
-                className={fieldClass}
-                type="number"
-                min={new Date().getFullYear()}
-                placeholder="YYYY"
-                value={paymentForm.expYear}
-                onChange={(e) => setPaymentForm((f) => ({ ...f, expYear: e.target.value }))}
-                disabled={paymentSaving}
-                required
-              />
-            </label>
-          </div>
-          <label className="flex items-center gap-2 text-sm text-stone-700">
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-brand-500"
-              checked={paymentForm.isDefault}
-              onChange={(e) => setPaymentForm((f) => ({ ...f, isDefault: e.target.checked }))}
-              disabled={paymentSaving}
-            />
-            Set as default payment method
-          </label>
-        </form>
-      </Modal>
     </div>
   )
 }
