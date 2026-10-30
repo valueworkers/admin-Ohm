@@ -12,6 +12,14 @@
       "destination": "/api/products?__path=:path*"
     },
     {
+      "source": "/api/gst",
+      "destination": "/api/gst"
+    },
+    {
+      "source": "/api/gst/:path*",
+      "destination": "/api/gst?__path=:path*"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

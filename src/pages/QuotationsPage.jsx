@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { FiChevronDown, FiChevronRight, FiPlus } from 'react-icons/fi'
+import {
+  FiChevronDown,
+  FiChevronRight,
+  FiDownload,
+  FiPlus,
+  FiSearch,
+} from 'react-icons/fi'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
 import TenantOpsPlaceholder from '../components/TenantOpsPlaceholder'
@@ -8,7 +14,7 @@ import { EmptyState, ErrorState, LoadingState, Panel } from '../components/ui/Pa
 import { fetchPlatformQuoteStats, fetchPlatformQuotes } from '../api/quotes'
 import { useAccess } from '../hooks/useAccess'
 import { apiErrorMessage } from '../utils/errors'
-import { btnPrimary, tableHeadClass, tableWrapClass } from '../utils/ui'
+import { btnPrimary, btnSecondary, fieldClass, tableHeadClass, tableWrapClass } from '../utils/ui'
 
 const RANGE_OPTIONS = [
   { id: 30, label: '30 days' },
@@ -64,6 +70,19 @@ const fmtDate = (value) => {
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+const fmtDateTime = (value) => {
+  if (!value) return '—'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  return d.toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 const fmtMoney = (n) => {
   if (n == null || Number.isNaN(Number(n))) return null
   return Number(n).toLocaleString('en-IN', {
@@ -81,6 +100,88 @@ const statusChip = (status) => {
   return 'bg-stone-100 text-stone-700'
 }
 
+const SORT_COLUMNS = [
+  { id: 'number', label: 'Quote' },
+  { id: 'customer', label: 'Customer' },
+  { id: 'status', label: 'Status' },
+  { id: 'createdAt', label: 'Created date' },
+  { id: 'lastModifiedAt', label: 'Last modified' },
+  { id: 'createdBy', label: 'Created by' },
+  { id: 'validFrom', label: 'Valid from' },
+  { id: 'validUntil', label: 'Valid until' },
+  { id: 'assignTo', label: 'Assign to' },
+  { id: 'totalInclGst', label: 'Total incl. GST', align: 'right' },
+]
+
+const sortValue = (q, key) => {
+  if (key === 'customer') return String(q.customer || q.forName || '').toLowerCase()
+  if (key === 'totalInclGst') {
+    return q.gstSet && q.totalInclGst != null ? Number(q.totalInclGst) : -1
+  }
+  if (
+    key === 'createdAt' ||
+    key === 'lastModifiedAt' ||
+    key === 'validFrom' ||
+    key === 'validUntil'
+  ) {
+    const t = new Date(q[key] || 0).getTime()
+    return Number.isNaN(t) ? 0 : t
+  }
+  return String(q[key] ?? '').toLowerCase()
+}
+
+const csvEscape = (value) => {
+  const text = String(value ?? '')
+  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`
+  return text
+}
+
+const downloadQuotesExcel = (rows) => {
+  const headers = [
+    'Quote',
+    'Customer',
+    'Status',
+    'Created date',
+    'Last modified',
+    'Created by',
+    'Valid from',
+    'Valid until',
+    'Assign to',
+    'Total incl. GST',
+  ]
+  const lines = [
+    headers.join(','),
+    ...rows.map((q) =>
+      [
+        q.number,
+        q.customer || q.forName || '',
+        q.status,
+        fmtDateTime(q.createdAt),
+        fmtDateTime(q.lastModifiedAt),
+        q.createdBy || '',
+        fmtDate(q.validFrom),
+        fmtDate(q.validUntil),
+        q.assignTo || '',
+        q.gstSet && q.totalInclGst != null ? q.totalInclGst : '',
+      ]
+        .map(csvEscape)
+        .join(','),
+    ),
+  ]
+  const bom = '\uFEFF'
+  const blob = new Blob([bom + lines.join('\n')], {
+    type: 'application/vnd.ms-excel;charset=utf-8;',
+  })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `quotes-${toYmd(new Date())}.xls`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 const QuotationsPage = () => {
   const navigate = useNavigate()
   const { isSuperAdmin, canWrite } = useAccess()
@@ -92,6 +193,9 @@ const QuotationsPage = () => {
   const [statsLoading, setStatsLoading] = useState(false)
   const [statsError, setStatsError] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
+  const [search, setSearch] = useState('')
+  const [sortKey, setSortKey] = useState('createdAt')
+  const [sortDir, setSortDir] = useState('desc')
   const [moreOpen, setMoreOpen] = useState(false)
   const [status, setStatus] = useState({ type: '', message: '' })
 
@@ -160,9 +264,34 @@ const QuotationsPage = () => {
   )
 
   const filtered = useMemo(() => {
-    if (statusFilter === 'ALL') return inRange
-    return inRange.filter((q) => q.status === statusFilter)
-  }, [inRange, statusFilter])
+    const q = String(search || '').trim().toLowerCase()
+    let rows =
+      statusFilter === 'ALL' ? inRange : inRange.filter((row) => row.status === statusFilter)
+    if (q) {
+      rows = rows.filter((row) => {
+        const hay = [
+          row.number,
+          row.customer,
+          row.forName,
+          row.status,
+          row.createdBy,
+          row.assignTo,
+          row.validFrom,
+          row.validUntil,
+        ]
+          .map((v) => String(v || '').toLowerCase())
+          .join(' ')
+        return hay.includes(q)
+      })
+    }
+    const dir = sortDir === 'asc' ? 1 : -1
+    return [...rows].sort((a, b) => {
+      const av = sortValue(a, sortKey)
+      const bv = sortValue(b, sortKey)
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir
+      return String(av).localeCompare(String(bv), undefined, { numeric: true }) * dir
+    })
+  }, [inRange, statusFilter, search, sortKey, sortDir])
 
   const counts = useMemo(() => {
     const base = { ALL: inRange.length, DRAFT: 0, SENT: 0, ACCEPTED: 0, EXPIRED: 0, SUPERSEDED: 0 }
@@ -171,6 +300,27 @@ const QuotationsPage = () => {
     })
     return base
   }, [inRange])
+
+  const toggleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortKey(key)
+    setSortDir(key === 'number' || key === 'customer' ? 'asc' : 'desc')
+  }
+
+  const handleExport = () => {
+    if (!filtered.length) {
+      setStatus({ type: 'error', message: 'Nothing to export for the current filters.' })
+      return
+    }
+    downloadQuotesExcel(filtered)
+    setStatus({
+      type: 'success',
+      message: `Exported ${filtered.length} quote${filtered.length === 1 ? '' : 's'} to Excel.`,
+    })
+  }
 
   const decided = stats.accepted + stats.rejected + stats.expired
   const winPct = winRatePercent(stats.winRate)
@@ -203,12 +353,23 @@ const QuotationsPage = () => {
               }.`
         }
         actions={
-          canWrite !== false ? (
-            <Link to="/ops/quotations/new" className={btnPrimary}>
-              <FiPlus className="h-4 w-4" aria-hidden />
-              New quote
-            </Link>
-          ) : null
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className={btnSecondary}
+              disabled={loading || Boolean(loadError)}
+              onClick={handleExport}
+            >
+              <FiDownload className="h-4 w-4" aria-hidden />
+              Export to Excel
+            </button>
+            {canWrite !== false ? (
+              <Link to="/ops/quotations/new" className={btnPrimary}>
+                <FiPlus className="h-4 w-4" aria-hidden />
+                New quote
+              </Link>
+            ) : null}
+          </div>
         }
       />
 
@@ -335,27 +496,43 @@ const QuotationsPage = () => {
             ) : null}
           </Panel>
 
-          <div role="tablist" aria-label="Quote status" className="flex flex-wrap gap-1.5">
-            {STATUS_FILTERS.map((f) => {
-              const on = statusFilter === f.id
-              const n = counts[f.id] ?? 0
-              return (
-                <button
-                  key={f.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={on}
-                  onClick={() => setStatusFilter(f.id)}
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${
-                    on
-                      ? 'bg-ink text-white'
-                      : 'bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50'
-                  }`}
-                >
-                  {f.label} ({n})
-                </button>
-              )
-            })}
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div role="tablist" aria-label="Quote status" className="flex flex-wrap gap-1.5">
+              {STATUS_FILTERS.map((f) => {
+                const on = statusFilter === f.id
+                const n = counts[f.id] ?? 0
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={on}
+                    onClick={() => setStatusFilter(f.id)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${
+                      on
+                        ? 'bg-ink text-white'
+                        : 'bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50'
+                    }`}
+                  >
+                    {f.label} ({n})
+                  </button>
+                )
+              })}
+            </div>
+            <label className="relative block min-w-[12rem] flex-1 sm:max-w-xs">
+              <span className="sr-only">Search quotes</span>
+              <FiSearch
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400"
+                aria-hidden
+              />
+              <input
+                type="search"
+                className={`${fieldClass} pl-9`}
+                placeholder="Search quote, customer, status…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </label>
           </div>
 
           <div className={tableWrapClass}>
@@ -363,22 +540,45 @@ const QuotationsPage = () => {
               <table className="min-w-full text-left text-sm">
                 <thead className={tableHeadClass}>
                   <tr>
-                    <th className="px-4 py-3 font-semibold">Quote</th>
-                    <th className="px-4 py-3 font-semibold">For</th>
-                    <th className="px-4 py-3 font-semibold">Status</th>
-                    <th className="px-4 py-3 font-semibold">Date</th>
-                    <th className="px-4 py-3 font-semibold">Valid until</th>
-                    <th className="px-4 py-3 font-semibold text-right">Total incl. GST</th>
+                    {SORT_COLUMNS.map((col) => {
+                      const active = sortKey === col.id
+                      return (
+                        <th
+                          key={col.id}
+                          className={`px-4 py-3 font-semibold ${
+                            col.align === 'right' ? 'text-right' : ''
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            className={`inline-flex items-center gap-1 rounded-md transition-colors hover:text-stone-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${
+                              active ? 'text-stone-900' : 'text-stone-500'
+                            } ${col.align === 'right' ? 'ml-auto' : ''}`}
+                            onClick={() => toggleSort(col.id)}
+                            aria-label={`Sort by ${col.label}`}
+                          >
+                            {col.label}
+                            <span className="text-[10px] tabular-nums" aria-hidden>
+                              {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                            </span>
+                          </button>
+                        </th>
+                      )
+                    })}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-10">
+                      <td colSpan={10} className="px-4 py-10">
                         <EmptyState
                           bare
-                          title="No quotes in this range"
-                          hint="Try another period or status, or create a new quote."
+                          title={search.trim() ? 'No matching quotes' : 'No quotes in this range'}
+                          hint={
+                            search.trim()
+                              ? 'Try another search, status, or date range.'
+                              : 'Try another period or status, or create a new quote.'
+                          }
                           actionLabel={canWrite !== false ? 'New quote' : undefined}
                           onAction={
                             canWrite !== false
@@ -404,8 +604,10 @@ const QuotationsPage = () => {
                         role="link"
                         aria-label={`Open quote ${q.number}`}
                       >
-                        <td className="px-4 py-3 font-medium text-stone-900">{q.number}</td>
-                        <td className="px-4 py-3 text-stone-700">{q.forName}</td>
+                        <td className="px-4 py-3 font-medium whitespace-nowrap text-stone-900">
+                          {q.number}
+                        </td>
+                        <td className="px-4 py-3 text-stone-700">{q.customer || q.forName}</td>
                         <td className="px-4 py-3">
                           <span
                             className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${statusChip(
@@ -415,9 +617,21 @@ const QuotationsPage = () => {
                             {q.status}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-stone-600">{fmtDate(q.date)}</td>
-                        <td className="px-4 py-3 text-stone-600">{fmtDate(q.validUntil)}</td>
-                        <td className="px-4 py-3 text-right text-stone-800">
+                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
+                          {fmtDateTime(q.createdAt)}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
+                          {fmtDateTime(q.lastModifiedAt)}
+                        </td>
+                        <td className="px-4 py-3 text-stone-700">{q.createdBy || '—'}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
+                          {fmtDate(q.validFrom)}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
+                          {fmtDate(q.validUntil)}
+                        </td>
+                        <td className="px-4 py-3 text-stone-700">{q.assignTo || '—'}</td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap text-stone-800">
                           {q.gstSet && q.totalInclGst != null ? (
                             fmtMoney(q.totalInclGst)
                           ) : (

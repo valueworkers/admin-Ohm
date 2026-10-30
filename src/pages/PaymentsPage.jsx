@@ -152,7 +152,7 @@ const PaymentsPage = () => {
             <thead className={tableHeadClass}>
               <tr>
                 <th className="px-4 py-3 font-semibold">Payment</th>
-                <th className="px-4 py-3 font-semibold">Tenant</th>
+                <th className="px-4 py-3 font-semibold">Customer</th>
                 {viewMode === 'invoice' ? (
                   <th className="px-4 py-3 font-semibold">Invoice</th>
                 ) : null}
@@ -234,7 +234,7 @@ const PaymentsPage = () => {
           </table>
         </div>
         <p className="border-t border-stone-100 px-4 py-2.5 text-xs text-stone-500">
-          Tenant → O-HM Senior Care. Switch views above to see invoice-linked vs standalone
+          Customer → O-HM Senior Care. Switch views above to see invoice-linked vs standalone
           payments.
         </p>
       </div>

@@ -1,16 +1,15 @@
 import { useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { FiChevronRight, FiPlus } from 'react-icons/fi'
+import { FiPlus } from 'react-icons/fi'
 import PageHeader from '../components/ui/PageHeader'
 import TenantOpsPlaceholder from '../components/TenantOpsPlaceholder'
-import { EmptyState, Panel } from '../components/ui/PageState'
+import { EmptyState } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
 import {
   displayPayer,
   fmtDate,
   fmtMoney,
   invoiceAgeDays,
-  loadDue,
   loadInvoices,
 } from '../features/invoices/store'
 import { btnPrimary, tableHeadClass, tableWrapClass } from '../utils/ui'
@@ -27,8 +26,7 @@ const owedLabel = (inv) => {
 
 const InvoicesPage = () => {
   const navigate = useNavigate()
-  const { isSuperAdmin, tenant, canWrite } = useAccess()
-  const due = useMemo(() => loadDue(), [])
+  const { isSuperAdmin, canWrite } = useAccess()
   const invoices = useMemo(() => loadInvoices(), [])
 
   const owedCount = invoices.filter((i) => Number(i.owed) > 0).length
@@ -59,48 +57,6 @@ const InvoicesPage = () => {
         }
       />
 
-      <Panel className="space-y-3 p-4 md:p-5">
-        <p className="text-[11px] font-bold uppercase tracking-wide text-stone-400">
-          Due an invoice · {due.length}
-        </p>
-        {due.length === 0 ? (
-          <EmptyState
-            bare
-            title="Nothing waiting"
-            hint="Bookings that finished care and still need a platform invoice will show up here."
-          />
-        ) : (
-          <ul className="divide-y divide-stone-100 rounded-xl border border-stone-200 bg-white">
-            {due.map((row) => (
-              <li key={row.id}>
-                <button
-                  type="button"
-                  onClick={() => navigate(`/ops/invoices/${row.id}`)}
-                  className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/30"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-stone-900">
-                      {displayPayer(row)}
-                      <span className="ml-2 font-normal text-stone-500">{row.bookingRef}</span>
-                    </p>
-                    <p className="mt-0.5 truncate text-xs text-stone-500">
-                      {row.patientName ? `Resident ${row.patientName} · ` : ''}
-                      {row.service}
-                      {row.tenantName ? ` · ${row.tenantName}` : ''}
-                    </p>
-                  </div>
-                  <span className="inline-flex shrink-0 items-center gap-1 text-sm text-stone-600">
-                    Raise invoice · {row.daysWaiting} day
-                    {row.daysWaiting === 1 ? '' : 's'}
-                    <FiChevronRight className="h-4 w-4 text-stone-400" aria-hidden />
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
-
       <div>
         <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-stone-400">
           Invoices · {invoices.length}
@@ -112,7 +68,7 @@ const InvoicesPage = () => {
               <thead className={tableHeadClass}>
                 <tr>
                   <th className="px-4 py-3 font-semibold">Invoice</th>
-                  <th className="px-4 py-3 font-semibold">Payer</th>
+                  <th className="px-4 py-3 font-semibold">Customer</th>
                   <th className="px-4 py-3 font-semibold">Tenant</th>
                   <th className="px-4 py-3 font-semibold text-right">Amount</th>
                   <th className="px-4 py-3 font-semibold text-right">Received</th>
@@ -185,8 +141,8 @@ const InvoicesPage = () => {
             </table>
           </div>
           <p className="border-t border-stone-100 px-4 py-2.5 text-xs text-stone-500">
-            Payer may be a family member or a tenant org. Age counts from the invoice date while a
-            balance remains.
+            Customer may be a family member or a tenant org. Age counts from the invoice date while
+            a balance remains.
           </p>
         </div>
       </div>
