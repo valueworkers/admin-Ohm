@@ -174,11 +174,42 @@ export const updateUserSettingsSection = (sectionKey, sectionValue) => {
   return saveUserSettings(next)
 }
 
+const APPEARANCE_FONT_STACKS = {
+  system: 'system-ui, "Segoe UI", sans-serif',
+  inter: '"Inter", system-ui, sans-serif',
+  roboto: '"Roboto", system-ui, sans-serif',
+  open_sans: '"Open Sans", system-ui, sans-serif',
+  lato: '"Lato", system-ui, sans-serif',
+}
+
+const GOOGLE_FONT_HREFS = {
+  inter:
+    'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
+  roboto:
+    'https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap',
+  open_sans:
+    'https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&display=swap',
+  lato: 'https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap',
+}
+
+const ensureAppearanceFont = (key) => {
+  const href = GOOGLE_FONT_HREFS[key]
+  if (!href || typeof document === 'undefined') return
+  const id = `sc-font-${key}`
+  if (document.getElementById(id)) return
+  const link = document.createElement('link')
+  link.id = id
+  link.rel = 'stylesheet'
+  link.href = href
+  document.head.appendChild(link)
+}
+
 export const applyAppearance = (appearance = {}) => {
   const root = document.documentElement
   const theme = appearance.theme || 'light'
   const fontSize = appearance.fontSize || 'medium'
-  const fontFamily = appearance.fontFamily || 'Segoe UI'
+  const fontKey = appearance.fontFamily || 'system'
+  const stack = APPEARANCE_FONT_STACKS[fontKey] || APPEARANCE_FONT_STACKS.system
 
   if (theme === 'system') {
     const dark = window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -187,8 +218,10 @@ export const applyAppearance = (appearance = {}) => {
     root.dataset.theme = theme
   }
   root.dataset.fontSize = fontSize
-  root.style.setProperty('--sc-font-family', fontFamily)
-  root.style.fontFamily = `"${fontFamily}", system-ui, sans-serif`
+  root.dataset.fontFamily = fontKey
+  ensureAppearanceFont(fontKey)
+  root.style.setProperty('--sc-font-family', stack)
+  root.style.fontFamily = stack
 }
 
 export const syncProfileToSession = (profile) => {

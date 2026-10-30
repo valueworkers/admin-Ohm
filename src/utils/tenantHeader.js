@@ -12,7 +12,7 @@ export const schemaFromAccessToken = () => {
   }
 }
 
-const slugFromTenantRow = (row) => {
+export const slugFromTenantRow = (row) => {
   if (!row || typeof row !== 'object') return ''
   return String(row.schema_name || row.slug || row.schema || row.tenant_slug || '').trim()
 }
@@ -73,4 +73,16 @@ export const resolveRolesTenantSlug = () => {
   }
 
   return fromJwt && fromJwt !== 'public' ? fromJwt : ''
+}
+
+/**
+ * Tenant slug for settings APIs (X-Tenant).
+ * Account / Super Admin platform settings → leave empty.
+ * Tenant settings → selected tenant slug, else JWT schema for tenant users.
+ */
+export const resolveSettingsTenantSlug = (tenant) => {
+  const fromRow = slugFromTenantRow(tenant)
+  if (fromRow && fromRow !== 'public') return fromRow
+  if (isSuperAdminSession()) return ''
+  return resolveRolesTenantSlug()
 }

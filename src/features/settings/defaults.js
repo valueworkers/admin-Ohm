@@ -1,3 +1,4 @@
+/** PDF template fonts (document preview / print). */
 export const FONT_FAMILIES = [
   { value: 'Segoe UI', label: 'Segoe UI' },
   { value: 'system-ui', label: 'System UI' },
@@ -5,6 +6,15 @@ export const FONT_FAMILIES = [
   { value: 'Times New Roman', label: 'Times New Roman' },
   { value: 'Arial', label: 'Arial' },
   { value: 'Courier New', label: 'Courier New' },
+]
+
+/** Account appearance fonts — matches API font_family values. */
+export const APPEARANCE_FONT_FAMILIES = [
+  { value: 'system', label: 'System' },
+  { value: 'inter', label: 'Inter' },
+  { value: 'roboto', label: 'Roboto' },
+  { value: 'open_sans', label: 'Open Sans' },
+  { value: 'lato', label: 'Lato' },
 ]
 
 export const THEMES = [
@@ -29,9 +39,9 @@ export const NOTIFY_CHANNELS = [
 
 export const NOTIFY_CATEGORIES = [
   { key: 'product_updates', label: 'Product updates', mandatory: false },
-  { key: 'marketing', label: 'Marketing emails', mandatory: false },
-  { key: 'security', label: 'Security alerts', mandatory: true },
-  { key: 'billing', label: 'Billing / payment alerts', mandatory: true },
+  { key: 'marketing_emails', label: 'Marketing emails', mandatory: false },
+  { key: 'security_alerts', label: 'Security alerts', mandatory: true },
+  { key: 'billing_alerts', label: 'Billing / payment alerts', mandatory: true },
 ]
 
 export const EXPORT_FORMATS = [
@@ -45,7 +55,10 @@ const emptyChannelPrefs = () =>
 
 const emptyCategoryPrefs = () =>
   Object.fromEntries(
-    NOTIFY_CATEGORIES.map((c) => [c.key, c.mandatory ? true : c.key !== 'marketing']),
+    NOTIFY_CATEGORIES.map((c) => [
+      c.key,
+      c.mandatory ? true : c.key !== 'marketing_emails',
+    ]),
   )
 
 /** PDF page presets (portrait mm). Preview uses 96dpi: mm × 96 / 25.4 */
@@ -234,7 +247,7 @@ export const defaultUserSettings = (user = {}) => ({
   appearance: {
     theme: 'light',
     fontSize: 'medium',
-    fontFamily: 'Segoe UI',
+    fontFamily: 'system',
   },
   notifications: {
     channels: emptyChannelPrefs(),

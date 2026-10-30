@@ -3,6 +3,16 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { FiArrowDown, FiArrowUp, FiDownload, FiPlus, FiTrash2 } from 'react-icons/fi'
 import StatusBanner from '../components/ui/StatusBanner'
 import TenantOpsPlaceholder from '../components/TenantOpsPlaceholder'
+import { ErrorState, LoadingState } from '../components/ui/PageState'
+import {
+  createPlatformQuote,
+  downloadPlatformQuotePdf,
+  fetchPlatformQuoteById,
+  revisePlatformQuote,
+  sendPlatformQuote,
+  sendPlatformQuoteTest,
+  updatePlatformQuote,
+} from '../api/quotes'
 import { useAccess } from '../hooks/useAccess'
 import { loadSettingsForMode } from '../features/settings/store'
 import {
@@ -11,14 +21,9 @@ import {
   amountInWords,
   stateFromGstin,
 } from '../features/quotes/states'
-import {
-  createRevision,
-  fmtDateTime,
-  formFromQuote,
-  getQuote,
-  getQuoteFamily,
-  upsertQuote,
-} from '../features/quotes/store'
+import { fmtDateTime, formFromQuote } from '../features/quotes/store'
+import { isValidEmail } from '../features/settings/store'
+import { apiErrorMessage } from '../utils/errors'
 import { btnGhost, btnPrimary, btnSecondary, fieldClass, labelClass } from '../utils/ui'
 
 const PLATFORM = {
@@ -118,14 +123,17 @@ const QuoteEditorPage = () => {
   const navigate = useNavigate()
   const { quoteId } = useParams()
   const isNew = !quoteId || quoteId === 'new'
-  const existing = useMemo(() => (isNew ? null : getQuote(quoteId)), [isNew, quoteId])
-  const family = useMemo(
-    () => (existing ? getQuoteFamily(existing) : []),
-    [existing],
-  )
   const { canWrite, isSuperAdmin } = useAccess()
+  const [existing, setExisting] = useState(null)
+  const [loadingQuote, setLoadingQuote] = useState(!isNew)
+  const [loadError, setLoadError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
+  /** When set, a SENT quote is being revised locally; Send calls /revise/. */
+  const [revisingFromId, setRevisingFromId] = useState(null)
+  const isRevising = Boolean(revisingFromId)
+  const family = useMemo(() => (existing ? [existing] : []), [existing])
   const statusKey = String(existing?.status || '').toUpperCase()
-  const isDraft = isNew || statusKey === 'DRAFT'
+  const isDraft = isNew || statusKey === 'DRAFT' || isRevising
   const lockedByStatus = Boolean(existing) && !isDraft
   const readOnly = canWrite === false || lockedByStatus
   const seller = useMemo(() => readPlatformSeller(), [])
@@ -137,10 +145,12 @@ const QuoteEditorPage = () => {
     contactEmail: defaultContactEmail,
     contactPhone: defaultContactPhone,
   } = seller
-  const testEmails = useMemo(
-    () => [PLATFORM.email, 'ops@o-hm.com'].filter(Boolean),
-    [],
+  const [testEmails, setTestEmails] = useState(() =>
+    [PLATFORM.email, 'ops@o-hm.com'].filter(Boolean),
   )
+  const [testEmailDraft, setTestEmailDraft] = useState('')
+  const [pdfBusy, setPdfBusy] = useState(false)
+  const [testBusy, setTestBusy] = useState(false)
 
   const quoteDate = useMemo(() => {
     if (existing?.date) {
@@ -152,22 +162,42 @@ const QuoteEditorPage = () => {
 
   const [status, setStatus] = useState({ type: '', message: '' })
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState(() => {
-    if (!isNew) {
-      const q = getQuote(quoteId)
-      if (q) return formFromQuote(q)
-    }
-    return blankForm()
-  })
+  const [form, setForm] = useState(() => blankForm())
 
   useEffect(() => {
+    if (!isSuperAdmin) return undefined
     if (isNew) {
+      setExisting(null)
+      setLoadError('')
+      setLoadingQuote(false)
+      setRevisingFromId(null)
       setForm(blankForm())
-      return
+      return undefined
     }
-    const q = getQuote(quoteId)
-    if (q) setForm(formFromQuote(q))
-  }, [quoteId, isNew])
+
+    let cancelled = false
+    ;(async () => {
+      setLoadingQuote(true)
+      setLoadError('')
+      setRevisingFromId(null)
+      try {
+        const quote = await fetchPlatformQuoteById(quoteId)
+        if (cancelled) return
+        setExisting(quote)
+        setForm(formFromQuote(quote))
+      } catch (err) {
+        if (cancelled) return
+        setExisting(null)
+        setLoadError(apiErrorMessage(err, 'Could not load quote.'))
+      } finally {
+        if (!cancelled) setLoadingQuote(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [quoteId, isNew, isSuperAdmin, reloadKey])
 
   const validityDays = Math.max(1, Math.min(3650, Number(form.validityDays) || 30))
   const validUntil = useMemo(() => {
@@ -254,7 +284,7 @@ const QuoteEditorPage = () => {
 
   const canSend = blockers.length === 0
 
-  const persistDraft = (asSent) => {
+  const persistDraft = async (asSent) => {
     if (canWrite === false) {
       setStatus({ type: 'error', message: 'You do not have permission to save quotes.' })
       return
@@ -270,57 +300,95 @@ const QuoteEditorPage = () => {
       setStatus({ type: 'error', message: 'Fix the checklist below before sending.' })
       return
     }
+
+    if (!String(form.company).trim()) {
+      setStatus({ type: 'error', message: 'Add who the quote is for.' })
+      return
+    }
+    if (!form.lines.some((ln) => String(ln.item || '').trim())) {
+      setStatus({ type: 'error', message: 'Add at least one line item.' })
+      return
+    }
+
     setSaving(true)
+    setStatus({ type: '', message: '' })
     try {
-      const yymm = `${String(quoteDate.getFullYear()).slice(2)}${String(quoteDate.getMonth() + 1).padStart(2, '0')}`
-      const id = existing?.id || `q-${Date.now()}`
-      const revision = existing?.revision ?? 0
-      const number =
-        existing?.number || `SC-Q-${yymm}-${String(Date.now()).slice(-3)} R${revision}`
-      const nowIso = new Date().toISOString()
-      const prevHistory = Array.isArray(existing?.history) ? existing.history : []
-      const history = asSent
-        ? [
-            {
-              type: 'sent',
-              at: nowIso,
-              to: form.buyerEmail.trim(),
-              by: PLATFORM.email,
-            },
-            ...prevHistory.filter((h) => h.type !== 'sent'),
-          ]
-        : prevHistory.length
-          ? prevHistory
-          : [{ type: 'created', at: nowIso, by: PLATFORM.email }]
-      const row = {
-        id,
-        groupId: existing?.groupId || id,
-        revision,
-        number,
-        forName: form.company.trim() || 'Untitled',
-        status: asSent ? 'SENT' : 'DRAFT',
-        date: existing?.date || quoteDate.toISOString().slice(0, 10),
-        validUntil: validUntil.toISOString().slice(0, 10),
-        totalInclGst: buyerState ? total : null,
-        gstSet: Boolean(buyerState),
-        sentAt: asSent ? nowIso : existing?.sentAt || null,
-        sentTo: asSent ? [form.buyerEmail.trim()].filter(Boolean) : existing?.sentTo || null,
-        sentBy: asSent ? PLATFORM.email : existing?.sentBy || null,
-        history,
-        payload: { ...form, contactName: 'O-HM Senior Care', validityDays },
+      // Revision of a sent quote → edit locally, then POST .../revise/ on Send
+      if (isRevising && asSent) {
+        const sourceId = revisingFromId || existing?.id || quoteId
+        let revised = await revisePlatformQuote(sourceId)
+        const revisedStatus = String(revised.status || '').toUpperCase()
+        if (revisedStatus === 'DRAFT') {
+          revised = await updatePlatformQuote(
+            revised.id,
+            { ...form, validityDays },
+            { freight: Number(existing?.payload?.freight) || 0 },
+          )
+          revised = await sendPlatformQuote(revised.id)
+        }
+        setRevisingFromId(null)
+        setExisting(revised)
+        setForm(formFromQuote(revised))
+        setStatus({
+          type: 'success',
+          message: `Quote ${revised.number} revision sent.`,
+        })
+        window.setTimeout(() => navigate(`/ops/quotations/${revised.id}`), 600)
+        return
       }
-      try {
-        upsertQuote(row)
-      } catch {
-        /* ignore */
+
+      if (isRevising && !asSent) {
+        setStatus({
+          type: 'success',
+          message: 'Revision edits kept on this screen. Press Send email to create and send the revision.',
+        })
+        return
       }
+
+      // New → POST; existing draft → PATCH /api/platform/quotes/:id/
+      let saved = isNew
+        ? await createPlatformQuote({ ...form, validityDays }, { freight: 0 })
+        : await updatePlatformQuote(
+            existing?.id || quoteId,
+            { ...form, validityDays },
+            { freight: Number(existing?.payload?.freight) || 0 },
+          )
+
+      if (asSent) {
+        saved = await sendPlatformQuote(saved.id)
+        setExisting(saved)
+        setForm(formFromQuote(saved))
+        setStatus({
+          type: 'success',
+          message: `Quote ${saved.number} sent.`,
+        })
+        window.setTimeout(() => navigate(`/ops/quotations/${saved.id}`), 600)
+        return
+      }
+
+      setExisting(saved)
+      setForm(formFromQuote(saved))
       setStatus({
         type: 'success',
-        message: asSent
-          ? `Quote ${number} marked sent (demo — email not dispatched).`
-          : `Quote ${number} saved.`,
+        message: `Quote ${saved.number} saved.`,
       })
-      window.setTimeout(() => navigate('/ops/quotations'), 600)
+      if (isNew) {
+        window.setTimeout(() => navigate(`/ops/quotations/${saved.id}`), 600)
+      }
+    } catch (err) {
+      setStatus({
+        type: 'error',
+        message: apiErrorMessage(
+          err,
+          asSent
+            ? isRevising
+              ? 'Could not revise quote.'
+              : 'Could not send quote.'
+            : isNew
+              ? 'Could not create quote.'
+              : 'Could not update quote.',
+        ),
+      })
     } finally {
       setSaving(false)
     }
@@ -337,28 +405,127 @@ const QuoteEditorPage = () => {
     )
   }
 
+  if (!isNew && loadingQuote) {
+    return (
+      <div className="sc-page-enter">
+        <LoadingState label="Loading quote…" />
+      </div>
+    )
+  }
+
+  if (!isNew && loadError) {
+    return (
+      <div className="sc-page-enter space-y-4">
+        <ErrorState
+          message={loadError}
+          onRetry={() => setReloadKey((n) => n + 1)}
+        />
+        <div className="flex justify-center">
+          <Link to="/ops/quotations" className={btnSecondary}>
+            Back to quotes
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
   const handleMakeRevision = () => {
     if (canWrite === false || !existing) return
-    const draft = createRevision(existing)
-    if (!draft) {
-      setStatus({ type: 'error', message: 'Could not create a revision.' })
+    const key = String(existing.status || '').toUpperCase()
+    if (key !== 'SENT' && key !== 'ACCEPTED') {
+      setStatus({
+        type: 'error',
+        message: 'Only sent quotes can be revised.',
+      })
       return
     }
-    navigate(`/ops/quotations/${draft.id}`)
-  }
-
-  const handleDownloadPdf = () => {
+    setRevisingFromId(String(existing.id))
+    setForm(formFromQuote(existing))
     setStatus({
       type: 'info',
-      message: 'PDF download is demo-only for now — use the on-screen preview.',
+      message:
+        'Revision mode — edit lines or prices, then press Send email to create and send the revision.',
     })
   }
 
-  const handleTestSend = () => {
-    setStatus({
-      type: 'success',
-      message: `Test send queued to ${testEmails.join(', ')} (demo — not emailed).`,
-    })
+  const handleDownloadPdf = async () => {
+    const id = existing?.id || quoteId
+    if (!id || id === 'new') {
+      setStatus({ type: 'error', message: 'Save the quote before downloading a PDF.' })
+      return
+    }
+    setPdfBusy(true)
+    setStatus({ type: '', message: '' })
+    try {
+      const { blob, filename } = await downloadPlatformQuotePdf(id)
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename || `quote-${id}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+      setStatus({ type: 'success', message: 'PDF downloaded.' })
+    } catch (err) {
+      setStatus({
+        type: 'error',
+        message: apiErrorMessage(err, 'Could not download PDF.'),
+      })
+    } finally {
+      setPdfBusy(false)
+    }
+  }
+
+  const addTestEmail = () => {
+    const email = String(testEmailDraft || '').trim().toLowerCase()
+    if (!isValidEmail(email)) {
+      setStatus({ type: 'error', message: 'Enter a valid test email address.' })
+      return
+    }
+    if (testEmails.some((e) => e.toLowerCase() === email)) {
+      setStatus({ type: 'error', message: 'That email is already in the list.' })
+      return
+    }
+    setTestEmails((list) => [...list, email])
+    setTestEmailDraft('')
+    setStatus({ type: '', message: '' })
+  }
+
+  const removeTestEmail = (email) => {
+    setTestEmails((list) => list.filter((e) => e !== email))
+  }
+
+  const handleTestSend = async () => {
+    if (!isDraft || isRevising) {
+      setStatus({ type: 'error', message: 'Test send is only available for draft quotes.' })
+      return
+    }
+    const id = existing?.id || quoteId
+    if (!id || id === 'new') {
+      setStatus({ type: 'error', message: 'Save the quote before sending a test.' })
+      return
+    }
+    if (!testEmails.length) {
+      setStatus({ type: 'error', message: 'Add at least one test recipient.' })
+      return
+    }
+    setTestBusy(true)
+    setStatus({ type: '', message: '' })
+    try {
+      await sendPlatformQuoteTest(id, testEmails)
+      setStatus({
+        type: 'success',
+        message: `Test email sent to ${testEmails.join(', ')}.`,
+      })
+    } catch (err) {
+      setStatus({
+        type: 'error',
+        message: apiErrorMessage(err, 'Could not send test email.'),
+      })
+    } finally {
+      setTestBusy(false)
+    }
   }
 
   const previewCard = (
@@ -458,14 +625,6 @@ const QuoteEditorPage = () => {
             <span>{fmtMoney(subtotal)}</span>
           </div>
           <div className="flex justify-between">
-            <span>Packing</span>
-            <span>Included</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Freight</span>
-            <span>At actuals</span>
-          </div>
-          <div className="flex justify-between">
             <span>GST</span>
             <span className={buyerState ? '' : 'text-rose-600'}>
               {buyerState ? fmtMoney(gstAmount) : "Buyer's state needed"}
@@ -488,7 +647,6 @@ const QuoteEditorPage = () => {
               {fmtDate(validUntil)}) unless stated otherwise.
             </li>
             <li>Payment as agreed; advance may be required for custom packages.</li>
-            <li>Freight / travel at actuals when under ₹5,000 unless included.</li>
             <li>Services subject to caregiver availability at the venue.</li>
             <li>Prices exclude hospital / pharmacy pass-through unless listed.</li>
             <li>Cancellation per organization policy.</li>
@@ -646,9 +804,14 @@ const QuoteEditorPage = () => {
               )}
 
               <div className="flex flex-col gap-2 pt-1">
-                <button type="button" className={btnPrimary} onClick={handleDownloadPdf}>
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  disabled={pdfBusy}
+                  onClick={handleDownloadPdf}
+                >
                   <FiDownload className="h-4 w-4" aria-hidden />
-                  Download PDF
+                  {pdfBusy ? 'Downloading…' : 'Download PDF'}
                 </button>
                 {canWrite !== false ? (
                   <button type="button" className={btnSecondary} onClick={handleMakeRevision}>
@@ -657,28 +820,6 @@ const QuoteEditorPage = () => {
                 ) : null}
               </div>
 
-              <div className="border-t border-stone-100 pt-3">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-stone-400">
-                  Test to
-                </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {testEmails.map((email) => (
-                    <span
-                      key={email}
-                      className="rounded-full bg-brand-50 px-2.5 py-1 text-[11px] font-medium text-brand-800"
-                    >
-                      {email}
-                    </span>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className={`${btnGhost} mt-2`}
-                  onClick={handleTestSend}
-                >
-                  Send TEST
-                </button>
-              </div>
             </section>
 
             <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
@@ -1077,10 +1218,6 @@ const QuoteEditorPage = () => {
                   {buyerState ? fmtMoney(gstAmount) : 'State needed'}
                 </span>
               </div>
-              <div className="mt-1 flex justify-between gap-2">
-                <span className="text-stone-500">Freight</span>
-                <span className="font-medium">At actuals (under ₹5,000)</span>
-              </div>
               <div className="mt-2 flex justify-between gap-2 border-t border-stone-200 pt-2 text-base font-semibold">
                 <span>Total (INR)</span>
                 <span>{fmtMoney(total)}</span>
@@ -1101,23 +1238,88 @@ const QuoteEditorPage = () => {
             </p>
           )}
 
-          {!readOnly ? (
-            <div className="flex flex-wrap gap-2">
+          {!readOnly && isDraft && !isRevising && existing?.id ? (
+            <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
+              <h2 className={sectionLabel}>Send TEST</h2>
+              <p className="text-xs text-stone-500">
+                Draft only — send a test copy without marking the quote as sent.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {testEmails.map((email) => (
+                  <button
+                    key={email}
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-1 text-[11px] font-medium text-brand-800 hover:bg-brand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"
+                    onClick={() => removeTestEmail(email)}
+                    aria-label={`Remove ${email}`}
+                    title="Remove"
+                  >
+                    {email}
+                    <span aria-hidden>×</span>
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  type="email"
+                  className={`${fieldClass} min-w-[12rem] flex-1`}
+                  placeholder="add@email.com"
+                  value={testEmailDraft}
+                  onChange={(e) => setTestEmailDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addTestEmail()
+                    }
+                  }}
+                />
+                <button type="button" className={btnSecondary} onClick={addTestEmail}>
+                  Add
+                </button>
+              </div>
               <button
                 type="button"
-                className={btnSecondary}
-                disabled={saving}
-                onClick={() => persistDraft(false)}
+                className={btnGhost}
+                disabled={testBusy || !testEmails.length}
+                onClick={handleTestSend}
               >
-                Save draft
+                {testBusy ? 'Sending…' : 'Send TEST'}
               </button>
+            </section>
+          ) : null}
+
+          {!readOnly ? (
+            <div className="flex flex-wrap gap-2">
+              {isRevising ? (
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled={saving}
+                  onClick={() => {
+                    setRevisingFromId(null)
+                    if (existing) setForm(formFromQuote(existing))
+                    setStatus({ type: '', message: '' })
+                  }}
+                >
+                  Cancel revision
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled={saving}
+                  onClick={() => persistDraft(false)}
+                >
+                  Save draft
+                </button>
+              )}
               <button
                 type="button"
                 className={btnPrimary}
                 disabled={saving || !canSend}
                 onClick={() => persistDraft(true)}
               >
-                {existing?.status === 'SENT' ? 'Resend email' : 'Send email'}
+                {isRevising ? 'Send revision' : 'Send email'}
               </button>
             </div>
           ) : null}

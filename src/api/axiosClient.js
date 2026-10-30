@@ -38,9 +38,12 @@ api.interceptors.request.use((config) => {
   }
   setHeader(config.headers, 'Accept', 'application/json')
 
-  // X-Tenant only on roles / role-assignments, and only for Tenant Admin (never Super Admin).
+  // X-Tenant: explicit config.xTenant (settings), or roles APIs for Tenant Admin only.
   clearHeader(config.headers, 'X-Tenant')
-  if (isRolesApiRequest(config) && !isSuperAdminSession()) {
+  const explicitTenant = String(config.xTenant || '').trim()
+  if (explicitTenant) {
+    setHeader(config.headers, 'X-Tenant', explicitTenant)
+  } else if (isRolesApiRequest(config) && !isSuperAdminSession()) {
     const slug = resolveRolesTenantSlug()
     if (slug) setHeader(config.headers, 'X-Tenant', slug)
   }
@@ -100,18 +103,25 @@ const forceLogoutToLogin = () => {
   window.location.assign('/login')
 }
 
+const isSessionSafeUrl = (url) => {
+  const u = String(url || '')
+  // These may 401/403 for missing/wrong X-Tenant or permissions — keep session, show page error.
+  return (
+    u.includes('api/roles') ||
+    u.includes('api/role-assignments') ||
+    u.includes('api/settings/')
+  )
+}
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const hasSession = Boolean(localStorage.getItem('access_token'))
     const url = String(error?.config?.url || '')
-    // Roles APIs may 401/403 for missing X-Tenant — show page error, don't kick session.
-    const isRolesUrl =
-      url.includes('api/roles') || url.includes('api/role-assignments')
     if (
       hasSession &&
       !isLoginRequest(error?.config) &&
-      !isRolesUrl &&
+      !isSessionSafeUrl(url) &&
       isAuthFailure(error)
     ) {
       forceLogoutToLogin()

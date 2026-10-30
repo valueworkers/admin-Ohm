@@ -20,11 +20,18 @@ import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { LoadingState, ErrorState } from '../components/ui/PageState'
-import { fetchSettingsProfile, updateSettingsProfile } from '../api/settings'
+import {
+  fetchSettingsAppearance,
+  fetchSettingsNotifications,
+  fetchSettingsProfile,
+  updateSettingsAppearance,
+  updateSettingsNotifications,
+  updateSettingsProfile,
+} from '../api/settings'
 import { apiErrorMessage } from '../utils/errors'
 import {
   EXPORT_FORMATS,
-  FONT_FAMILIES,
+  APPEARANCE_FONT_FAMILIES,
   FONT_SIZES,
   NOTIFY_CATEGORIES,
   NOTIFY_CHANNELS,
@@ -54,6 +61,7 @@ import {
   settingsNavBtn,
 } from '../features/settings/SettingsChrome'
 import { getAuthUser } from '../utils/auth'
+import { resolveSettingsTenantSlug } from '../utils/tenantHeader'
 import {
   btnDanger,
   btnGhost,
@@ -141,7 +149,10 @@ const SETTINGS_NAV_KEY = 'sc_settings_nav_collapsed'
 const SettingsPage = ({ mode = 'account' } = {}) => {
   const isTenantMode = mode === 'tenant'
   const { tenant, tenantId, canWrite, isSuperAdmin } = useAccess()
-  const useApiProfile = !isTenantMode && isSuperAdmin
+  // Account (SA): APIs without X-Tenant. Tenant settings: same APIs + X-Tenant slug.
+  const settingsTenantSlug = isTenantMode ? resolveSettingsTenantSlug(tenant) : ''
+  const useApiSettings =
+    (!isTenantMode && isSuperAdmin) || (isTenantMode && Boolean(settingsTenantSlug))
   const [section, setSection] = useState(isTenantMode ? 'organization' : 'profile')
   const [navCollapsed, setNavCollapsed] = useState(() => {
     try {
@@ -157,6 +168,10 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
   const [saving, setSaving] = useState(false)
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileError, setProfileError] = useState('')
+  const [appearanceLoading, setAppearanceLoading] = useState(false)
+  const [appearanceError, setAppearanceError] = useState('')
+  const [notificationsLoading, setNotificationsLoading] = useState(false)
+  const [notificationsError, setNotificationsError] = useState('')
   const [emailDraft, setEmailDraft] = useState('')
   const [verifyCode, setVerifyCode] = useState('')
   const [passwordForm, setPasswordForm] = useState({
@@ -196,17 +211,53 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
     syncProfileToSession(profile)
   }
 
+  const applyApiAppearance = (appearance) => {
+    setSettings((s) => ({ ...s, appearance: { ...s.appearance, ...appearance } }))
+    applyAppearance(appearance)
+  }
+
   const loadSaProfile = async () => {
-    if (!useApiProfile) return
+    if (!useApiSettings) return
     setProfileLoading(true)
     setProfileError('')
     try {
-      const profile = await fetchSettingsProfile()
+      const profile = await fetchSettingsProfile(settingsTenantSlug)
       applyApiProfile(profile)
     } catch (err) {
       setProfileError(apiErrorMessage(err, 'Could not load profile.'))
     } finally {
       setProfileLoading(false)
+    }
+  }
+
+  const loadSaAppearance = async () => {
+    if (!useApiSettings) return
+    setAppearanceLoading(true)
+    setAppearanceError('')
+    try {
+      const appearance = await fetchSettingsAppearance(settingsTenantSlug)
+      applyApiAppearance(appearance)
+    } catch (err) {
+      setAppearanceError(apiErrorMessage(err, 'Could not load appearance.'))
+    } finally {
+      setAppearanceLoading(false)
+    }
+  }
+
+  const loadSaNotifications = async () => {
+    if (!useApiSettings) return
+    setNotificationsLoading(true)
+    setNotificationsError('')
+    try {
+      const notifications = await fetchSettingsNotifications(settingsTenantSlug)
+      setSettings((s) => ({
+        ...s,
+        notifications: { ...s.notifications, ...notifications },
+      }))
+    } catch (err) {
+      setNotificationsError(apiErrorMessage(err, 'Could not load notifications.'))
+    } finally {
+      setNotificationsLoading(false)
     }
   }
 
@@ -219,7 +270,13 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
     setActiveTemplateId(next.pdfTemplates?.[0]?.id || 'template-1')
     setStatus({ type: '', message: '' })
     setProfileError('')
-    if (useApiProfile) loadSaProfile()
+    setAppearanceError('')
+    setNotificationsError('')
+    if (useApiSettings) {
+      loadSaProfile()
+      loadSaAppearance()
+      loadSaNotifications()
+    }
   }
 
   useEffect(() => {
@@ -231,19 +288,32 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
     setActiveTemplateId(next.pdfTemplates?.[0]?.id || 'template-1')
     setStatus({ type: '', message: '' })
     setProfileError('')
+    setAppearanceError('')
+    setNotificationsError('')
     if (isTenantMode) setSection('organization')
 
-    if (!useApiProfile) {
+    if (!useApiSettings) {
       setProfileLoading(false)
+      setAppearanceLoading(false)
+      setNotificationsLoading(false)
       return undefined
     }
 
     let cancelled = false
     ;(async () => {
       setProfileLoading(true)
-      try {
-        const profile = await fetchSettingsProfile()
-        if (cancelled) return
+      setAppearanceLoading(true)
+      setNotificationsLoading(true)
+      const [profileResult, appearanceResult, notificationsResult] =
+        await Promise.allSettled([
+          fetchSettingsProfile(settingsTenantSlug),
+          fetchSettingsAppearance(settingsTenantSlug),
+          fetchSettingsNotifications(settingsTenantSlug),
+        ])
+      if (cancelled) return
+
+      if (profileResult.status === 'fulfilled') {
+        const profile = profileResult.value
         setSettings((s) => ({
           ...s,
           profile: {
@@ -259,19 +329,48 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
         }))
         syncProfileToSession(profile)
         setProfileError('')
-      } catch (err) {
-        if (!cancelled) {
-          setProfileError(apiErrorMessage(err, 'Could not load profile.'))
-        }
-      } finally {
-        if (!cancelled) setProfileLoading(false)
+      } else {
+        setProfileError(
+          apiErrorMessage(profileResult.reason, 'Could not load profile.'),
+        )
       }
+
+      if (appearanceResult.status === 'fulfilled') {
+        const appearance = appearanceResult.value
+        setSettings((s) => ({
+          ...s,
+          appearance: { ...s.appearance, ...appearance },
+        }))
+        applyAppearance(appearance)
+        setAppearanceError('')
+      } else {
+        setAppearanceError(
+          apiErrorMessage(appearanceResult.reason, 'Could not load appearance.'),
+        )
+      }
+
+      if (notificationsResult.status === 'fulfilled') {
+        const notifications = notificationsResult.value
+        setSettings((s) => ({
+          ...s,
+          notifications: { ...s.notifications, ...notifications },
+        }))
+        setNotificationsError('')
+      } else {
+        setNotificationsError(
+          apiErrorMessage(notificationsResult.reason, 'Could not load notifications.'),
+        )
+      }
+
+      setProfileLoading(false)
+      setAppearanceLoading(false)
+      setNotificationsLoading(false)
     })()
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, tenantId, useApiProfile])
+  }, [mode, tenantId, useApiSettings, settingsTenantSlug])
 
   useEffect(() => {
     try {
@@ -339,14 +438,17 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
       return
     }
 
-    if (useApiProfile) {
+    if (useApiSettings) {
       setSaving(true)
       setStatus({ type: '', message: '' })
       try {
-        const profile = await updateSettingsProfile({
-          first_name: first,
-          last_name: last,
-        })
+        const profile = await updateSettingsProfile(
+          {
+            first_name: first,
+            last_name: last,
+          },
+          settingsTenantSlug,
+        )
         const next = {
           ...settings,
           profile: {
@@ -438,48 +540,144 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
   }
 
   /* —— Appearance —— */
-  const saveAppearance = () => {
-    const theme = THEMES.some((t) => t.value === settings.appearance.theme)
-      ? settings.appearance.theme
-      : 'light'
-    const fontSize = FONT_SIZES.some((t) => t.value === settings.appearance.fontSize)
-      ? settings.appearance.fontSize
+  const resolveAppearance = (source = settings.appearance) => {
+    const theme = THEMES.some((t) => t.value === source.theme) ? source.theme : 'light'
+    const fontSize = FONT_SIZES.some((t) => t.value === source.fontSize)
+      ? source.fontSize
       : 'medium'
-    const fontFamily = FONT_FAMILIES.some((t) => t.value === settings.appearance.fontFamily)
-      ? settings.appearance.fontFamily
-      : 'Segoe UI'
-    const appearance = { theme, fontSize, fontFamily }
+    const fontFamily = APPEARANCE_FONT_FAMILIES.some((t) => t.value === source.fontFamily)
+      ? source.fontFamily
+      : 'system'
+    return { theme, fontSize, fontFamily }
+  }
+
+  const saveAppearance = async (sourceAppearance) => {
+    const appearance = resolveAppearance(sourceAppearance || settings.appearance)
+
+    if (useApiSettings) {
+      setSaving(true)
+      setStatus({ type: '', message: '' })
+      try {
+        const saved = await updateSettingsAppearance(
+          {
+            theme: appearance.theme,
+            font_size: appearance.fontSize,
+            font_family: appearance.fontFamily,
+          },
+          settingsTenantSlug,
+        )
+        const next = { ...settings, appearance: { ...settings.appearance, ...saved } }
+        saveSettingsForMode(mode, next, { tenantId })
+        setSettings(next)
+        applyAppearance(saved)
+        setStatus({ type: 'success', message: 'Appearance saved.' })
+      } catch (err) {
+        setStatus({
+          type: 'error',
+          message: apiErrorMessage(err, 'Could not save appearance.'),
+        })
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
     const next = { ...settings, appearance }
     persist(next, 'Appearance saved.')
     applyAppearance(appearance)
   }
 
-  const resetAppearance = () => {
-    const appearance = defaultUserSettings(getAuthUser() || {}).appearance
-    const next = { ...settings, appearance }
-    setSettings(next)
+  const resetAppearance = async () => {
+    const appearance = resolveAppearance(
+      defaultUserSettings(getAuthUser() || {}).appearance,
+    )
+    setSettings((s) => ({ ...s, appearance }))
     applyAppearance(appearance)
+
+    if (useApiSettings) {
+      setSaving(true)
+      setStatus({ type: '', message: '' })
+      try {
+        const saved = await updateSettingsAppearance(
+          {
+            theme: appearance.theme,
+            font_size: appearance.fontSize,
+            font_family: appearance.fontFamily,
+          },
+          settingsTenantSlug,
+        )
+        const next = { ...settings, appearance: { ...settings.appearance, ...saved } }
+        saveSettingsForMode(mode, next, { tenantId })
+        setSettings(next)
+        applyAppearance(saved)
+        setStatus({ type: 'success', message: 'Appearance reset to defaults.' })
+      } catch (err) {
+        setStatus({
+          type: 'error',
+          message: apiErrorMessage(err, 'Could not reset appearance.'),
+        })
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
+    const next = { ...settings, appearance }
     persist(next, 'Appearance reset to defaults.')
   }
 
   /* —— Notifications —— */
-  const saveNotifications = () => {
+  const saveNotifications = async () => {
     const categories = { ...settings.notifications.categories }
     NOTIFY_CATEGORIES.forEach((c) => {
       if (c.mandatory) categories[c.key] = true
     })
-    const marketingOn = Boolean(categories.marketing)
-    const next = {
-      ...settings,
-      notifications: {
-        ...settings.notifications,
-        categories,
-        marketingConsentAt: marketingOn
-          ? settings.notifications.marketingConsentAt || new Date().toISOString()
-          : null,
-      },
+    const marketingOn = Boolean(categories.marketing_emails)
+    const marketingConsentAt = marketingOn
+      ? settings.notifications.marketingConsentAt || new Date().toISOString()
+      : null
+    const notifications = {
+      ...settings.notifications,
+      channels: { ...settings.notifications.channels },
+      categories,
+      marketingConsentAt,
     }
-    persist(next, 'Notification preferences saved.')
+
+    if (useApiSettings) {
+      setSaving(true)
+      setStatus({ type: '', message: '' })
+      try {
+        const saved = await updateSettingsNotifications(
+          {
+            channels: notifications.channels,
+            categories: notifications.categories,
+            marketingConsentAt,
+          },
+          settingsTenantSlug,
+        )
+        const next = {
+          ...settings,
+          notifications: {
+            ...settings.notifications,
+            ...saved,
+            marketingConsentAt: saved.marketingConsentAt ?? marketingConsentAt,
+          },
+        }
+        saveSettingsForMode(mode, next, { tenantId })
+        setSettings(next)
+        setStatus({ type: 'success', message: 'Notification preferences saved.' })
+      } catch (err) {
+        setStatus({
+          type: 'error',
+          message: apiErrorMessage(err, 'Could not save notifications.'),
+        })
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
+    persist({ ...settings, notifications }, 'Notification preferences saved.')
   }
 
   /* —— Security —— */
@@ -953,13 +1151,13 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
             {/* PROFILE */}
             {section === 'profile' ? (
               <>
-                {useApiProfile && profileLoading ? (
+                {useApiSettings && profileLoading ? (
                   <LoadingState label="Loading profile…" />
                 ) : null}
-                {useApiProfile && profileError && !profileLoading ? (
+                {useApiSettings && profileError && !profileLoading ? (
                   <ErrorState message={profileError} onRetry={loadSaProfile} />
                 ) : null}
-                {!(useApiProfile && profileLoading) && !(useApiProfile && profileError) ? (
+                {!(useApiSettings && profileLoading) && !(useApiSettings && profileError) ? (
                 <SectionCard
                   title="Personal details"
                   description="Displayed across the admin panel. Names are trimmed and limited to 60 characters."
@@ -1010,7 +1208,7 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
                 </SectionCard>
                 ) : null}
 
-                {!(useApiProfile && profileLoading) && !(useApiProfile && profileError) ? (
+                {!(useApiSettings && profileLoading) && !(useApiSettings && profileError) ? (
                 <SectionCard
                   title="Change email"
                   description="We send a one-time code to the new address. Demo code: 123456."
@@ -1186,113 +1384,141 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
 
             {/* APPEARANCE */}
             {section === 'appearance' ? (
-              <SectionCard
-                title="Look & feel"
-                description="Updates apply live. Click Save to persist across sessions."
-              >
-                <div className="space-y-5">
-                  <div>
-                    <p className={labelClass}>Theme</p>
-                    <Segmented
-                      options={THEMES}
-                      value={settings.appearance.theme}
-                      onChange={(value) => {
-                        patchNested('appearance', 'theme', value)
-                        applyAppearance({ ...settings.appearance, theme: value })
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <p className={labelClass}>Font size</p>
-                    <Segmented
-                      options={FONT_SIZES}
-                      value={settings.appearance.fontSize}
-                      onChange={(value) => {
-                        patchNested('appearance', 'fontSize', value)
-                        applyAppearance({ ...settings.appearance, fontSize: value })
-                      }}
-                    />
-                  </div>
-                  <label className="block max-w-sm">
-                    <span className={labelClass}>Font family</span>
-                    <select
-                      className={fieldClass}
-                      value={settings.appearance.fontFamily}
-                      onChange={(e) => {
-                        patchNested('appearance', 'fontFamily', e.target.value)
-                        applyAppearance({
-                          ...settings.appearance,
-                          fontFamily: e.target.value,
-                        })
-                      }}
-                    >
-                      {FONT_FAMILIES.map((t) => (
-                        <option key={t.value} value={t.value}>
-                          {t.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              </SectionCard>
+              <>
+                {useApiSettings && appearanceLoading ? (
+                  <LoadingState label="Loading appearance…" />
+                ) : null}
+                {useApiSettings && appearanceError && !appearanceLoading ? (
+                  <ErrorState message={appearanceError} onRetry={loadSaAppearance} />
+                ) : null}
+                {!(useApiSettings && appearanceLoading) &&
+                !(useApiSettings && appearanceError) ? (
+                  <SectionCard
+                    title="Look & feel"
+                    description="Updates apply live. Click Save to persist across sessions."
+                  >
+                    <div className="space-y-5">
+                      <div>
+                        <p className={labelClass}>Theme</p>
+                        <Segmented
+                          options={THEMES}
+                          value={settings.appearance.theme}
+                          onChange={(value) => {
+                            patchNested('appearance', 'theme', value)
+                            applyAppearance({ ...settings.appearance, theme: value })
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <p className={labelClass}>Font size</p>
+                        <Segmented
+                          options={FONT_SIZES}
+                          value={settings.appearance.fontSize}
+                          onChange={(value) => {
+                            patchNested('appearance', 'fontSize', value)
+                            applyAppearance({ ...settings.appearance, fontSize: value })
+                          }}
+                        />
+                      </div>
+                      <label className="block max-w-sm">
+                        <span className={labelClass}>Font family</span>
+                        <select
+                          className={fieldClass}
+                          value={settings.appearance.fontFamily}
+                          onChange={(e) => {
+                            patchNested('appearance', 'fontFamily', e.target.value)
+                            applyAppearance({
+                              ...settings.appearance,
+                              fontFamily: e.target.value,
+                            })
+                          }}
+                        >
+                          {APPEARANCE_FONT_FAMILIES.map((t) => (
+                            <option key={t.value} value={t.value}>
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  </SectionCard>
+                ) : null}
+              </>
             ) : null}
 
             {/* NOTIFICATIONS */}
             {section === 'notifications' ? (
               <>
-                <SectionCard
-                  title="Delivery channels"
-                  description="Where we can reach you. You can combine multiple channels."
-                >
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {NOTIFY_CHANNELS.map((ch) => (
-                      <ToggleRow
-                        key={ch.key}
-                        label={ch.label}
-                        checked={Boolean(settings.notifications.channels?.[ch.key])}
-                        onChange={(on) =>
-                          patch('notifications', {
-                            ...settings.notifications,
-                            channels: {
-                              ...settings.notifications.channels,
-                              [ch.key]: on,
-                            },
-                          })
-                        }
-                      />
-                    ))}
-                  </div>
-                </SectionCard>
-                <SectionCard
-                  title="Categories"
-                  description="Security and billing alerts cannot be turned off."
-                >
-                  <div className="space-y-2">
-                    {NOTIFY_CATEGORIES.map((cat) => (
-                      <ToggleRow
-                        key={cat.key}
-                        label={cat.label}
-                        badge={cat.mandatory ? 'Required' : undefined}
-                        disabled={cat.mandatory}
-                        description={
-                          cat.key === 'marketing' && settings.notifications.marketingConsentAt
-                            ? `Consent recorded ${formatWhen(settings.notifications.marketingConsentAt)}`
-                            : undefined
-                        }
-                        checked={Boolean(settings.notifications.categories?.[cat.key])}
-                        onChange={(on) =>
-                          patch('notifications', {
-                            ...settings.notifications,
-                            categories: {
-                              ...settings.notifications.categories,
-                              [cat.key]: on,
-                            },
-                          })
-                        }
-                      />
-                    ))}
-                  </div>
-                </SectionCard>
+                {useApiSettings && notificationsLoading ? (
+                  <LoadingState label="Loading notifications…" />
+                ) : null}
+                {useApiSettings && notificationsError && !notificationsLoading ? (
+                  <ErrorState
+                    message={notificationsError}
+                    onRetry={loadSaNotifications}
+                  />
+                ) : null}
+                {!(useApiSettings && notificationsLoading) &&
+                !(useApiSettings && notificationsError) ? (
+                  <>
+                    <SectionCard
+                      title="Delivery channels"
+                      description="Where we can reach you. You can combine multiple channels."
+                    >
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {NOTIFY_CHANNELS.map((ch) => (
+                          <ToggleRow
+                            key={ch.key}
+                            label={ch.label}
+                            checked={Boolean(settings.notifications.channels?.[ch.key])}
+                            onChange={(on) =>
+                              patch('notifications', {
+                                ...settings.notifications,
+                                channels: {
+                                  ...settings.notifications.channels,
+                                  [ch.key]: on,
+                                },
+                              })
+                            }
+                          />
+                        ))}
+                      </div>
+                    </SectionCard>
+                    <SectionCard
+                      title="Categories"
+                      description="Security and billing alerts cannot be turned off."
+                    >
+                      <div className="space-y-2">
+                        {NOTIFY_CATEGORIES.map((cat) => (
+                          <ToggleRow
+                            key={cat.key}
+                            label={cat.label}
+                            badge={cat.mandatory ? 'Required' : undefined}
+                            disabled={cat.mandatory}
+                            description={
+                              cat.key === 'marketing_emails' &&
+                              settings.notifications.marketingConsentAt
+                                ? `Consent recorded ${formatWhen(settings.notifications.marketingConsentAt)}`
+                                : undefined
+                            }
+                            checked={Boolean(
+                              settings.notifications.categories?.[cat.key],
+                            )}
+                            onChange={(on) =>
+                              patch('notifications', {
+                                ...settings.notifications,
+                                categories: {
+                                  ...settings.notifications.categories,
+                                  [cat.key]: on,
+                                },
+                              })
+                            }
+                          />
+                        ))}
+                      </div>
+                    </SectionCard>
+                  </>
+                ) : null}
               </>
             ) : null}
 
