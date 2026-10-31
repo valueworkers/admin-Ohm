@@ -1,3 +1,5 @@
+import { normalizeGstLine } from '../billing/gstLines'
+
 const KEY = 'sc_invoices_demo_v1'
 const DELETED_KEY = 'sc_invoices_deleted_v1'
 
@@ -231,11 +233,16 @@ export const createTenantInvoice = ({
   amountReceived = 0,
   subtotal: subtotalIn,
   gstAmount: gstIn,
+  cgstTotal: cgstIn,
+  sgstTotal: sgstIn,
+  igstTotal: igstIn,
   total: totalIn,
+  customer = {},
+  seller = {},
 }) => {
-  const safeLines = (Array.isArray(lines) ? lines : []).filter((ln) =>
-    String(ln.item || '').trim(),
-  )
+  const safeLines = (Array.isArray(lines) ? lines : [])
+    .filter((ln) => String(ln.item || '').trim())
+    .map((ln, i) => normalizeGstLine(ln, i))
   const subtotal =
     subtotalIn != null
       ? Number(subtotalIn) || 0
@@ -253,46 +260,72 @@ export const createTenantInvoice = ({
     status = existing.status
   }
   const nowIso = new Date().toISOString()
-  const tenantName = tenant?.name || existing?.tenantName || 'Tenant'
+  const tenantName = tenant?.name || existing?.tenantName || payerOverride || 'Customer'
   const payerName = payerOverride || tenantName
   const prevHistory = Array.isArray(existing?.timeline) ? existing.timeline : []
   const row = {
     ...(existing && typeof existing === 'object' ? existing : {}),
     id: existing?.id || `inv-${Date.now()}`,
     kind: 'invoice',
-    billTo: existing?.billTo || 'tenant',
-    issuedBy: existing?.issuedBy || 'O-HM Senior Care',
+    billTo: tenant || existing?.tenantId ? 'tenant' : 'customer',
+    issuedBy: seller.sellerName || existing?.issuedBy || 'O-HM Senior Care',
     number: number || existing?.number || nextInvoiceNumber(),
     payerName,
     patientName: existing?.patientName || '— (tenant package)',
     clientName: payerName,
+    legalName: customer.legalName ?? existing?.legalName ?? '',
+    attention: customer.attention ?? existing?.attention ?? '',
+    address: customer.address ?? existing?.address ?? '',
+    gstin: customer.gstin ?? existing?.gstin ?? '',
+    stateCode: customer.stateCode ?? existing?.stateCode ?? '',
+    ccEmails: customer.ccEmails ?? existing?.ccEmails ?? '',
+    bccEmails: customer.bccEmails ?? existing?.bccEmails ?? '',
+    shipTo: customer.shipTo ?? existing?.shipTo ?? 'Same as above',
+    yourRef: customer.yourRef ?? existing?.yourRef ?? '',
+    sellerName: seller.sellerName ?? existing?.sellerName ?? '',
+    sellerAddress: seller.sellerAddress ?? existing?.sellerAddress ?? '',
+    sellerPhone: seller.sellerPhone ?? existing?.sellerPhone ?? '',
+    sellerGstin: seller.sellerGstin ?? existing?.sellerGstin ?? '',
+    logoUrl: seller.logoUrl ?? existing?.logoUrl ?? '',
+    contactName: seller.contactName ?? existing?.contactName ?? '',
+    contactPhone: seller.contactPhone ?? existing?.contactPhone ?? '',
+    contactEmail: seller.contactEmail ?? existing?.contactEmail ?? '',
     tenantId: tenant?.id || existing?.tenantId || null,
     tenantName,
-    bookingRef: existing?.bookingRef || `PLT-${String(Date.now()).slice(-5)}`,
+    bookingRef:
+      customer.yourRef ||
+      existing?.bookingRef ||
+      `PLT-${String(Date.now()).slice(-5)}`,
     venue:
       tenant?.city
         ? `${tenantName} · ${tenant.city}`
-        : existing?.venue || tenantName,
+        : existing?.venue || customer.address || tenantName,
     date: date || existing?.date || nowIso.slice(0, 10),
     dueDate: dueDate || existing?.dueDate || null,
     amount,
     subtotal,
     gstAmount,
+    cgstTotal: cgstIn != null ? Number(cgstIn) || 0 : existing?.cgstTotal || 0,
+    sgstTotal: sgstIn != null ? Number(sgstIn) || 0 : existing?.sgstTotal || 0,
+    igstTotal: igstIn != null ? Number(igstIn) || 0 : existing?.igstTotal || 0,
     received,
     owed,
     status,
-    terms: terms || existing?.terms || 'Net 15 · tenant bank transfer',
-    email: tenant?.owner_email || tenant?.email || existing?.email || '',
-    ownerName: tenant?.owner_name || existing?.ownerName || '',
+    terms: terms || existing?.terms || 'Net 15 · bank transfer',
+    email:
+      customer.email ||
+      tenant?.owner_email ||
+      tenant?.email ||
+      existing?.email ||
+      '',
+    ownerName:
+      customer.attention ||
+      tenant?.owner_name ||
+      existing?.ownerName ||
+      '',
     city: tenant?.city || existing?.city || '',
     paidAt: received > 0 ? existing?.paidAt || nowIso : null,
-    lines: safeLines.map((ln, i) => ({
-      id: ln.id || `ln-${Date.now()}-${i}`,
-      item: String(ln.item).trim(),
-      category: ln.category || 'Platform fee',
-      qty: Number(ln.qty) || 1,
-      unitPrice: Number(ln.unitPrice) || 0,
-    })),
+    lines: safeLines,
     timeline: existing
       ? [
           {
@@ -308,7 +341,7 @@ export const createTenantInvoice = ({
             ? [
                 {
                   id: 't-sent',
-                  title: 'Invoice raised to tenant',
+                  title: 'Invoice raised',
                   at: nowIso,
                   detail: `${number || 'Invoice'} · ${payerName}`,
                 },

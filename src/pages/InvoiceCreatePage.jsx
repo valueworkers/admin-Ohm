@@ -1,40 +1,104 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { FiPlus, FiTrash2 } from 'react-icons/fi'
+import {
+  FiArrowDown,
+  FiArrowUp,
+  FiPlus,
+  FiRefreshCw,
+  FiTrash2,
+} from 'react-icons/fi'
 import InvoiceDocumentPreview from '../components/InvoiceDocumentPreview'
 import StatusBanner from '../components/ui/StatusBanner'
 import TenantOpsPlaceholder from '../components/TenantOpsPlaceholder'
-import { useAccess } from '../hooks/useAccess'
-import { loadSettingsForMode } from '../features/settings/store'
-import { listTenantsByStatus } from '../store/platformStore'
+import {
+  fetchGstCaptcha,
+  gstinLookupConfigured,
+  gstinUsesCaptcha,
+  isValidGstinFormat,
+  lookupGstin,
+} from '../api/gstin'
+import {
+  CGST_SGST_RATE_OPTIONS,
+  DEFAULT_TERMS,
+  GST_NOT_APPL,
+  IGST_RATE_OPTIONS,
+  LINE_CATS,
+  UOM_OPTIONS,
+  emptyGstLine,
+  gstSelectValue,
+  isManPowerLine,
+  lineGstSplit,
+} from '../features/billing/gstLines'
 import {
   createTenantInvoice,
   fmtMoney,
   getInvoice,
   nextInvoiceNumber,
 } from '../features/invoices/store'
+import {
+  IN_STATES,
+  SELLER_STATE_CODE,
+  stateFromGstin,
+} from '../features/quotes/states'
+import { isValidEmail, loadSettingsForMode } from '../features/settings/store'
+import { useAccess } from '../hooks/useAccess'
+import { listTenantsByStatus } from '../store/platformStore'
+import { apiErrorMessage } from '../utils/errors'
 import { btnGhost, btnPrimary, btnSecondary, fieldClass, labelClass } from '../utils/ui'
 
 const PLATFORM = {
   name: 'O-HM Senior Care',
   email: 'support@o-hm.com',
   address: 'India',
+  phone: '',
 }
 
-const LINE_PRESETS = [
-  { id: 'sub', label: 'Platform subscription', category: 'Subscription' },
-  { id: 'onboard', label: 'Tenant onboarding fee', category: 'Platform fee' },
-  { id: 'pkg', label: 'Care package settlement', category: 'Tenant package' },
-  { id: 'custom', label: 'Custom line', category: 'Platform fee' },
-]
+const joinAddress = (...parts) =>
+  parts
+    .map((p) => String(p || '').trim())
+    .filter(Boolean)
+    .join(', ')
 
-const emptyLine = () => ({
-  id: `ln-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-  item: '',
-  category: 'Platform fee',
-  qty: 1,
-  unitPrice: 0,
-})
+const readPlatformSeller = () => {
+  try {
+    const settings = loadSettingsForMode('account', {})
+    const org = settings?.organization || {}
+    const billing = settings?.billing || {}
+    const manualPay = settings?.payments?.manual || {}
+    const sellerAddress =
+      joinAddress(
+        billing.address,
+        org.address_line1,
+        org.address_line2,
+        org.locality,
+        org.city,
+        org.country,
+      ) || PLATFORM.address
+    return {
+      sellerName: PLATFORM.name,
+      sellerEmail: PLATFORM.email,
+      sellerAddress,
+      sellerPhone: String(manualPay.phone || billing.phone || PLATFORM.phone || '').trim(),
+      sellerGstin: billing.gstin || '',
+      logoUrl: String(org.logoUrl || '').trim(),
+      contactName: PLATFORM.name,
+      contactEmail: PLATFORM.email,
+      contactPhone: String(manualPay.phone || billing.phone || PLATFORM.phone || '').trim(),
+    }
+  } catch {
+    return {
+      sellerName: PLATFORM.name,
+      sellerEmail: PLATFORM.email,
+      sellerAddress: PLATFORM.address,
+      sellerPhone: '',
+      sellerGstin: '',
+      logoUrl: '',
+      contactName: PLATFORM.name,
+      contactEmail: PLATFORM.email,
+      contactPhone: '',
+    }
+  }
+}
 
 const todayInput = () => new Date().toISOString().slice(0, 10)
 
@@ -54,15 +118,33 @@ const daysBetween = (fromIso, toIso) => {
   return Math.max(0, Math.round((b - a) / 86400000))
 }
 
-const readSellerGstin = () => {
-  try {
-    return loadSettingsForMode('account', {})?.billing?.gstin || ''
-  } catch {
-    return ''
-  }
-}
-
 const sectionLabel = 'text-[11px] font-bold uppercase tracking-wide text-brand-700'
+
+const hydrateLines = (existing) => {
+  if (Array.isArray(existing?.lines) && existing.lines.length) {
+    return existing.lines.map((ln) => ({
+      ...emptyGstLine(),
+      ...ln,
+      hsn: ln.hsn || '',
+      uom: ln.uom || 'Pcs',
+      discountPct: ln.discountPct ?? 0,
+      gstRate: ln.gstRate ?? 18,
+      category: ln.category || 'stocked',
+      onRequest: Boolean(ln.onRequest) || ln.category === 'on_request',
+    }))
+  }
+  return [
+    {
+      ...emptyGstLine(),
+      item: 'Platform subscription · monthly',
+      hsn: '9983',
+      category: 'service',
+      qty: 1,
+      unitPrice: 9999,
+      gstRate: 18,
+    },
+  ]
+}
 
 const InvoiceCreatePage = () => {
   const navigate = useNavigate()
@@ -77,15 +159,39 @@ const InvoiceCreatePage = () => {
     () => listTenantsByStatus('active').filter((t) => t?.id && t?.name),
     [],
   )
-  const sellerGstin = useMemo(() => readSellerGstin(), [])
+  const seller = useMemo(() => readPlatformSeller(), [])
 
   const [status, setStatus] = useState({ type: '', message: '' })
   const [saving, setSaving] = useState(false)
   const [tenantId, setTenantId] = useState(
-    () => existing?.tenantId || tenants[0]?.id || '',
+    () => existing?.tenantId || '',
   )
-  const [payerName, setPayerName] = useState(
-    () => existing?.payerName || existing?.clientName || '',
+  const [company, setCompany] = useState(
+    () =>
+      existing?.payerName ||
+      existing?.clientName ||
+      existing?.tenantName ||
+      '',
+  )
+  const [legalName, setLegalName] = useState(() => existing?.legalName || '')
+  const [attention, setAttention] = useState(
+    () => existing?.attention || existing?.ownerName || '',
+  )
+  const [address, setAddress] = useState(
+    () => existing?.address || existing?.city || existing?.venue || '',
+  )
+  const [gstin, setGstin] = useState(() => existing?.gstin || '')
+  const [stateCode, setStateCode] = useState(
+    () => existing?.stateCode || stateFromGstin(existing?.gstin)?.code || SELLER_STATE_CODE,
+  )
+  const [buyerEmail, setBuyerEmail] = useState(() => existing?.email || '')
+  const [ccEmails, setCcEmails] = useState(() => existing?.ccEmails || '')
+  const [bccEmails, setBccEmails] = useState(() => existing?.bccEmails || '')
+  const [shipTo, setShipTo] = useState(
+    () => existing?.shipTo || 'Same as above',
+  )
+  const [yourRef, setYourRef] = useState(
+    () => existing?.yourRef || existing?.bookingRef || '',
   )
   const [number, setNumber] = useState(
     () => existing?.number || nextInvoiceNumber(),
@@ -97,57 +203,234 @@ const InvoiceCreatePage = () => {
       : 15,
   )
   const [terms, setTerms] = useState(
-    () => existing?.terms || 'Net 15 · tenant bank transfer',
+    () => existing?.terms || DEFAULT_TERMS,
   )
   const [notes, setNotes] = useState(() => existing?.note || '')
   const [received, setReceived] = useState(() =>
     String(existing?.received != null ? existing.received : 0),
   )
-  const [lines, setLines] = useState(() => {
-    if (Array.isArray(existing?.lines) && existing.lines.length) {
-      return existing.lines.map((ln) => ({ ...ln }))
-    }
-    return [
-      {
-        ...emptyLine(),
-        item: 'Platform subscription · monthly',
-        category: 'Subscription',
-        qty: 1,
-        unitPrice: 9999,
-      },
-    ]
-  })
-
-  const tenant = tenants.find((t) => String(t.id) === String(tenantId)) || null
-  const dueDate = addDays(date, Math.max(0, Number(dueDays) || 0))
-  const subtotal = lines.reduce(
-    (s, ln) => s + (Number(ln.qty) || 0) * (Number(ln.unitPrice) || 0),
-    0,
+  const [sellerName, setSellerName] = useState(
+    () => existing?.sellerName || seller.sellerName,
   )
-  const gstAmount = subtotal * 0.18
-  const total = subtotal + gstAmount
-  const billTenant = !isEdit || existing?.billTo === 'tenant' || Boolean(existing?.tenantId)
+  const [sellerAddress, setSellerAddress] = useState(
+    () => existing?.sellerAddress || seller.sellerAddress,
+  )
+  const [sellerPhone, setSellerPhone] = useState(
+    () => existing?.sellerPhone || seller.sellerPhone,
+  )
+  const [sellerGstin, setSellerGstin] = useState(
+    () => existing?.sellerGstin || seller.sellerGstin,
+  )
+  const [logoUrl, setLogoUrl] = useState(
+    () => existing?.logoUrl || seller.logoUrl || '',
+  )
+  const [contactName, setContactName] = useState(
+    () => existing?.contactName || seller.contactName,
+  )
+  const [contactPhone, setContactPhone] = useState(
+    () => existing?.contactPhone || seller.contactPhone,
+  )
+  const [contactEmail, setContactEmail] = useState(
+    () => existing?.contactEmail || seller.contactEmail,
+  )
+  const [lines, setLines] = useState(() => hydrateLines(existing))
+
+  const [gstLookupBusy, setGstLookupBusy] = useState(false)
+  const [gstLookupNote, setGstLookupNote] = useState('')
+  const [gstCaptchaBusy, setGstCaptchaBusy] = useState(false)
+  const [gstCaptchaImage, setGstCaptchaImage] = useState('')
+  const [gstCaptchaCookie, setGstCaptchaCookie] = useState('')
+  const [gstCaptchaText, setGstCaptchaText] = useState('')
+  const portalCaptcha = gstinUsesCaptcha()
+
+  const dueDate = addDays(date, Math.max(0, Number(dueDays) || 0))
+
+  const onLogoFile = (file) => {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setLogoUrl(String(reader.result || ''))
+    reader.readAsDataURL(file)
+  }
+
+  const applyTenant = (id) => {
+    setTenantId(id)
+    const t = tenants.find((x) => String(x.id) === String(id))
+    if (!t) return
+    setCompany((c) => c || t.name || '')
+    setAttention((a) => a || t.owner_name || '')
+    setBuyerEmail((e) => e || t.owner_email || t.email || '')
+    setAddress((a) => a || t.city || '')
+  }
+
+  const clearGstCaptcha = () => {
+    setGstCaptchaImage('')
+    setGstCaptchaCookie('')
+    setGstCaptchaText('')
+  }
+
+  const loadGstCaptcha = async () => {
+    setGstCaptchaBusy(true)
+    setGstLookupNote('')
+    try {
+      const data = await fetchGstCaptcha()
+      setGstCaptchaImage(data?.captchaImage || '')
+      setGstCaptchaCookie(data?.captchaCookie || '')
+      setGstCaptchaText('')
+    } catch (err) {
+      setGstLookupNote(apiErrorMessage(err, 'Could not load GST captcha.'))
+      clearGstCaptcha()
+    } finally {
+      setGstCaptchaBusy(false)
+    }
+  }
+
+  const applyGstHit = (gstinVal, hit) => {
+    const legal = hit.legalName || ''
+    const tradeOrLegal = hit.company || legal
+    if (tradeOrLegal) setCompany(String(tradeOrLegal).trim())
+    if (legal) setLegalName(String(legal).trim())
+    if (hit.address) setAddress(String(hit.address).trim())
+    if (hit.stateCode) setStateCode(hit.stateCode)
+    else {
+      const st = stateFromGstin(gstinVal)
+      if (st?.code) setStateCode(st.code)
+    }
+    setShipTo((s) =>
+      s && s !== 'Same as above' && s !== address
+        ? s
+        : hit.address || s || address,
+    )
+    if (hit.partial) {
+      setGstLookupNote(
+        hit.note ||
+          'State filled from GSTIN. Use the captcha lookup for full company details.',
+      )
+    } else {
+      const bits = []
+      if (tradeOrLegal) bits.push(`Customer: ${tradeOrLegal}`)
+      if (legal && legal !== tradeOrLegal) bits.push(`Legal name: ${legal}`)
+      if (hit.status) bits.push(hit.status)
+      setGstLookupNote(
+        bits.length ? bits.join(' · ') : 'GSTIN found — review customer and address.',
+      )
+    }
+  }
+
+  const runGstLookup = async (rawGstin, captchaOpts = null) => {
+    const g = String(rawGstin || '').trim().toUpperCase()
+    if (!isValidGstinFormat(g)) {
+      setGstLookupNote(
+        g.length === 15 ? 'That GSTIN format or checksum looks invalid.' : '',
+      )
+      return
+    }
+    if (portalCaptcha && !captchaOpts) {
+      await loadGstCaptcha()
+      setGstLookupNote('Solve the captcha, then fetch GST details.')
+      return
+    }
+    setGstLookupBusy(true)
+    setGstLookupNote('Looking up GSTIN…')
+    try {
+      const hit = await lookupGstin(g, captchaOpts || {})
+      applyGstHit(g, hit)
+      if (portalCaptcha) clearGstCaptcha()
+    } catch (err) {
+      setGstLookupNote(apiErrorMessage(err, 'Could not look up this GSTIN.'))
+      if (portalCaptcha && err?.code === 'SWEB_9000') await loadGstCaptcha()
+    } finally {
+      setGstLookupBusy(false)
+    }
+  }
+
+  const submitGstCaptchaLookup = async () => {
+    const g = String(gstin || '').trim().toUpperCase()
+    if (!isValidGstinFormat(g)) {
+      setGstLookupNote('Enter a valid 15-character GSTIN first.')
+      return
+    }
+    if (!gstCaptchaCookie || !String(gstCaptchaText || '').trim()) {
+      setGstLookupNote('Enter the captcha text shown in the image.')
+      return
+    }
+    await runGstLookup(g, {
+      captcha: gstCaptchaText,
+      captchaCookie: gstCaptchaCookie,
+    })
+  }
 
   const patchLine = (id, patch) => {
     setLines((rows) => rows.map((ln) => (ln.id === id ? { ...ln, ...patch } : ln)))
   }
 
-  const addLine = (preset) => {
-    if (lines.length >= 20) {
-      setStatus({ type: 'error', message: 'Maximum 20 lines per invoice.' })
+  const addLine = () => {
+    if (lines.length >= 30) {
+      setStatus({ type: 'error', message: 'Maximum 30 lines per invoice.' })
       return
     }
-    const base = emptyLine()
-    if (preset && preset.id !== 'custom') {
-      base.item = preset.label
-      base.category = preset.category
-    }
-    setLines((rows) => [...rows, base])
+    setLines((rows) => [...rows, emptyGstLine()])
   }
 
   const removeLine = (id) => {
     setLines((rows) => (rows.length <= 1 ? rows : rows.filter((ln) => ln.id !== id)))
   }
+
+  const moveLine = (id, dir) => {
+    setLines((rows) => {
+      const idx = rows.findIndex((ln) => ln.id === id)
+      if (idx < 0) return rows
+      const next = idx + dir
+      if (next < 0 || next >= rows.length) return rows
+      const copy = [...rows]
+      ;[copy[idx], copy[next]] = [copy[next], copy[idx]]
+      return copy
+    })
+  }
+
+  const buyerState = useMemo(() => {
+    const fromGst = stateFromGstin(gstin)
+    if (fromGst) return fromGst
+    return IN_STATES.find((s) => s.code === stateCode) || null
+  }, [gstin, stateCode])
+
+  const intraState = buyerState ? buyerState.code === SELLER_STATE_CODE : null
+
+  const linesComputed = lines.map((ln) => {
+    const split = lineGstSplit(ln, {
+      intraState: intraState === true,
+      hasBuyerState: Boolean(buyerState),
+    })
+    return { ...ln, amount: split.taxable, ...split }
+  })
+
+  const subtotal = linesComputed.reduce((s, ln) => s + ln.taxable, 0)
+  const cgstTotal = linesComputed.reduce((s, ln) => s + ln.cgst, 0)
+  const sgstTotal = linesComputed.reduce((s, ln) => s + ln.sgst, 0)
+  const igstTotal = linesComputed.reduce((s, ln) => s + ln.igst, 0)
+  const gstAmount = cgstTotal + sgstTotal + igstTotal
+  const total = subtotal + gstAmount
+  const tenant = tenants.find((t) => String(t.id) === String(tenantId)) || null
+  const blockers = useMemo(() => {
+    const list = []
+    if (!String(company).trim()) list.push('Add the customer name.')
+    if (!String(gstin).trim() && !stateCode) {
+      list.push(
+        "Add the buyer's GSTIN or state, so GST can be split (CGST + SGST in Karnataka, IGST outside).",
+      )
+    }
+    if (!String(number).trim()) list.push('Add an invoice number.')
+    lines.forEach((ln, i) => {
+      if (!String(ln.item).trim()) list.push(`Line ${i + 1} needs an item name.`)
+      if (!String(ln.hsn || '').trim()) list.push(`Line ${i + 1} needs HSN/SAC.`)
+      if (!isManPowerLine(ln) && !(Number(ln.unitPrice) > 0)) {
+        list.push(`Line ${i + 1} needs a unit price, or mark it Man power.`)
+      }
+    })
+    if (buyerEmail && !isValidEmail(buyerEmail)) {
+      list.push("Buyer's email looks invalid.")
+    }
+    return list
+  }, [company, gstin, stateCode, number, lines, buyerEmail])
 
   const persist = (asSent) => {
     if (canWrite === false) {
@@ -157,24 +440,12 @@ const InvoiceCreatePage = () => {
     if (!isSuperAdmin) {
       setStatus({
         type: 'error',
-        message: 'Only O-HM platform admins can manage tenant invoices.',
+        message: 'Only O-HM platform admins can manage invoices.',
       })
       return
     }
-    if (billTenant && !tenant && !existing) {
-      setStatus({ type: 'error', message: 'Select the tenant to bill.' })
-      return
-    }
-    if (!billTenant && !String(payerName).trim()) {
-      setStatus({ type: 'error', message: 'Add the payer name.' })
-      return
-    }
-    if (!String(number).trim()) {
-      setStatus({ type: 'error', message: 'Add an invoice number.' })
-      return
-    }
-    if (!lines.some((ln) => String(ln.item).trim() && Number(ln.unitPrice) > 0)) {
-      setStatus({ type: 'error', message: 'Add at least one priced line.' })
+    if (blockers.length) {
+      setStatus({ type: 'error', message: blockers[0] })
       return
     }
 
@@ -182,19 +453,44 @@ const InvoiceCreatePage = () => {
     try {
       const row = createTenantInvoice({
         existing: existing || null,
-        tenant: billTenant ? tenant : null,
-        payerName: billTenant ? tenant?.name || existing?.payerName : payerName.trim(),
+        tenant,
+        payerName: company.trim(),
         number: number.trim(),
         date,
         dueDate,
         terms,
         notes,
-        lines,
+        lines: linesComputed,
         asSent,
         amountReceived: Number(received) || 0,
         subtotal,
         gstAmount,
+        cgstTotal,
+        sgstTotal,
+        igstTotal,
         total,
+        customer: {
+          legalName,
+          attention,
+          address,
+          gstin,
+          stateCode: buyerState?.code || stateCode,
+          email: buyerEmail,
+          ccEmails,
+          bccEmails,
+          shipTo,
+          yourRef,
+        },
+        seller: {
+          sellerName,
+          sellerAddress,
+          sellerPhone,
+          sellerGstin,
+          logoUrl,
+          contactName,
+          contactPhone,
+          contactEmail,
+        },
       })
       setStatus({
         type: 'success',
@@ -244,12 +540,11 @@ const InvoiceCreatePage = () => {
             {isEdit ? existing.number : 'New'}
           </p>
           <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-stone-900">
-            {isEdit ? 'Edit invoice' : 'Invoice a tenant'}
+            {isEdit ? 'Edit invoice' : 'New invoice'}
           </h1>
           <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-stone-500">
-            {isEdit
-              ? `Update ${existing.number}. Document preview matches the quote layout.`
-              : `Same document layout as quotes — issued by ${PLATFORM.name} to the selected tenant. GST 18% is added on the preview.`}
+            Same GST and line fields as quotes. Invoice number, due date, and amount received stay
+            under Invoice details.
           </p>
         </div>
         <Link
@@ -266,144 +561,503 @@ const InvoiceCreatePage = () => {
         <div className="space-y-5">
           <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
             <h2 className={sectionLabel}>Billed to</h2>
-            {billTenant ? (
-              <>
-                <label className="block">
-                  <span className={labelClass}>Tenant</span>
-                  <select
-                    className={fieldClass}
-                    value={tenantId}
-                    onChange={(e) => setTenantId(e.target.value)}
-                  >
-                    {tenants.length === 0 ? (
-                      <option value="">No active tenants</option>
-                    ) : (
-                      tenants.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                          {t.city ? ` · ${t.city}` : ''}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </label>
-                {tenant ? (
-                  <dl className="grid gap-2 rounded-xl border border-stone-100 bg-stone-50 px-3.5 py-3 text-sm sm:grid-cols-2">
-                    <div>
-                      <dt className="text-xs text-stone-500">Owner / attention</dt>
-                      <dd className="font-medium text-stone-800">
-                        {tenant.owner_name || '—'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-stone-500">Billing email</dt>
-                      <dd className="font-medium text-stone-800">
-                        {tenant.owner_email || tenant.email || '—'}
-                      </dd>
-                    </div>
-                  </dl>
-                ) : null}
-              </>
-            ) : (
+            <label className="block">
+              <span className={labelClass}>Link tenant (optional)</span>
+              <select
+                className={fieldClass}
+                value={tenantId}
+                onChange={(e) => applyTenant(e.target.value)}
+              >
+                <option value="">No tenant link</option>
+                {tenants.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                    {t.city ? ` · ${t.city}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className={labelClass}>Customer</span>
+              <input
+                className={fieldClass}
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                disabled={gstLookupBusy}
+              />
+            </label>
+            {legalName &&
+            String(legalName).trim() !== String(company || '').trim() ? (
+              <p className="text-[11px] text-stone-500">
+                Legal name (on invoice): {legalName}
+              </p>
+            ) : null}
+            <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
-                <span className={labelClass}>Payer</span>
-                <input
-                  className={fieldClass}
-                  value={payerName}
-                  onChange={(e) => setPayerName(e.target.value)}
+                <span className={labelClass}>Attention / department</span>
+                <textarea
+                  className={`${fieldClass} min-h-[72px]`}
+                  placeholder="Contact person or department (optional)"
+                  value={attention}
+                  onChange={(e) => setAttention(e.target.value)}
                 />
               </label>
-            )}
+              <label className="block">
+                <span className={labelClass}>Address</span>
+                <textarea
+                  className={`${fieldClass} min-h-[72px]`}
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  disabled={gstLookupBusy}
+                />
+              </label>
+            </div>
+            <label className="block">
+              <span className={labelClass}>Buyer&apos;s email (To)</span>
+              <input
+                type="email"
+                className={fieldClass}
+                placeholder="buyer@company.com"
+                value={buyerEmail}
+                onChange={(e) => setBuyerEmail(e.target.value)}
+              />
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className={labelClass}>CC</span>
+                <input
+                  type="text"
+                  className={fieldClass}
+                  placeholder="cc1@email.com, cc2@email.com"
+                  value={ccEmails}
+                  onChange={(e) => setCcEmails(e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <label className="block">
+                <span className={labelClass}>BCC</span>
+                <input
+                  type="text"
+                  className={fieldClass}
+                  placeholder="bcc@email.com"
+                  value={bccEmails}
+                  onChange={(e) => setBccEmails(e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className={labelClass}>GSTIN</span>
+                <input
+                  className={fieldClass}
+                  placeholder="15 characters"
+                  maxLength={15}
+                  value={gstin}
+                  onChange={(e) => {
+                    const next = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '')
+                    const st = stateFromGstin(next)
+                    setGstin(next)
+                    if (st?.code) setStateCode(st.code)
+                    setGstLookupNote('')
+                    if (next.length < 15) clearGstCaptcha()
+                    if (next.length === 15 && isValidGstinFormat(next)) {
+                      runGstLookup(next)
+                    }
+                  }}
+                  onBlur={() => {
+                    const g = String(gstin || '').trim()
+                    if (g.length === 15 && isValidGstinFormat(g)) {
+                      if (portalCaptcha) {
+                        if (!gstCaptchaImage && !gstCaptchaBusy) loadGstCaptcha()
+                      } else {
+                        runGstLookup(g)
+                      }
+                    }
+                  }}
+                />
+                <span className="mt-1 block text-[11px] text-stone-500">
+                  {gstLookupBusy
+                    ? 'Looking up GSTIN…'
+                    : gstCaptchaBusy
+                      ? 'Loading captcha…'
+                      : gstLookupNote ||
+                        (portalCaptcha
+                          ? 'Enter a valid GSTIN, then solve the captcha below.'
+                          : gstinLookupConfigured()
+                            ? 'Enter a valid GSTIN to prefill customer, address, and state.'
+                            : 'Enter GSTIN to fill state.')}
+                </span>
+              </label>
+              <label className="block">
+                <span className={labelClass}>State</span>
+                <select
+                  className={fieldClass}
+                  value={stateCode}
+                  onChange={(e) => setStateCode(e.target.value)}
+                >
+                  <option value="">Choose a state</option>
+                  {IN_STATES.map((s) => (
+                    <option key={s.code} value={s.code}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-[11px] text-stone-500">
+                  GSTIN digits or state decide CGST+SGST vs IGST.
+                </span>
+              </label>
+              {portalCaptcha && (gstCaptchaImage || gstCaptchaBusy) ? (
+                <div className="flex flex-col gap-3 rounded-xl border border-stone-200 bg-stone-50/80 p-3 sm:col-span-2 sm:flex-row sm:items-end">
+                  <div className="shrink-0">
+                    <span className={labelClass}>GST captcha</span>
+                    <div className="flex items-center gap-2">
+                      {gstCaptchaBusy && !gstCaptchaImage ? (
+                        <div className="flex h-12 w-36 items-center justify-center rounded-lg border border-stone-200 bg-white text-[11px] text-stone-500">
+                          Loading…
+                        </div>
+                      ) : (
+                        <img
+                          src={`data:image/png;base64,${gstCaptchaImage}`}
+                          alt="GST portal captcha"
+                          className="h-12 w-auto rounded-lg border border-stone-200 bg-white"
+                        />
+                      )}
+                      <button
+                        type="button"
+                        className={btnGhost}
+                        aria-label="Refresh captcha"
+                        disabled={gstCaptchaBusy || gstLookupBusy}
+                        onClick={() => loadGstCaptcha()}
+                      >
+                        <FiRefreshCw
+                          className={`h-3.5 w-3.5 ${gstCaptchaBusy ? 'animate-spin' : ''}`}
+                          aria-hidden
+                        />
+                      </button>
+                    </div>
+                  </div>
+                  <label className="min-w-0 flex-1">
+                    <span className={labelClass}>Captcha text</span>
+                    <input
+                      className={fieldClass}
+                      autoComplete="off"
+                      placeholder="Enter characters from the image"
+                      value={gstCaptchaText}
+                      disabled={gstLookupBusy || gstCaptchaBusy || !gstCaptchaCookie}
+                      onChange={(e) => setGstCaptchaText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          submitGstCaptchaLookup()
+                        }
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className={`${btnPrimary} w-full sm:w-auto`}
+                    disabled={
+                      gstLookupBusy ||
+                      gstCaptchaBusy ||
+                      !gstCaptchaCookie ||
+                      !String(gstCaptchaText || '').trim()
+                    }
+                    onClick={() => submitGstCaptchaLookup()}
+                  >
+                    {gstLookupBusy ? 'Fetching…' : 'Fetch details'}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <label className="block">
+              <span className={labelClass}>Ship to</span>
+              <textarea
+                className={`${fieldClass} min-h-[64px]`}
+                value={shipTo}
+                onChange={(e) => setShipTo(e.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className={labelClass}>Your ref.</span>
+              <input
+                className={fieldClass}
+                placeholder="Booking or PO reference"
+                value={yourRef}
+                onChange={(e) => setYourRef(e.target.value)}
+              />
+            </label>
           </section>
 
           <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className={sectionLabel}>Lines · {lines.length} of 20</h2>
-              <div className="flex flex-wrap gap-1">
-                {LINE_PRESETS.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className={btnGhost}
-                    onClick={() => addLine(p)}
-                  >
-                    <FiPlus className="h-3.5 w-3.5" aria-hidden />
-                    {p.label}
-                  </button>
-                ))}
-              </div>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className={sectionLabel}>Lines · {lines.length} of 30</h2>
+              <button type="button" className={btnGhost} onClick={addLine}>
+                <FiPlus className="h-3.5 w-3.5" aria-hidden />
+                Add a line
+              </button>
             </div>
 
-            <ul className="space-y-3">
-              {lines.map((ln, i) => (
-                <li
-                  key={ln.id}
-                  className="space-y-2 rounded-xl border border-stone-200 bg-stone-50/80 p-3"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-stone-500">Line {i + 1}</p>
+            {linesComputed.map((ln, index) => (
+              <div
+                key={ln.id}
+                className="space-y-2.5 rounded-xl border border-stone-200 bg-stone-50/50 p-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-stone-500">
+                    {String(index + 1).padStart(2, '0')}
+                  </span>
+                  <div className="flex gap-1">
                     <button
                       type="button"
                       className={btnGhost}
-                      aria-label="Remove line"
+                      aria-label="Move up"
+                      onClick={() => moveLine(ln.id, -1)}
+                    >
+                      <FiArrowUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      className={btnGhost}
+                      aria-label="Move down"
+                      onClick={() => moveLine(ln.id, 1)}
+                    >
+                      <FiArrowDown className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      className={`${btnGhost} text-rose-600`}
                       onClick={() => removeLine(ln.id)}
-                      disabled={lines.length <= 1}
                     >
                       <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
+                      Remove
                     </button>
                   </div>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-[1fr_120px]">
                   <label className="block">
-                    <span className={labelClass}>Description</span>
+                    <span className={labelClass}>Item</span>
                     <input
                       className={fieldClass}
                       value={ln.item}
                       onChange={(e) => patchLine(ln.id, { item: e.target.value })}
                     />
                   </label>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    <label className="block">
-                      <span className={labelClass}>Category</span>
+                  <label className="block">
+                    <span className={labelClass}>HSN/SAC *</span>
+                    <input
+                      className={fieldClass}
+                      required
+                      aria-required="true"
+                      placeholder="Required"
+                      value={ln.hsn}
+                      onChange={(e) => patchLine(ln.id, { hsn: e.target.value })}
+                    />
+                  </label>
+                </div>
+                <label className="block">
+                  <span className={labelClass}>Specification</span>
+                  <input
+                    className={fieldClass}
+                    value={ln.specification}
+                    onChange={(e) => patchLine(ln.id, { specification: e.target.value })}
+                  />
+                </label>
+                <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+                  <label className="block min-w-0">
+                    <span className={labelClass}>Qty</span>
+                    <input
+                      type="number"
+                      min={0}
+                      className={fieldClass}
+                      value={ln.qty}
+                      onChange={(e) => patchLine(ln.id, { qty: e.target.value })}
+                    />
+                  </label>
+                  <label className="block min-w-0">
+                    <span className={labelClass}>UOM</span>
+                    <select
+                      className={fieldClass}
+                      value={ln.uom || 'Pcs'}
+                      onChange={(e) => patchLine(ln.id, { uom: e.target.value })}
+                    >
+                      {UOM_OPTIONS.map((u) => (
+                        <option key={u} value={u}>
+                          {u}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block min-w-0">
+                    <span className={labelClass}>Unit price (₹)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className={fieldClass}
+                      value={ln.unitPrice}
+                      disabled={isManPowerLine(ln)}
+                      onChange={(e) => patchLine(ln.id, { unitPrice: e.target.value })}
+                    />
+                  </label>
+                  <label className="block min-w-0">
+                    <span className={labelClass}>Disc %</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      className={fieldClass}
+                      value={ln.discountPct ?? 0}
+                      disabled={isManPowerLine(ln)}
+                      onChange={(e) => patchLine(ln.id, { discountPct: e.target.value })}
+                    />
+                  </label>
+                  <label className="block min-w-0">
+                    <span className={labelClass}>Lead time</span>
+                    <input
+                      className={fieldClass}
+                      value={ln.leadTime}
+                      onChange={(e) => patchLine(ln.id, { leadTime: e.target.value })}
+                    />
+                  </label>
+                  <div className="min-w-0">
+                    <span className={labelClass}>Taxable</span>
+                    <p className="rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm font-medium tabular-nums text-stone-800">
+                      {fmtMoney(ln.taxable ?? ln.amount)}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  {intraState === true ? (
+                    <label className="block min-w-0">
+                      <span className={labelClass}>CGST + SGST</span>
                       <select
                         className={fieldClass}
-                        value={ln.category}
-                        onChange={(e) => patchLine(ln.id, { category: e.target.value })}
+                        value={gstSelectValue(ln)}
+                        disabled={isManPowerLine(ln)}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          if (v === '' || v === GST_NOT_APPL) {
+                            patchLine(ln.id, {
+                              gstRate: v === GST_NOT_APPL ? GST_NOT_APPL : '',
+                            })
+                            return
+                          }
+                          patchLine(ln.id, { gstRate: Number(v) })
+                        }}
                       >
-                        <option>Subscription</option>
-                        <option>Platform fee</option>
-                        <option>Tenant package</option>
-                        <option>Assessment</option>
-                        <option>Other</option>
+                        <option value="">-Select-</option>
+                        {CGST_SGST_RATE_OPTIONS.map((opt) => {
+                          const totalPct = opt.half * 2
+                          return (
+                            <option key={opt.label} value={String(totalPct)}>
+                              {opt.label}
+                            </option>
+                          )
+                        })}
+                        <option value={GST_NOT_APPL}>-Not Appl-</option>
                       </select>
                     </label>
-                    <label className="block">
-                      <span className={labelClass}>Qty</span>
-                      <input
-                        type="number"
-                        min={1}
+                  ) : (
+                    <label className="block min-w-0">
+                      <span className={labelClass}>IGST %</span>
+                      <select
                         className={fieldClass}
-                        value={ln.qty}
-                        onChange={(e) =>
-                          patchLine(ln.id, { qty: Number(e.target.value) || 0 })
-                        }
-                      />
+                        value={gstSelectValue(ln)}
+                        disabled={isManPowerLine(ln) || !buyerState}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          if (v === '' || v === GST_NOT_APPL) {
+                            patchLine(ln.id, {
+                              gstRate: v === GST_NOT_APPL ? GST_NOT_APPL : '',
+                            })
+                            return
+                          }
+                          patchLine(ln.id, { gstRate: Number(v) })
+                        }}
+                      >
+                        <option value="">-Select-</option>
+                        {IGST_RATE_OPTIONS.map((opt) => (
+                          <option key={opt.label} value={String(opt.rate)}>
+                            {opt.label}
+                          </option>
+                        ))}
+                        <option value={GST_NOT_APPL}>-Not Appl-</option>
+                      </select>
                     </label>
-                    <label className="block">
-                      <span className={labelClass}>Unit price (₹)</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        className={fieldClass}
-                        value={ln.unitPrice}
-                        onChange={(e) =>
-                          patchLine(ln.id, { unitPrice: Number(e.target.value) || 0 })
-                        }
-                      />
-                    </label>
+                  )}
+                  {intraState === true ? (
+                    <>
+                      <div className="min-w-0">
+                        <span className={labelClass}>CGST</span>
+                        <p className="rounded-lg border border-stone-200 bg-stone-50 px-2 py-2 text-sm font-medium tabular-nums text-stone-800">
+                          {fmtMoney(ln.cgst)}
+                        </p>
+                      </div>
+                      <div className="min-w-0">
+                        <span className={labelClass}>SGST</span>
+                        <p className="rounded-lg border border-stone-200 bg-stone-50 px-2 py-2 text-sm font-medium tabular-nums text-stone-800">
+                          {fmtMoney(ln.sgst)}
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="min-w-0 sm:col-span-2">
+                      <span className={labelClass}>IGST amt</span>
+                      <p
+                        className={`rounded-lg border border-stone-200 bg-stone-50 px-2 py-2 text-sm font-medium tabular-nums ${
+                          buyerState ? 'text-stone-800' : 'text-rose-600'
+                        }`}
+                      >
+                        {buyerState ? fmtMoney(ln.igst) : 'Set buyer state'}
+                      </p>
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <span className={labelClass}>Line total</span>
+                    <p className="rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm font-semibold tabular-nums text-stone-900">
+                      {buyerState ? fmtMoney(ln.lineTotal) : fmtMoney(ln.taxable)}
+                    </p>
                   </div>
-                </li>
-              ))}
-            </ul>
+                </div>
+                {intraState === true ? (
+                  <p className="text-[11px] text-stone-500">
+                    Karnataka — CGST + SGST (e.g. 9 + 9).
+                  </p>
+                ) : intraState === false ? (
+                  <p className="text-[11px] text-stone-500">Outside Karnataka — IGST.</p>
+                ) : (
+                  <p className="text-[11px] text-rose-600">
+                    Add GSTIN or state for CGST+SGST / IGST.
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {LINE_CATS.map((c) => {
+                    const on = ln.category === c.id
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() =>
+                          patchLine(ln.id, {
+                            category: c.id,
+                            onRequest: c.id === 'on_request',
+                          })
+                        }
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                          on
+                            ? 'bg-ink text-white'
+                            : 'bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50'
+                        }`}
+                      >
+                        {c.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </section>
 
           <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
@@ -450,12 +1104,15 @@ const InvoiceCreatePage = () => {
               </label>
             </div>
             <label className="block">
-              <span className={labelClass}>Payment terms</span>
-              <input
-                className={fieldClass}
+              <span className={labelClass}>Terms</span>
+              <textarea
+                className={`${fieldClass} min-h-[100px]`}
                 value={terms}
                 onChange={(e) => setTerms(e.target.value)}
               />
+              <span className="mt-1 block text-[11px] text-stone-500">
+                One term per line — same as quotes.
+              </span>
             </label>
             <label className="block">
               <span className={labelClass}>Notes (on the invoice)</span>
@@ -471,69 +1128,198 @@ const InvoiceCreatePage = () => {
                 <span className="text-stone-500">Subtotal</span>
                 <span className="font-medium">{fmtMoney(subtotal)}</span>
               </div>
-              <div className="mt-1 flex justify-between gap-2">
-                <span className="text-stone-500">GST 18%</span>
-                <span className="font-medium">{fmtMoney(gstAmount)}</span>
-              </div>
+              {intraState === true ? (
+                <>
+                  <div className="mt-1 flex justify-between gap-2">
+                    <span className="text-stone-500">CGST</span>
+                    <span className="font-medium">{fmtMoney(cgstTotal)}</span>
+                  </div>
+                  <div className="mt-1 flex justify-between gap-2">
+                    <span className="text-stone-500">SGST</span>
+                    <span className="font-medium">{fmtMoney(sgstTotal)}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="mt-1 flex justify-between gap-2">
+                  <span className="text-stone-500">IGST</span>
+                  <span className="font-medium">{fmtMoney(igstTotal)}</span>
+                </div>
+              )}
               <div className="mt-2 flex justify-between gap-2 border-t border-stone-200 pt-2 text-base font-semibold">
                 <span>Total (INR)</span>
                 <span>{fmtMoney(total)}</span>
               </div>
             </div>
 
+            {blockers.length ? (
+              <p className="text-xs text-rose-600">{blockers[0]}</p>
+            ) : null}
+
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 className={btnPrimary}
-                disabled={saving || (billTenant && !tenant && !existing)}
+                disabled={saving || blockers.length > 0}
                 onClick={() => persist(true)}
               >
-                {isEdit ? 'Save & raise' : 'Raise invoice to tenant'}
+                {isEdit ? 'Save & raise' : 'Raise invoice'}
               </button>
               <button
                 type="button"
                 className={btnSecondary}
-                disabled={saving || (billTenant && !tenant && !existing)}
+                disabled={saving || blockers.length > 0}
                 onClick={() => persist(false)}
               >
                 {isEdit ? 'Save changes' : 'Save draft'}
               </button>
             </div>
           </section>
+
+          <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
+            <h2 className={sectionLabel}>Company header</h2>
+            <p className="text-xs text-stone-500">
+              Letterhead on the invoice: logo, company name, address, and phone.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              {logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt=""
+                  className="h-14 w-14 rounded-lg border border-stone-200 bg-white object-contain"
+                />
+              ) : (
+                <span className="flex h-14 w-14 items-center justify-center rounded-lg bg-stone-100 text-xs font-semibold text-stone-500">
+                  Logo
+                </span>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <label className={`${btnSecondary} cursor-pointer`}>
+                  Upload logo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={(e) => {
+                      onLogoFile(e.target.files?.[0])
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                {logoUrl ? (
+                  <button
+                    type="button"
+                    className={btnGhost}
+                    onClick={() => setLogoUrl('')}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            <label className="block">
+              <span className={labelClass}>Company name</span>
+              <input
+                className={fieldClass}
+                value={sellerName}
+                onChange={(e) => setSellerName(e.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className={labelClass}>Company address</span>
+              <textarea
+                className={`${fieldClass} min-h-[72px]`}
+                value={sellerAddress}
+                onChange={(e) => setSellerAddress(e.target.value)}
+              />
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className={labelClass}>Company phone</span>
+                <input
+                  className={fieldClass}
+                  value={sellerPhone}
+                  onChange={(e) => setSellerPhone(e.target.value)}
+                  placeholder="+91 …"
+                />
+              </label>
+              <label className="block">
+                <span className={labelClass}>GSTIN (header)</span>
+                <input
+                  className={fieldClass}
+                  value={sellerGstin}
+                  onChange={(e) =>
+                    setSellerGstin(
+                      e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, ''),
+                    )
+                  }
+                  maxLength={15}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
+            <h2 className={sectionLabel}>Your contact</h2>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="block">
+                <span className={labelClass}>Name</span>
+                <input
+                  className={fieldClass}
+                  value={contactName}
+                  onChange={(e) => setContactName(e.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className={labelClass}>Phone</span>
+                <input
+                  className={fieldClass}
+                  value={contactPhone}
+                  onChange={(e) => setContactPhone(e.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className={labelClass}>Email</span>
+                <input
+                  type="email"
+                  className={fieldClass}
+                  value={contactEmail}
+                  onChange={(e) => setContactEmail(e.target.value)}
+                />
+              </label>
+            </div>
+          </section>
         </div>
 
         <aside className="xl:sticky xl:top-4 xl:self-start">
           <InvoiceDocumentPreview
-            sellerName={PLATFORM.name}
-            sellerAddress={PLATFORM.address}
+            sellerName={sellerName}
+            sellerAddress={sellerAddress}
+            sellerPhone={sellerPhone}
             sellerGstin={sellerGstin}
-            sellerEmail={PLATFORM.email}
+            logoUrl={logoUrl}
+            sellerEmail={contactEmail}
+            contactName={contactName}
+            contactPhone={contactPhone}
             number={number}
             date={date}
             dueDate={dueDate}
             terms={terms}
-            billToName={
-              billTenant ? tenant?.name || existing?.tenantName || '—' : payerName || '—'
-            }
-            billToAttention={tenant?.owner_name || existing?.ownerName || ''}
-            billToAddress={tenant?.city || existing?.city || existing?.venue || ''}
-            billToEmail={
-              tenant?.owner_email || tenant?.email || existing?.email || ''
-            }
-            placeOfSupply={
-              tenant?.city ||
-              tenant?.name ||
-              existing?.city ||
-              existing?.venue ||
-              existing?.tenantName ||
-              '—'
-            }
+            billToName={company || '—'}
+            billToAttention={attention}
+            billToAddress={address}
+            billToGstin={gstin}
+            billToEmail={buyerEmail}
+            yourRef={yourRef}
             notes={notes}
-            lines={lines}
+            lines={linesComputed}
             subtotal={subtotal}
+            cgstTotal={cgstTotal}
+            sgstTotal={sgstTotal}
+            igstTotal={igstTotal}
             gstAmount={gstAmount}
             total={total}
             received={Number(received) || 0}
+            intraState={intraState}
             statusLabel={isEdit ? existing?.status || 'Edit' : 'Preview'}
           />
         </aside>

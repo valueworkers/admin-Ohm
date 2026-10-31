@@ -14,8 +14,12 @@ const PLATFORM = {
 const InvoiceDocumentPreview = ({
   sellerName = PLATFORM.name,
   sellerAddress = PLATFORM.address,
+  sellerPhone = '',
   sellerGstin = '',
+  logoUrl = '',
   sellerEmail = PLATFORM.email,
+  contactName = '',
+  contactPhone = '',
   number = '—',
   date,
   dueDate,
@@ -25,33 +29,54 @@ const InvoiceDocumentPreview = ({
   billToAddress = '',
   billToGstin = '',
   billToEmail = '',
-  placeOfSupply = '',
   yourRef = '',
   notes = '',
   lines = [],
   subtotal = 0,
+  cgstTotal = 0,
+  sgstTotal = 0,
+  igstTotal = 0,
   gstAmount = 0,
-  gstLabel = 'GST 18%',
   total = 0,
   received = 0,
+  intraState = null,
   statusLabel = '',
 }) => {
   const owed = Math.max(0, Number(total) - Number(received || 0))
+  const termsList = String(terms || '')
+    .split('\n')
+    .map((t) => t.trim())
+    .filter(Boolean)
 
   return (
     <div className="overflow-hidden rounded-2xl border border-stone-300 bg-white shadow-md">
       <div className="border-b border-stone-200 bg-stone-50 px-4 py-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <p className="text-sm font-bold text-stone-900">{sellerName}</p>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-stone-500">
-              {sellerAddress}
-              {sellerGstin ? ` · GSTIN ${sellerGstin}` : ''}
-            </p>
+        <div className="flex items-start gap-2.5">
+          {logoUrl ? (
+            <img
+              src={logoUrl}
+              alt=""
+              className="h-11 w-11 shrink-0 rounded-lg border border-stone-200 bg-white object-contain"
+            />
+          ) : (
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-ink text-[11px] font-bold text-white">
+              {(sellerName || 'OH').slice(0, 2).toUpperCase()}
+            </span>
+          )}
+          <div className="min-w-0">
+            <p className="text-sm font-bold tracking-tight text-brand-700">{sellerName}</p>
+            {sellerAddress ? (
+              <p className="mt-0.5 whitespace-pre-wrap text-[10px] leading-snug text-stone-600">
+                {sellerAddress}
+              </p>
+            ) : null}
+            {sellerPhone ? (
+              <p className="mt-0.5 text-[10px] text-stone-600">{sellerPhone}</p>
+            ) : null}
+            {sellerGstin ? (
+              <p className="mt-0.5 text-[10px] text-stone-600">GSTIN {sellerGstin}</p>
+            ) : null}
           </div>
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-ink text-xs font-bold text-white">
-            {(sellerName || 'OH').slice(0, 2).toUpperCase()}
-          </span>
         </div>
       </div>
 
@@ -69,11 +94,10 @@ const InvoiceDocumentPreview = ({
             <p>Invoice no. · {number || '—'}</p>
             <p>Date {date ? fmtDate(date) : '—'}</p>
             {dueDate ? <p>Due {fmtDate(dueDate)}</p> : null}
-            {terms ? <p className="max-w-[200px]">{terms}</p> : null}
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <p className="font-bold uppercase tracking-wide text-stone-400">Billed to</p>
             <p className="mt-1 font-semibold text-stone-900">{billToName || '—'}</p>
@@ -83,14 +107,11 @@ const InvoiceDocumentPreview = ({
             {billToEmail ? <p>{billToEmail}</p> : null}
           </div>
           <div>
-            <p className="font-bold uppercase tracking-wide text-stone-400">Place of supply</p>
-            <p className="mt-1 whitespace-pre-wrap font-semibold text-stone-900">
-              {placeOfSupply || '—'}
-            </p>
-          </div>
-          <div>
             <p className="font-bold uppercase tracking-wide text-stone-400">Your contact</p>
-            <p className="mt-1 font-semibold text-stone-900">{sellerName}</p>
+            <p className="mt-1 font-semibold text-stone-900">
+              {contactName || sellerName}
+            </p>
+            {contactPhone ? <p>{contactPhone}</p> : null}
             {sellerEmail ? <p>{sellerEmail}</p> : null}
           </div>
         </div>
@@ -102,54 +123,78 @@ const InvoiceDocumentPreview = ({
           </p>
         ) : null}
 
-        <table className="w-full border-collapse text-left">
-          <thead>
-            <tr className="border-b border-stone-200 text-[10px] uppercase tracking-wide text-stone-400">
-              <th className="py-1 pr-2">#</th>
-              <th className="py-1 pr-2">Item</th>
-              <th className="py-1 pr-2 text-right">Qty</th>
-              <th className="py-1 text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(lines.length ? lines : [{ id: 'empty', item: '', qty: 0, unitPrice: 0 }]).map(
-              (ln, i) => {
-                const amt = (Number(ln.qty) || 0) * (Number(ln.unitPrice) || 0)
-                return (
-                  <tr key={ln.id || i} className="border-b border-stone-100 align-top">
-                    <td className="py-2 pr-2 text-stone-400">
-                      {String(i + 1).padStart(2, '0')}
-                    </td>
-                    <td className="py-2 pr-2">
-                      <p className="font-semibold text-stone-900">{ln.item || '—'}</p>
-                      {ln.specification ? (
-                        <p className="text-stone-500">{ln.specification}</p>
-                      ) : null}
-                      {ln.category ? (
-                        <p className="mt-0.5 text-[10px] uppercase text-stone-400">
-                          {ln.category}
-                          {ln.hsn ? ` · HSN ${ln.hsn}` : ''}
-                        </p>
-                      ) : null}
-                    </td>
-                    <td className="py-2 pr-2 text-right">{ln.qty || '—'}</td>
-                    <td className="py-2 text-right font-medium">{fmtMoney(amt)}</td>
-                  </tr>
-                )
-              },
-            )}
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-left">
+            <thead>
+              <tr className="border-b border-stone-200 text-[10px] uppercase tracking-wide text-stone-400">
+                <th className="py-1 pr-1">#</th>
+                <th className="py-1 pr-1">Item</th>
+                <th className="py-1 pr-1">HSN</th>
+                <th className="py-1 pr-1 text-right">Qty</th>
+                <th className="py-1 pr-1 text-right">Taxable</th>
+                <th className="py-1 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(lines.length ? lines : [{ id: 'empty', item: '', qty: 0, unitPrice: 0 }]).map(
+                (ln, i) => {
+                  const taxable =
+                    ln.taxable != null
+                      ? Number(ln.taxable)
+                      : (Number(ln.qty) || 0) * (Number(ln.unitPrice) || 0)
+                  const lineTotal =
+                    ln.lineTotal != null ? Number(ln.lineTotal) : taxable
+                  return (
+                    <tr key={ln.id || i} className="border-b border-stone-100 align-top">
+                      <td className="py-2 pr-1 text-stone-400">
+                        {String(i + 1).padStart(2, '0')}
+                      </td>
+                      <td className="py-2 pr-1">
+                        <p className="font-semibold text-stone-900">{ln.item || '—'}</p>
+                        {ln.specification ? (
+                          <p className="text-stone-500">{ln.specification}</p>
+                        ) : null}
+                        {ln.uom ? (
+                          <p className="mt-0.5 text-[10px] uppercase text-stone-400">
+                            {ln.uom}
+                            {ln.discountPct > 0 ? ` · Disc ${ln.discountPct}%` : ''}
+                          </p>
+                        ) : null}
+                      </td>
+                      <td className="py-2 pr-1 text-stone-600">{ln.hsn || '—'}</td>
+                      <td className="py-2 pr-1 text-right">{ln.qty || '—'}</td>
+                      <td className="py-2 pr-1 text-right">{fmtMoney(taxable)}</td>
+                      <td className="py-2 text-right font-medium">{fmtMoney(lineTotal)}</td>
+                    </tr>
+                  )
+                },
+              )}
+            </tbody>
+          </table>
+        </div>
 
-        <div className="ml-auto max-w-[220px] space-y-1 border border-stone-200 bg-stone-50 p-2.5">
+        <div className="ml-auto max-w-[240px] space-y-1 border border-stone-200 bg-stone-50 p-2.5">
           <div className="flex justify-between">
             <span>Subtotal</span>
             <span>{fmtMoney(subtotal)}</span>
           </div>
-          <div className="flex justify-between">
-            <span>{gstLabel}</span>
-            <span>{fmtMoney(gstAmount)}</span>
-          </div>
+          {intraState === true ? (
+            <>
+              <div className="flex justify-between">
+                <span>CGST</span>
+                <span>{fmtMoney(cgstTotal)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>SGST</span>
+                <span>{fmtMoney(sgstTotal)}</span>
+              </div>
+            </>
+          ) : (
+            <div className="flex justify-between">
+              <span>IGST</span>
+              <span>{fmtMoney(igstTotal || gstAmount)}</span>
+            </div>
+          )}
           <div className="flex justify-between border-t border-stone-200 pt-1 font-bold text-stone-900">
             <span>Total (INR)</span>
             <span>{fmtMoney(total)}</span>
@@ -174,11 +219,11 @@ const InvoiceDocumentPreview = ({
         <div className="space-y-1 border-t border-stone-100 pt-3 text-[10px] text-stone-500">
           <p className="font-semibold text-stone-700">Terms</p>
           <ol className="list-decimal space-y-0.5 pl-4">
-            <li>{terms || 'Payment as agreed on this invoice.'}</li>
-            <li>This is a tax invoice from O-HM Senior Care to the billed tenant.</li>
-            <li>Care services are delivered by the tenant venue unless stated otherwise.</li>
-            <li>Disputes must be raised within 7 days of the invoice date.</li>
-            <li>Subject to laws of India.</li>
+            {(termsList.length ? termsList : ['Payment as agreed on this invoice.']).map(
+              (t, i) => (
+                <li key={i}>{t}</li>
+              ),
+            )}
           </ol>
         </div>
 

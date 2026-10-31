@@ -578,7 +578,12 @@ const InvoiceDetailPage = () => {
       : lines.reduce((s, ln) => s + (Number(ln.qty) || 0) * (Number(ln.unitPrice) || 0), 0)
   const gstAmount =
     record.gstAmount != null ? Number(record.gstAmount) : Math.max(0, Number(record.amount) - subtotal)
+  const cgstTotal = Number(record.cgstTotal) || 0
+  const sgstTotal = Number(record.sgstTotal) || 0
+  const igstTotal = Number(record.igstTotal) || 0
   const total = Number(record.amount) || subtotal + gstAmount
+  const intraState =
+    cgstTotal > 0 || sgstTotal > 0 ? true : igstTotal > 0 ? false : null
 
   const handleDownload = () => {
     setStatus({
@@ -723,7 +728,7 @@ const InvoiceDetailPage = () => {
               </button>
               {canWrite !== false && isSuperAdmin ? (
                 <Link to={`/ops/invoices/${record.id}/edit`} className={btnSecondary}>
-                  Edit invoice
+                  Make Revision
                 </Link>
               ) : null}
             </div>
@@ -788,26 +793,34 @@ const InvoiceDetailPage = () => {
 
         <aside>
           <InvoiceDocumentPreview
-            sellerName="O-HM Senior Care"
-            sellerAddress="India"
-            sellerGstin={sellerGstin}
-            sellerEmail="support@o-hm.com"
+            sellerName={record.sellerName || 'O-HM Senior Care'}
+            sellerAddress={record.sellerAddress || 'India'}
+            sellerPhone={record.sellerPhone || ''}
+            sellerGstin={record.sellerGstin || sellerGstin}
+            logoUrl={record.logoUrl || ''}
+            sellerEmail={record.contactEmail || 'support@o-hm.com'}
+            contactName={record.contactName || ''}
+            contactPhone={record.contactPhone || ''}
             number={record.number}
             date={record.date}
             dueDate={record.dueDate}
             terms={record.terms}
             billToName={displayPayer(record)}
-            billToAttention={record.ownerName || ''}
-            billToAddress={record.city || record.venue || ''}
+            billToAttention={record.attention || record.ownerName || ''}
+            billToAddress={record.address || record.city || record.venue || ''}
+            billToGstin={record.gstin || ''}
             billToEmail={record.email || ''}
-            placeOfSupply={record.city || record.venue || record.tenantName || '—'}
-            yourRef={record.bookingRef}
+            yourRef={record.yourRef || record.bookingRef}
             notes={record.note}
             lines={lines}
             subtotal={subtotal}
+            cgstTotal={cgstTotal}
+            sgstTotal={sgstTotal}
+            igstTotal={igstTotal}
             gstAmount={gstAmount}
             total={total}
             received={Number(record.received) || 0}
+            intraState={intraState}
             statusLabel={record.status}
           />
         </aside>
