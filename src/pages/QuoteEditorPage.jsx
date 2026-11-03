@@ -33,6 +33,7 @@ import {
   gstSelectValue,
   isManPowerLine,
   lineGstSplit,
+  uomLabel,
 } from '../features/billing/gstLines'
 import {
   IN_STATES,
@@ -42,7 +43,7 @@ import {
 } from '../features/quotes/states'
 import { fmtDateTime, formFromQuote } from '../features/quotes/store'
 import { isValidEmail } from '../features/settings/store'
-import { apiErrorMessage } from '../utils/errors'
+import { apiErrorMessage, extractApiFieldErrors } from '../utils/errors'
 import {
   btnGhost,
   btnPrimary,
@@ -213,6 +214,43 @@ const QuoteEditorPage = () => {
   const [status, setStatus] = useState({ type: '', message: '' })
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(() => blankForm())
+  /** API field keys → message (e.g. buyer_email, lines.0.hsn_sac). */
+  const [fieldErrors, setFieldErrors] = useState({})
+  /** API keys marked required after blank/required validation failures. */
+  const [requiredFields, setRequiredFields] = useState(() => new Set([
+    'company',
+    'buyer_email',
+    'state',
+    'item',
+    'hsn_sac',
+  ]))
+
+  const isRequired = (apiKey) => requiredFields.has(apiKey)
+  const fieldErr = (apiKey) => fieldErrors[apiKey] || ''
+  const fieldCls = (apiKey) =>
+    fieldErr(apiKey)
+      ? `${fieldClass} border-rose-400 focus:border-rose-500 focus:ring-rose-500/20`
+      : fieldClass
+  const reqStar = (apiKey) =>
+    isRequired(apiKey) ? (
+      <span className="text-rose-600" aria-hidden>
+        {' '}
+        *
+      </span>
+    ) : null
+  const clearFieldError = (...keys) => {
+    setFieldErrors((prev) => {
+      let changed = false
+      const next = { ...prev }
+      for (const k of keys) {
+        if (k in next) {
+          delete next[k]
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }
 
   useEffect(() => {
     if (!isSuperAdmin) return undefined
@@ -222,6 +260,7 @@ const QuoteEditorPage = () => {
       setLoadingQuote(false)
       setRevisingFromId(null)
       setForm(blankForm())
+      setFieldErrors({})
       return undefined
     }
 
@@ -256,7 +295,27 @@ const QuoteEditorPage = () => {
     return d
   }, [quoteDate, validityDays])
 
-  const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
+  const FORM_TO_API = {
+    company: 'company',
+    attention: 'attention',
+    address: 'address',
+    gstin: 'gstin',
+    stateCode: 'state',
+    buyerEmail: 'buyer_email',
+    ccEmails: 'cc_emails',
+    bccEmails: 'bcc_emails',
+    yourRef: 'your_ref',
+    quoteNumber: 'number',
+    notes: 'notes',
+    terms: 'terms',
+    validityDays: 'valid_days',
+  }
+
+  const set = (key, value) => {
+    const apiKey = FORM_TO_API[key]
+    if (apiKey) clearFieldError(apiKey)
+    setForm((f) => ({ ...f, [key]: value }))
+  }
 
   const headerName = form.sellerName || seller.sellerName || PLATFORM.name
   const headerAddress = form.sellerAddress || seller.sellerAddress || ''
@@ -271,11 +330,33 @@ const QuoteEditorPage = () => {
     reader.readAsDataURL(file)
   }
 
+  const LINE_PATCH_TO_API = {
+    item: 'item',
+    hsn: 'hsn_sac',
+    specification: 'specification',
+    uom: 'uom',
+    qty: 'qty',
+    unitPrice: 'unit_price',
+    discountPct: 'discount_percent',
+    gstRate: 'gst_rate',
+    category: 'kind',
+  }
+
   const patchLine = (id, patch) => {
-    setForm((f) => ({
-      ...f,
-      lines: f.lines.map((ln) => (ln.id === id ? { ...ln, ...patch } : ln)),
-    }))
+    setForm((f) => {
+      const idx = f.lines.findIndex((ln) => ln.id === id)
+      if (idx >= 0) {
+        const keys = Object.keys(patch)
+          .map((k) => LINE_PATCH_TO_API[k])
+          .filter(Boolean)
+          .map((api) => `lines.${idx}.${api}`)
+        if (keys.length) clearFieldError(...keys)
+      }
+      return {
+        ...f,
+        lines: f.lines.map((ln) => (ln.id === id ? { ...ln, ...patch } : ln)),
+      }
+    })
   }
 
   const addLine = () => {
@@ -343,13 +424,17 @@ const QuoteEditorPage = () => {
     }
     form.lines.forEach((ln, i) => {
       if (!String(ln.item).trim()) list.push(`Line ${i + 1} needs an item name.`)
-      if (!String(ln.hsn || '').trim()) list.push(`Line ${i + 1} needs HSN/SAC.`)
+      const hsn = String(ln.hsn || '').trim()
+      if (!hsn) list.push(`Line ${i + 1} needs HSN/SAC.`)
+      else if (!/^\d{4}$|^\d{6}$|^\d{8}$/.test(hsn)) {
+        list.push(`Line ${i + 1}: HSN/SAC must be 4, 6 or 8 digits.`)
+      }
       if (!isManPowerLine(ln) && !(Number(ln.unitPrice) > 0)) {
         list.push(`Line ${i + 1} needs a unit price, or mark it Man power.`)
       }
     })
     if (!String(form.buyerEmail).trim()) {
-      list.push("Add the buyer's email to send the quote.")
+      list.push("Add the buyer's email.")
     } else if (!isValidEmail(form.buyerEmail)) {
       list.push("Buyer's email looks invalid.")
     }
@@ -387,28 +472,67 @@ const QuoteEditorPage = () => {
     }
 
     if (!String(form.company).trim()) {
+      setFieldErrors((e) => ({ ...e, company: 'This field may not be blank.' }))
       setStatus({ type: 'error', message: 'Add the customer name.' })
+      return
+    }
+    if (!String(form.buyerEmail).trim()) {
+      setFieldErrors((e) => ({
+        ...e,
+        buyer_email: 'This field may not be blank.',
+      }))
+      setRequiredFields((prev) => new Set(prev).add('buyer_email'))
+      setStatus({ type: 'error', message: "Add the buyer's email." })
       return
     }
     if (!form.lines.some((ln) => String(ln.item || '').trim())) {
       setStatus({ type: 'error', message: 'Add at least one line item.' })
       return
     }
+    const badHsnIdx = form.lines.findIndex((ln) => {
+      const hsn = String(ln.hsn || '').trim()
+      return hsn && !/^\d{4}$|^\d{6}$|^\d{8}$/.test(hsn)
+    })
+    if (badHsnIdx >= 0) {
+      const key = `lines.${badHsnIdx}.hsn_sac`
+      setFieldErrors((e) => ({
+        ...e,
+        [key]: 'HSN/SAC must be 4, 6 or 8 digits.',
+      }))
+      setRequiredFields((prev) => new Set(prev).add('hsn_sac'))
+      setStatus({
+        type: 'error',
+        message: `Line ${badHsnIdx + 1}: HSN/SAC must be 4, 6 or 8 digits.`,
+      })
+      return
+    }
 
     setSaving(true)
     setStatus({ type: '', message: '' })
+    setFieldErrors({})
     try {
-      // Revision of a sent quote → edit locally, then POST .../revise/ on Send
+      const quoteForm = { ...form, validityDays }
+      const quoteOpts = {
+        freight:
+          form.freight != null && form.freight !== ''
+            ? form.freight
+            : Number(existing?.payload?.freight) || 0,
+        packing:
+          form.packing != null && form.packing !== ''
+            ? form.packing
+            : Number(existing?.payload?.packing) || 0,
+        chargesGstRate:
+          form.chargesGstRate != null && form.chargesGstRate !== ''
+            ? form.chargesGstRate
+            : Number(existing?.payload?.chargesGstRate) || 18,
+      }
+
+      // Revision of a sent quote → edit locally, then POST .../revise/ (same body as create) on Send
       if (isRevising && asSent) {
         const sourceId = revisingFromId || existing?.id || quoteId
-        let revised = await revisePlatformQuote(sourceId)
+        let revised = await revisePlatformQuote(sourceId, quoteForm, quoteOpts)
         const revisedStatus = String(revised.status || '').toUpperCase()
         if (revisedStatus === 'DRAFT') {
-          revised = await updatePlatformQuote(
-            revised.id,
-            { ...form, validityDays },
-            { freight: Number(existing?.payload?.freight) || 0 },
-          )
           revised = await sendPlatformQuote(revised.id, {
             cc: form.ccEmails,
             bcc: form.bccEmails,
@@ -433,14 +557,10 @@ const QuoteEditorPage = () => {
         return
       }
 
-      // New → POST; existing draft → PATCH /api/platform/quotes/:id/
+      // New → POST; existing draft → PATCH — same payload shape
       let saved = isNew
-        ? await createPlatformQuote({ ...form, validityDays }, { freight: 0 })
-        : await updatePlatformQuote(
-            existing?.id || quoteId,
-            { ...form, validityDays },
-            { freight: Number(existing?.payload?.freight) || 0 },
-          )
+        ? await createPlatformQuote(quoteForm, quoteOpts)
+        : await updatePlatformQuote(existing?.id || quoteId, quoteForm, quoteOpts)
 
       if (asSent) {
         saved = await sendPlatformQuote(saved.id, {
@@ -467,6 +587,21 @@ const QuoteEditorPage = () => {
         window.setTimeout(() => navigate(`/ops/quotations/${saved.id}`), 600)
       }
     } catch (err) {
+      const { errors, requiredKeys } = extractApiFieldErrors(err)
+      if (Object.keys(errors).length) setFieldErrors(errors)
+      if (requiredKeys.length) {
+        setRequiredFields((prev) => {
+          const next = new Set(prev)
+          requiredKeys.forEach((k) => {
+            next.add(k)
+            // Also mark the bare field name for line nested keys (hsn_sac, item, …)
+            const parts = String(k).split('.')
+            const leaf = parts[parts.length - 1]
+            if (leaf && !/^\d+$/.test(leaf)) next.add(leaf)
+          })
+          return next
+        })
+      }
       setStatus({
         type: 'error',
         message: apiErrorMessage(
@@ -876,7 +1011,7 @@ const QuoteEditorPage = () => {
                 <td className="px-1 py-1.5 text-stone-600">{ln.hsn || '—'}</td>
                 <td className="px-1 py-1.5 text-right tabular-nums">{ln.qty}</td>
                 <td className="px-1 py-1.5 text-right uppercase text-stone-600">
-                  {ln.uom || '—'}
+                  {ln.uom ? uomLabel(ln.uom) : '—'}
                 </td>
                 <td className="px-1 py-1.5 text-right tabular-nums">
                   {isManPowerLine(ln) ? '—' : fmtMoney(ln.unitPrice)}
@@ -1192,13 +1327,21 @@ const QuoteEditorPage = () => {
           <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
             <h2 className={sectionLabel}>Quoted to</h2>
             <label className="block">
-              <span className={labelClass}>Customer</span>
+              <span className={labelClass}>
+                Customer
+                {reqStar('company')}
+              </span>
               <input
-                className={fieldClass}
+                className={fieldCls('company')}
                 value={form.company}
                 onChange={(e) => set('company', e.target.value)}
                 disabled={gstLookupBusy}
+                aria-invalid={Boolean(fieldErr('company'))}
+                aria-required={isRequired('company')}
               />
+              {fieldErr('company') ? (
+                <span className="mt-1 block text-[11px] text-rose-600">{fieldErr('company')}</span>
+              ) : null}
             </label>
             {form.legalName &&
             String(form.legalName).trim() !== String(form.company || '').trim() ? (
@@ -1208,36 +1351,59 @@ const QuoteEditorPage = () => {
             ) : null}
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
-                <span className={labelClass}>Attention / department</span>
+                <span className={labelClass}>
+                  Attention / department
+                  {reqStar('attention')}
+                </span>
                 <textarea
-                  className={`${fieldClass} min-h-[72px]`}
+                  className={`${fieldCls('attention')} min-h-[72px]`}
                   placeholder="Contact person or department (optional)"
                   value={form.attention}
                   onChange={(e) => set('attention', e.target.value)}
+                  aria-invalid={Boolean(fieldErr('attention'))}
                 />
+                {fieldErr('attention') ? (
+                  <span className="mt-1 block text-[11px] text-rose-600">{fieldErr('attention')}</span>
+                ) : null}
               </label>
               <label className="block">
-                <span className={labelClass}>Address</span>
+                <span className={labelClass}>
+                  Address
+                  {reqStar('address')}
+                </span>
                 <textarea
-                  className={`${fieldClass} min-h-[72px]`}
+                  className={`${fieldCls('address')} min-h-[72px]`}
                   value={form.address}
                   onChange={(e) => set('address', e.target.value)}
                   disabled={gstLookupBusy}
+                  aria-invalid={Boolean(fieldErr('address'))}
                 />
+                {fieldErr('address') ? (
+                  <span className="mt-1 block text-[11px] text-rose-600">{fieldErr('address')}</span>
+                ) : null}
               </label>
             </div>
             <label className="block">
-              <span className={labelClass}>Buyer&apos;s email (To)</span>
+              <span className={labelClass}>
+                Buyer&apos;s email (To)
+                {reqStar('buyer_email')}
+              </span>
               <input
                 type="email"
-                className={fieldClass}
+                className={fieldCls('buyer_email')}
                 placeholder="buyer@company.com"
                 value={form.buyerEmail}
                 onChange={(e) => set('buyerEmail', e.target.value)}
+                aria-invalid={Boolean(fieldErr('buyer_email'))}
+                aria-required={isRequired('buyer_email')}
               />
-              <span className="mt-1 block text-[11px] text-stone-500">
-                Primary recipient — the quote is sent here.
-              </span>
+              {fieldErr('buyer_email') ? (
+                <span className="mt-1 block text-[11px] text-rose-600">{fieldErr('buyer_email')}</span>
+              ) : (
+                <span className="mt-1 block text-[11px] text-stone-500">
+                  Primary recipient — the quote is sent here.
+                </span>
+              )}
             </label>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
@@ -1271,15 +1437,20 @@ const QuoteEditorPage = () => {
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
-                <span className={labelClass}>GSTIN</span>
+                <span className={labelClass}>
+                  GSTIN
+                  {reqStar('gstin')}
+                </span>
                 <input
-                  className={fieldClass}
+                  className={fieldCls('gstin')}
                   placeholder="15 characters"
                   maxLength={15}
                   value={form.gstin}
+                  aria-invalid={Boolean(fieldErr('gstin'))}
                   onChange={(e) => {
                     const gstin = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '')
                     const st = stateFromGstin(gstin)
+                    clearFieldError('gstin', 'state')
                     setForm((f) => ({
                       ...f,
                       gstin,
@@ -1302,18 +1473,22 @@ const QuoteEditorPage = () => {
                     }
                   }}
                 />
-                <span className="mt-1 block text-[11px] text-stone-500">
-                  {gstLookupBusy
-                    ? 'Looking up GSTIN…'
-                    : gstCaptchaBusy
-                      ? 'Loading captcha…'
-                      : gstLookupNote ||
-                        (portalCaptcha
-                          ? 'Enter a valid GSTIN, then solve the captcha below.'
-                          : gstinLookupConfigured()
-                            ? 'Enter a valid GSTIN to prefill customer, address, and state.'
-                            : 'Enter GSTIN to fill state. Set VITE_GSTIN_PROVIDER=portal (default) or a paid API key.')}
-                </span>
+                {fieldErr('gstin') ? (
+                  <span className="mt-1 block text-[11px] text-rose-600">{fieldErr('gstin')}</span>
+                ) : (
+                  <span className="mt-1 block text-[11px] text-stone-500">
+                    {gstLookupBusy
+                      ? 'Looking up GSTIN…'
+                      : gstCaptchaBusy
+                        ? 'Loading captcha…'
+                        : gstLookupNote ||
+                          (portalCaptcha
+                            ? 'Enter a valid GSTIN, then solve the captcha below.'
+                            : gstinLookupConfigured()
+                              ? 'Enter a valid GSTIN to prefill customer, address, and state.'
+                              : 'Enter GSTIN to fill state. Set VITE_GSTIN_PROVIDER=portal (default) or a paid API key.')}
+                  </span>
+                )}
                 <a
                   className="mt-1 inline-flex text-[11px] font-medium text-brand-700 hover:underline"
                   href="https://services.gst.gov.in/services/searchtp"
@@ -1324,11 +1499,16 @@ const QuoteEditorPage = () => {
                 </a>
               </label>
               <label className="block">
-                <span className={labelClass}>State</span>
+                <span className={labelClass}>
+                  State
+                  {reqStar('state')}
+                </span>
                 <select
-                  className={fieldClass}
+                  className={fieldCls('state')}
                   value={form.stateCode}
                   onChange={(e) => set('stateCode', e.target.value)}
+                  aria-invalid={Boolean(fieldErr('state'))}
+                  aria-required={isRequired('state')}
                 >
                   <option value="">Choose a state</option>
                   {IN_STATES.map((s) => (
@@ -1337,9 +1517,13 @@ const QuoteEditorPage = () => {
                     </option>
                   ))}
                 </select>
-                <span className="mt-1 block text-[11px] text-stone-500">
-                  The GSTIN&apos;s first two digits, or else the state, decide the GST split.
-                </span>
+                {fieldErr('state') ? (
+                  <span className="mt-1 block text-[11px] text-rose-600">{fieldErr('state')}</span>
+                ) : (
+                  <span className="mt-1 block text-[11px] text-stone-500">
+                    The GSTIN&apos;s first two digits, or else the state, decide the GST split.
+                  </span>
+                )}
               </label>
               {portalCaptcha && (gstCaptchaImage || gstCaptchaBusy) ? (
                 <div className="flex flex-col gap-3 rounded-xl border border-stone-200 bg-stone-50/80 p-3 sm:col-span-2 sm:flex-row sm:items-end">
@@ -1407,28 +1591,43 @@ const QuoteEditorPage = () => {
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
-                <span className={labelClass}>Quote no.</span>
+                <span className={labelClass}>
+                  Quote no.
+                  {reqStar('number')}
+                </span>
                 <input
-                  className={fieldClass}
-                  placeholder="e.g. SC-Q-2610-001"
+                  className={fieldCls('number')}
+                  placeholder="e.g. SC-Q-2610-003"
                   value={form.quoteNumber}
                   disabled={!isNew}
                   onChange={(e) => set('quoteNumber', e.target.value)}
+                  aria-invalid={Boolean(fieldErr('number'))}
                 />
-                <span className="mt-1 block text-[11px] text-stone-500">
-                  {isNew
-                    ? 'Shown on the quote. Leave blank to let the server assign one on save.'
-                    : 'Assigned quote number.'}
-                </span>
+                {fieldErr('number') ? (
+                  <span className="mt-1 block text-[11px] text-rose-600">{fieldErr('number')}</span>
+                ) : (
+                  <span className="mt-1 block text-[11px] text-stone-500">
+                    {isNew
+                      ? 'Shown on the quote. Leave blank to let the server assign one on save.'
+                      : 'Assigned quote number.'}
+                  </span>
+                )}
               </label>
               <label className="block">
-                <span className={labelClass}>Your ref.</span>
+                <span className={labelClass}>
+                  Your ref.
+                  {reqStar('your_ref')}
+                </span>
                 <input
-                  className={fieldClass}
+                  className={fieldCls('your_ref')}
                   placeholder="Their enquiry or RFQ number"
                   value={form.yourRef}
                   onChange={(e) => set('yourRef', e.target.value)}
+                  aria-invalid={Boolean(fieldErr('your_ref'))}
                 />
+                {fieldErr('your_ref') ? (
+                  <span className="mt-1 block text-[11px] text-rose-600">{fieldErr('your_ref')}</span>
+                ) : null}
               </label>
             </div>
           </section>
@@ -1482,24 +1681,51 @@ const QuoteEditorPage = () => {
                 </div>
                 <div className="grid gap-2 sm:grid-cols-[1fr_120px]">
                   <label className="block">
-                    <span className={labelClass}>Item · pick a catalog product or custom item</span>
+                    <span className={labelClass}>
+                      Item · pick a catalog product or custom item
+                      {reqStar('item')}
+                    </span>
                     <input
-                      className={fieldClass}
+                      className={
+                        fieldErr(`lines.${index}.item`)
+                          ? `${fieldClass} border-rose-400 focus:border-rose-500 focus:ring-rose-500/20`
+                          : fieldClass
+                      }
                       placeholder="Search products, e.g. home nursing, physio package"
                       value={ln.item}
                       onChange={(e) => patchLine(ln.id, { item: e.target.value })}
+                      aria-invalid={Boolean(fieldErr(`lines.${index}.item`))}
+                      aria-required={isRequired('item')}
                     />
+                    {fieldErr(`lines.${index}.item`) ? (
+                      <span className="mt-1 block text-[11px] text-rose-600">
+                        {fieldErr(`lines.${index}.item`)}
+                      </span>
+                    ) : null}
                   </label>
                   <label className="block">
-                    <span className={labelClass}>HSN/SAC *</span>
+                    <span className={labelClass}>
+                      HSN/SAC
+                      {reqStar('hsn_sac')}
+                    </span>
                     <input
-                      className={fieldClass}
-                      required
-                      aria-required="true"
-                      placeholder="Required"
+                      className={
+                        fieldErr(`lines.${index}.hsn_sac`) || fieldErr('hsn_sac')
+                          ? `${fieldClass} border-rose-400 focus:border-rose-500 focus:ring-rose-500/20`
+                          : fieldClass
+                      }
+                      required={isRequired('hsn_sac')}
+                      aria-required={isRequired('hsn_sac')}
+                      aria-invalid={Boolean(fieldErr(`lines.${index}.hsn_sac`))}
+                      placeholder="4, 6 or 8 digits"
                       value={ln.hsn}
                       onChange={(e) => patchLine(ln.id, { hsn: e.target.value })}
                     />
+                    {fieldErr(`lines.${index}.hsn_sac`) ? (
+                      <span className="mt-1 block text-[11px] text-rose-600">
+                        {fieldErr(`lines.${index}.hsn_sac`)}
+                      </span>
+                    ) : null}
                   </label>
                 </div>
                 <label className="block">
@@ -1525,12 +1751,12 @@ const QuoteEditorPage = () => {
                     <span className={lineMetricLabelClass}>UOM</span>
                     <select
                       className={lineMetricFieldClass}
-                      value={ln.uom || 'Pcs'}
+                      value={ln.uom || 'PCS'}
                       onChange={(e) => patchLine(ln.id, { uom: e.target.value })}
                     >
                       {UOM_OPTIONS.map((u) => (
-                        <option key={u} value={u}>
-                          {u}
+                        <option key={u.value} value={u.value}>
+                          {u.label}
                         </option>
                       ))}
                     </select>
@@ -1685,7 +1911,7 @@ const QuoteEditorPage = () => {
                         onClick={() =>
                           patchLine(ln.id, {
                             category: c.id,
-                            onRequest: c.id === 'on_request',
+                            onRequest: c.id === 'manpower',
                           })
                         }
                         className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${

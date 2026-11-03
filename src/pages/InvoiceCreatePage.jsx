@@ -28,6 +28,8 @@ import {
   gstSelectValue,
   isManPowerLine,
   lineGstSplit,
+  normalizeLineKind,
+  normalizeUom,
 } from '../features/billing/gstLines'
 import {
   createTenantInvoice,
@@ -137,11 +139,12 @@ const hydrateLines = (existing) => {
       ...emptyGstLine(),
       ...ln,
       hsn: ln.hsn || '',
-      uom: ln.uom || 'Pcs',
+      uom: normalizeUom(ln.uom),
       discountPct: ln.discountPct ?? 0,
       gstRate: ln.gstRate ?? 18,
-      category: ln.category || 'stocked',
-      onRequest: Boolean(ln.onRequest) || ln.category === 'on_request',
+      category: normalizeLineKind(ln.category),
+      onRequest:
+        Boolean(ln.onRequest) || normalizeLineKind(ln.category) === 'manpower',
     }))
   }
   return [
@@ -149,7 +152,7 @@ const hydrateLines = (existing) => {
       ...emptyGstLine(),
       item: 'Platform subscription · monthly',
       hsn: '9983',
-      category: 'service',
+      category: 'service_visit',
       qty: 1,
       unitPrice: 9999,
       gstRate: 18,
@@ -889,12 +892,12 @@ const InvoiceCreatePage = () => {
                     <span className={lineMetricLabelClass}>UOM</span>
                     <select
                       className={lineMetricFieldClass}
-                      value={ln.uom || 'Pcs'}
+                      value={ln.uom || 'PCS'}
                       onChange={(e) => patchLine(ln.id, { uom: e.target.value })}
                     >
                       {UOM_OPTIONS.map((u) => (
-                        <option key={u} value={u}>
-                          {u}
+                        <option key={u.value} value={u.value}>
+                          {u.label}
                         </option>
                       ))}
                     </select>
@@ -1053,7 +1056,7 @@ const InvoiceCreatePage = () => {
                         onClick={() =>
                           patchLine(ln.id, {
                             category: c.id,
-                            onRequest: c.id === 'on_request',
+                            onRequest: c.id === 'manpower',
                           })
                         }
                         className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${

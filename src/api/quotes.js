@@ -1,4 +1,5 @@
 import api from './axiosClient'
+import { normalizeUom } from '../features/billing/gstLines'
 import { IN_STATES } from '../features/quotes/states'
 
 const resolveStateCode = (state) => {
@@ -23,23 +24,39 @@ const num = (value) => {
   return Number.isFinite(n) ? n : null
 }
 
-const normalizeLine = (line = {}, index = 0) => ({
-  id: String(line.id ?? `ln-${index + 1}`),
-  item: line.item || '',
-  hsn: line.hsn_sac || line.hsn || '',
-  specification: line.specification || '',
-  qty: num(line.qty) ?? 1,
-  uom: String(line.uom || line.unit || 'Pcs').trim() || 'Pcs',
-  unitPrice: num(line.unit_price) ?? 0,
-  discountPct: num(line.discount_pct ?? line.discountPct) ?? 0,
-  // API lead_time ↔ editor "Lead time" field
-  leadTime: String(line.lead_time ?? line.leadTime ?? ''),
-  category: line.kind || line.category || 'custom',
-  onRequest: Boolean(line.on_request),
-  gstRate: num(line.gst_rate),
-  plan: line.plan ?? null,
-  position: line.position ?? index + 1,
-})
+const normalizeLine = (line = {}, index = 0) => {
+  const kind = (() => {
+    const v = String(line.kind || line.category || 'custom').trim().toLowerCase()
+    if (v === 'catalog' || v === 'stocked') return 'catalog'
+    if (v === 'custom') return 'custom'
+    if (v === 'service_visit' || v === 'service') return 'service_visit'
+    if (v === 'manpower' || v === 'on_request') return 'manpower'
+    return 'custom'
+  })()
+  return {
+    id: String(line.id ?? `ln-${index + 1}`),
+    item: line.item || '',
+    hsn: line.hsn_sac || line.hsn || '',
+    specification: line.specification || '',
+    qty: num(line.qty) ?? 1,
+    uom: normalizeUom(line.uom || line.unit),
+    unitPrice: num(line.unit_price) ?? 0,
+    discountPct:
+      num(line.discount_percent ?? line.discount_pct ?? line.discountPct) ?? 0,
+    // API lead_time ↔ editor "Lead time" field
+    leadTime: String(line.lead_time ?? line.leadTime ?? ''),
+    category: kind,
+    onRequest: Boolean(line.on_request) || kind === 'manpower',
+    gstRate: num(line.gst_rate),
+    plan: line.plan ?? null,
+    position: line.position ?? index + 1,
+  }
+}
+
+const money2 = (value, fallback = 0) => {
+  const n = Number(value)
+  return (Number.isFinite(n) ? n : fallback).toFixed(2)
+}
 
 const normalizeEvent = (event = {}) => ({
   type: event.kind || event.type || 'created',
@@ -73,13 +90,39 @@ const createdByFromEvents = (events = []) => {
   return personLabel(created.actor) || personLabel(created.by)
 }
 
+const latestEventAt = (events = []) => {
+  let latest = ''
+  let latestMs = 0
+  for (const ev of events) {
+    const at = ev?.at || ''
+    const ms = new Date(at).getTime()
+    if (!Number.isNaN(ms) && ms >= latestMs) {
+      latestMs = ms
+      latest = at
+    }
+  }
+  return latest || null
+}
+
 /** Map platform quote API row → UI / editor shape. */
 export const normalizePlatformQuote = (row = {}) => {
   const revision = Number(row.revision) || 0
   const number = String(row.number || '').trim()
   const total = num(row.total)
+  const subtotal = num(row.subtotal)
+  const cgst = num(row.cgst)
+  const sgst = num(row.sgst)
+  const igst = num(row.igst)
   const status = String(row.status || 'draft').trim().toUpperCase() || 'DRAFT'
   const events = Array.isArray(row.events) ? row.events : []
+  const stateCode =
+    resolveStateCode(row.state_code) || resolveStateCode(row.state) || ''
+  const createdBy =
+    personLabel(row.created_by) ||
+    personLabel(row.created_by_name) ||
+    personLabel(row.creator) ||
+    createdByFromEvents(events) ||
+    ''
 
   return {
     id: String(row.id ?? ''),
@@ -89,41 +132,53 @@ export const normalizePlatformQuote = (row = {}) => {
     number: number ? `${number} R${revision}` : row.id != null ? `Quote #${row.id}` : '—',
     forName: row.company || '—',
     customer: row.company || row.customer || row.customer_name || '—',
+    attention: row.attention || '',
+    address: row.address || '',
+    gstin: String(row.gstin || '').trim().toUpperCase(),
+    state: row.state || '',
+    stateCode,
+    buyerEmail: row.buyer_email || '',
+    yourRef: row.your_ref || '',
     status,
     date: row.quote_date || String(row.created_at || '').slice(0, 10),
+    quoteDate: row.quote_date || String(row.created_at || '').slice(0, 10) || '',
     createdAt: row.created_at || row.created_date || null,
     lastModifiedAt:
       row.updated_at ||
       row.modified_at ||
       row.last_modified_at ||
       row.last_modified ||
+      latestEventAt(events) ||
+      row.sent_at ||
+      row.created_at ||
       null,
-    createdBy:
-      personLabel(row.created_by) ||
-      personLabel(row.created_by_name) ||
-      personLabel(row.creator) ||
-      createdByFromEvents(events) ||
-      '—',
+    createdBy: createdBy || '—',
     validFrom: row.valid_from || row.quote_date || String(row.created_at || '').slice(0, 10) || '',
     validUntil: row.valid_until || '',
+    validDays: num(row.valid_days) ?? 30,
     assignTo:
       personLabel(row.assigned_to) ||
       personLabel(row.assign_to) ||
       personLabel(row.assignee) ||
       personLabel(row.assigned_to_name) ||
       '—',
+    subtotal,
+    cgst,
+    sgst,
+    igst,
     totalInclGst: total,
     gstSet: total != null,
     sentAt: row.sent_at || null,
     acceptedAt: row.accepted_at || null,
+    supplyType: row.supply_type_display || row.supply_type || '',
     history: events.map(normalizeEvent),
     payload: {
       company: row.company || '',
       legalName: row.legal_name || row.legalName || '',
       attention: row.attention || '',
       address: row.address || '',
-      gstin: row.gstin || '',
-      stateCode: resolveStateCode(row.state),
+      gstin: String(row.gstin || '').trim().toUpperCase(),
+      stateCode,
       buyerEmail: row.buyer_email || '',
       ccEmails: Array.isArray(row.cc_emails)
         ? row.cc_emails.join(', ')
@@ -146,11 +201,13 @@ export const normalizePlatformQuote = (row = {}) => {
       contactPhone: row.contact_phone || '',
       contactEmail: row.contact_email || 'support@o-hm.com',
       lines: Array.isArray(row.lines) ? row.lines.map(normalizeLine) : [],
-      subtotal: num(row.subtotal),
-      cgst: num(row.cgst),
-      sgst: num(row.sgst),
-      igst: num(row.igst),
+      subtotal,
+      cgst,
+      sgst,
+      igst,
       freight: num(row.freight),
+      packing: num(row.packing),
+      chargesGstRate: num(row.charges_gst_rate ?? row.chargesGstRate),
       total,
     },
   }
@@ -205,13 +262,25 @@ export const fetchPlatformQuoteStats = async ({ from, to } = {}) => {
 
 const lineKindForApi = (line = {}) => {
   const raw = String(line.category || line.kind || 'custom').toLowerCase()
-  if (raw === 'on_request') return 'custom'
-  if (raw === 'stocked' || raw === 'service' || raw === 'custom') return raw
+  if (raw === 'catalog' || raw === 'stocked') return 'catalog'
+  if (raw === 'custom') return 'custom'
+  if (raw === 'service_visit' || raw === 'service') return 'service_visit'
+  if (raw === 'manpower' || raw === 'on_request') return 'manpower'
   return 'custom'
 }
 
-/** Build POST /api/platform/quotes/ body from editor form. */
-export const buildPlatformQuotePayload = (form = {}, { freight = 0 } = {}) => {
+/**
+ * Build POST/PATCH /api/platform/quotes/ body from editor form.
+ * Matches platform create contract:
+ * company, attention, address, state, buyer_email, cc/bcc_emails,
+ * ship_to, your_ref, valid_days, notes, terms, freight, packing,
+ * charges_gst_rate, lines[{ kind, item, specification, hsn_sac, uom,
+ * qty, unit_price, discount_percent, gst_rate }]
+ */
+export const buildPlatformQuotePayload = (
+  form = {},
+  { freight = 0, packing = 0, chargesGstRate = 18 } = {},
+) => {
   const stateCode = String(form.stateCode || '').trim()
   const stateName =
     IN_STATES.find((s) => s.code === stateCode)?.name ||
@@ -219,7 +288,8 @@ export const buildPlatformQuotePayload = (form = {}, { freight = 0 } = {}) => {
     ''
 
   const lines = (Array.isArray(form.lines) ? form.lines : []).map((ln) => {
-    const onReq = Boolean(ln.onRequest) || ln.category === 'on_request'
+    const onReq =
+      Boolean(ln.onRequest) || lineKindForApi(ln) === 'manpower'
     const qty = Number(ln.qty)
     const unit = onReq ? 0 : Number(ln.unitPrice)
     const rawGst = ln.gstRate
@@ -236,28 +306,40 @@ export const buildPlatformQuotePayload = (form = {}, { freight = 0 } = {}) => {
       item: String(ln.item || '').trim(),
       specification: String(ln.specification || '').trim(),
       hsn_sac: String(ln.hsn || '').trim(),
-      qty: (Number.isFinite(qty) ? qty : 0).toFixed(2),
-      uom: String(ln.uom || 'Pcs').trim() || 'Pcs',
-      unit_price: (Number.isFinite(unit) ? unit : 0).toFixed(2),
-      discount_pct: (Number.isFinite(disc) ? Math.max(0, Math.min(100, disc)) : 0).toFixed(2),
-      lead_time: String(ln.leadTime ?? ln.lead_time ?? '').trim(),
-      gst_rate: gst.toFixed(2),
+      uom: normalizeUom(ln.uom),
+      qty: money2(qty, 0),
+      unit_price: money2(unit, 0),
+      discount_percent: money2(
+        Number.isFinite(disc) ? Math.max(0, Math.min(100, disc)) : 0,
+        0,
+      ),
+      gst_rate: money2(gst, 18),
     }
   })
 
-  const quoteNumber = String(form.quoteNumber || '').trim()
   const parseEmails = (raw) =>
     String(raw || '')
       .split(/[,;\s]+/)
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean)
 
-  return {
+  const freightVal =
+    form.freight != null && form.freight !== '' ? form.freight : freight
+  const packingVal =
+    form.packing != null && form.packing !== '' ? form.packing : packing
+  const chargesRateVal =
+    form.chargesGstRate != null && form.chargesGstRate !== ''
+      ? form.chargesGstRate
+      : chargesGstRate
+
+  const number = String(form.quoteNumber || form.number || '')
+    .trim()
+    .replace(/\s*R\d+\s*$/i, '')
+
+  const body = {
     company: String(form.company || '').trim(),
-    legal_name: String(form.legalName || '').trim(),
     attention: String(form.attention || '').trim(),
     address: String(form.address || '').trim(),
-    gstin: String(form.gstin || '').trim().toUpperCase(),
     state: stateName,
     buyer_email: String(form.buyerEmail || '').trim(),
     cc_emails: parseEmails(form.ccEmails),
@@ -265,21 +347,16 @@ export const buildPlatformQuotePayload = (form = {}, { freight = 0 } = {}) => {
     ship_to:
       String(form.shipTo || '').trim() || String(form.address || '').trim(),
     your_ref: String(form.yourRef || '').trim(),
-    ...(quoteNumber ? { number: quoteNumber } : {}),
     valid_days: Math.max(1, Math.min(3650, Number(form.validityDays) || 30)),
     notes: String(form.notes || '').trim(),
     terms: String(form.terms || '').trim(),
-    seller_name: String(form.sellerName || '').trim(),
-    seller_address: String(form.sellerAddress || '').trim(),
-    seller_phone: String(form.sellerPhone || '').trim(),
-    seller_gstin: String(form.sellerGstin || '').trim().toUpperCase(),
-    logo_url: String(form.logoUrl || '').trim(),
-    contact_name: String(form.contactName || '').trim(),
-    contact_phone: String(form.contactPhone || '').trim(),
-    contact_email: String(form.contactEmail || '').trim(),
-    freight: Number(freight) || 0,
+    freight: money2(freightVal, 0),
+    packing: money2(packingVal, 0),
+    charges_gst_rate: money2(chargesRateVal, 18),
     lines,
   }
+  if (number) body.number = number
+  return body
 }
 
 /** POST /api/platform/quotes/ — create platform quote. */
@@ -328,12 +405,13 @@ export const sendPlatformQuote = async (quoteId, { cc, bcc } = {}) => {
 
 /**
  * POST /api/platform/quotes/:id/revise/
- * Creates/sends a revision of a sent quote. Body is {} (API contract).
+ * Same body as create/update via buildPlatformQuotePayload.
  */
-export const revisePlatformQuote = async (quoteId) => {
+export const revisePlatformQuote = async (quoteId, form = {}, options = {}) => {
   const id = String(quoteId || '').trim()
   if (!id) throw new Error('Quote id is required.')
-  const { data } = await api.post(`api/platform/quotes/${id}/revise/`, {})
+  const body = buildPlatformQuotePayload(form, options)
+  const { data } = await api.post(`api/platform/quotes/${id}/revise/`, body)
   const row = data?.data || data?.quote || data
   if (row && (row.id != null || row.number)) {
     return normalizePlatformQuote(row)

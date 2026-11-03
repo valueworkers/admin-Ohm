@@ -1404,8 +1404,21 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
                           options={THEMES}
                           value={settings.appearance.theme}
                           onChange={(value) => {
-                            patchNested('appearance', 'theme', value)
-                            applyAppearance({ ...settings.appearance, theme: value })
+                            const appearance = {
+                              ...settings.appearance,
+                              theme: value,
+                            }
+                            setSettings((s) => ({ ...s, appearance }))
+                            applyAppearance(appearance)
+                            try {
+                              saveSettingsForMode(
+                                mode,
+                                { ...settings, appearance },
+                                { tenantId },
+                              )
+                            } catch {
+                              /* local persist best-effort */
+                            }
                           }}
                         />
                       </div>
@@ -1415,8 +1428,21 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
                           options={FONT_SIZES}
                           value={settings.appearance.fontSize}
                           onChange={(value) => {
-                            patchNested('appearance', 'fontSize', value)
-                            applyAppearance({ ...settings.appearance, fontSize: value })
+                            const appearance = {
+                              ...settings.appearance,
+                              fontSize: value,
+                            }
+                            setSettings((s) => ({ ...s, appearance }))
+                            applyAppearance(appearance)
+                            try {
+                              saveSettingsForMode(
+                                mode,
+                                { ...settings, appearance },
+                                { tenantId },
+                              )
+                            } catch {
+                              /* local persist best-effort */
+                            }
                           }}
                         />
                       </div>
@@ -1426,11 +1452,21 @@ const SettingsPage = ({ mode = 'account' } = {}) => {
                           className={fieldClass}
                           value={settings.appearance.fontFamily}
                           onChange={(e) => {
-                            patchNested('appearance', 'fontFamily', e.target.value)
-                            applyAppearance({
+                            const appearance = {
                               ...settings.appearance,
                               fontFamily: e.target.value,
-                            })
+                            }
+                            setSettings((s) => ({ ...s, appearance }))
+                            applyAppearance(appearance)
+                            try {
+                              saveSettingsForMode(
+                                mode,
+                                { ...settings, appearance },
+                                { tenantId },
+                              )
+                            } catch {
+                              /* local persist best-effort */
+                            }
                           }}
                         >
                           {APPEARANCE_FONT_FAMILIES.map((t) => (

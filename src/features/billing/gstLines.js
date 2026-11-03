@@ -1,11 +1,22 @@
 /** Shared line GST helpers (quotes + invoices). Seller state = Karnataka (29). */
 
+/** Matches backend Kind TextChoices. */
 export const LINE_CATS = [
-  { id: 'stocked', label: 'Catalog' },
+  { id: 'catalog', label: 'Catalog' },
   { id: 'custom', label: 'Custom service' },
-  { id: 'service', label: 'Service visit' },
-  { id: 'on_request', label: 'Man power' },
+  { id: 'service_visit', label: 'Service visit' },
+  { id: 'manpower', label: 'Man power' },
 ]
+
+/** Map legacy UI ids → API Kind values. */
+export const normalizeLineKind = (raw) => {
+  const v = String(raw || '').trim().toLowerCase()
+  if (v === 'catalog' || v === 'stocked') return 'catalog'
+  if (v === 'custom') return 'custom'
+  if (v === 'service_visit' || v === 'service') return 'service_visit'
+  if (v === 'manpower' || v === 'on_request') return 'manpower'
+  return 'custom'
+}
 
 export const DEFAULT_TERMS = [
   'Payment as agreed; advance may be required for custom packages.',
@@ -51,26 +62,86 @@ export const IGST_RATE_OPTIONS = [
 
 export const GST_NOT_APPL = 'na'
 
-export const UOM_OPTIONS = [
-  'Pcs',
-  'Nos',
-  'Kg',
-  'Gms',
-  'Litre',
-  'Ml',
-  'Box',
-  'Pack',
-  'Set',
-  'Pair',
-  'Dozen',
-  'Hour',
-  'Day',
-  'Month',
-  'Unit',
+/**
+ * Unit of measurement — value = API code, label = FE display.
+ * Matches backend Uom TextChoices.
+ */
+export const UNITS = [
+  // Quantity / Count
+  { value: 'PCS', label: 'Pcs' },
+  { value: 'NOS', label: 'Nos' },
+  { value: 'UNT', label: 'Unit' },
+  { value: 'SET', label: 'Set' },
+  { value: 'PR', label: 'Pair' },
+  { value: 'DOZ', label: 'Dozen' },
+  // Packaging
+  { value: 'BOX', label: 'Box' },
+  { value: 'PAC', label: 'Pack' },
+  { value: 'PKT', label: 'Packet' },
+  { value: 'CTN', label: 'Carton' },
+  { value: 'BAG', label: 'Bag' },
+  { value: 'BDL', label: 'Bundle' },
+  { value: 'ROL', label: 'Roll' },
+  { value: 'BTL', label: 'Bottle' },
+  { value: 'CAN', label: 'Can' },
+  // Weight
+  { value: 'MG', label: 'Mg' },
+  { value: 'GMS', label: 'Gms' },
+  { value: 'KGS', label: 'Kg' },
+  { value: 'QTL', label: 'Quintal' },
+  { value: 'TON', label: 'Ton' },
+  // Volume
+  { value: 'ML', label: 'Ml' },
+  { value: 'LTR', label: 'Litre' },
+  // Length / Distance
+  { value: 'MM', label: 'Mm' },
+  { value: 'CM', label: 'Cm' },
+  { value: 'MTR', label: 'Mtr' },
+  { value: 'KM', label: 'Km' },
+  { value: 'IN', label: 'Inch' },
+  { value: 'FT', label: 'Feet' },
+  { value: 'YD', label: 'Yard' },
+  { value: 'MI', label: 'Mile' },
+  // Area
+  { value: 'SQFT', label: 'Sq.Ft' },
+  { value: 'SQM', label: 'Sq.Mtr' },
+  { value: 'SQYD', label: 'Sq.Yard' },
+  // Time / Services
+  { value: 'HRS', label: 'Hour' },
+  { value: 'DAY', label: 'Day' },
+  { value: 'MTH', label: 'Month' },
+  { value: 'YR', label: 'Year' },
+  { value: 'VST', label: 'Visits' },
+  // Other
+  { value: 'OTH', label: 'Other' },
 ]
 
+export const UOM_OPTIONS = UNITS
+
+const UOM_BY_VALUE = Object.fromEntries(UNITS.map((u) => [u.value, u]))
+const UOM_BY_LABEL = Object.fromEntries(
+  UNITS.map((u) => [u.label.toLowerCase(), u]),
+)
+
+/** Normalize any raw UOM (code or label) → API code. Default PCS. */
+export const normalizeUom = (raw) => {
+  const s = String(raw || '').trim()
+  if (!s) return 'PCS'
+  const upper = s.toUpperCase()
+  if (UOM_BY_VALUE[upper]) return upper
+  const byLabel = UOM_BY_LABEL[s.toLowerCase()]
+  return byLabel?.value || 'PCS'
+}
+
+/** Display label for a stored UOM code (or legacy label). */
+export const uomLabel = (raw) => {
+  const code = normalizeUom(raw)
+  return UOM_BY_VALUE[code]?.label || code
+}
+
 export const isManPowerLine = (ln = {}) =>
-  Boolean(ln.onRequest) || ln.category === 'on_request'
+  Boolean(ln.onRequest) ||
+  normalizeLineKind(ln.category || ln.kind) === 'manpower'
 
 export const resolveGstRatePct = (ln = {}) => {
   const raw = ln.gstRate
@@ -93,12 +164,12 @@ export const emptyGstLine = () => ({
   hsn: '',
   specification: '',
   qty: 1,
-  uom: 'Pcs',
+  uom: 'PCS',
   unitPrice: 0,
   discountPct: 0,
   leadTime: '',
   gstRate: 18,
-  category: 'stocked',
+  category: 'catalog',
   onRequest: false,
 })
 
@@ -174,11 +245,13 @@ export const normalizeGstLine = (ln, i = 0) => ({
   hsn: String(ln.hsn || '').trim(),
   specification: String(ln.specification || '').trim(),
   qty: Number(ln.qty) || 1,
-  uom: ln.uom || 'Pcs',
+  uom: normalizeUom(ln.uom),
   unitPrice: Number(ln.unitPrice) || 0,
   discountPct: Math.max(0, Math.min(100, Number(ln.discountPct) || 0)),
   leadTime: String(ln.leadTime || '').trim(),
   gstRate: ln.gstRate === GST_NOT_APPL || ln.gstRate === 'NA' ? GST_NOT_APPL : Number(ln.gstRate) || 18,
-  category: ln.category || 'stocked',
-  onRequest: Boolean(ln.onRequest) || ln.category === 'on_request',
+  category: normalizeLineKind(ln.category || ln.kind),
+  onRequest:
+    Boolean(ln.onRequest) ||
+    normalizeLineKind(ln.category || ln.kind) === 'manpower',
 })

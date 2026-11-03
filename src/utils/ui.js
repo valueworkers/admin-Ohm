@@ -14,16 +14,16 @@ export const lineMetricValueClass =
 export const lineMetricFieldClass = `${fieldClass} box-border h-10 py-0 leading-10 sm:h-9 sm:leading-9`
 
 export const btnPrimary =
-  'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-ink px-3.5 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-ink-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 active:bg-ink disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0'
+  'sc-btn sc-btn-primary inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-ink px-3.5 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-ink-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 active:bg-ink disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0'
 
 export const btnSecondary =
-  'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3.5 py-2 text-sm font-medium text-stone-700 transition-colors duration-150 hover:border-stone-400 hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/40 disabled:opacity-50 sm:min-h-0'
+  'sc-btn sc-btn-secondary inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3.5 py-2 text-sm font-medium text-stone-700 transition-colors duration-150 hover:border-stone-400 hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/40 disabled:opacity-50 sm:min-h-0'
 
 export const btnDanger =
-  'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-rose-700 px-3.5 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600/35 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0'
+  'sc-btn sc-btn-danger inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-rose-700 px-3.5 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600/35 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0'
 
 export const btnGhost =
-  'inline-flex items-center justify-center gap-1 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs font-medium text-stone-600 transition-colors duration-150 hover:border-stone-300 hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/40 disabled:opacity-50'
+  'sc-btn sc-btn-ghost inline-flex items-center justify-center gap-1 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs font-medium text-stone-600 transition-colors duration-150 hover:border-stone-300 hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/40 disabled:opacity-50'
 
 export const tableWrapClass =
   'overflow-hidden rounded-xl border border-stone-200/90 bg-white'

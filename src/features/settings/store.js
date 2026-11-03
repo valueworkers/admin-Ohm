@@ -204,24 +204,48 @@ const ensureAppearanceFont = (key) => {
   document.head.appendChild(link)
 }
 
+let systemThemeMql = null
+let systemThemeHandler = null
+
+const resolveThemeMode = (theme) => {
+  const mode = theme === 'dark' || theme === 'system' || theme === 'light' ? theme : 'light'
+  if (mode !== 'system') return mode
+  if (typeof window === 'undefined') return 'light'
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+const clearSystemThemeListener = () => {
+  if (systemThemeMql && systemThemeHandler) {
+    systemThemeMql.removeEventListener('change', systemThemeHandler)
+  }
+  systemThemeMql = null
+  systemThemeHandler = null
+}
+
 export const applyAppearance = (appearance = {}) => {
+  if (typeof document === 'undefined') return
   const root = document.documentElement
   const theme = appearance.theme || 'light'
   const fontSize = appearance.fontSize || 'medium'
   const fontKey = appearance.fontFamily || 'system'
   const stack = APPEARANCE_FONT_STACKS[fontKey] || APPEARANCE_FONT_STACKS.system
 
-  if (theme === 'system') {
-    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    root.dataset.theme = dark ? 'dark' : 'light'
-  } else {
-    root.dataset.theme = theme
-  }
+  root.dataset.themePreference = theme
+  root.dataset.theme = resolveThemeMode(theme)
   root.dataset.fontSize = fontSize
   root.dataset.fontFamily = fontKey
   ensureAppearanceFont(fontKey)
   root.style.setProperty('--sc-font-family', stack)
   root.style.fontFamily = stack
+
+  clearSystemThemeListener()
+  if (theme === 'system' && typeof window !== 'undefined') {
+    systemThemeMql = window.matchMedia('(prefers-color-scheme: dark)')
+    systemThemeHandler = () => {
+      root.dataset.theme = resolveThemeMode('system')
+    }
+    systemThemeMql.addEventListener('change', systemThemeHandler)
+  }
 }
 
 export const syncProfileToSession = (profile) => {

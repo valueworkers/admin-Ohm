@@ -10,7 +10,7 @@ const StatusBanner = ({ type = 'error', message }) => {
   const styles = STYLES[type] || STYLES.error
   return (
     <div
-      className={`sc-fade-in rounded-lg border px-3 py-2.5 text-sm ${styles}`}
+      className={`sc-fade-in rounded-lg border px-3 py-2.5 text-sm whitespace-pre-line ${styles}`}
       role="status"
     >
       {message}

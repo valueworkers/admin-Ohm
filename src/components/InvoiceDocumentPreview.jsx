@@ -1,3 +1,4 @@
+import { uomLabel } from '../features/billing/gstLines'
 import { amountInWords } from '../features/quotes/states'
 import { fmtDate, fmtMoney } from '../features/invoices/store'
 import { btnPrimary } from '../utils/ui'
@@ -155,8 +156,8 @@ const InvoiceDocumentPreview = ({
                           <p className="text-stone-500">{ln.specification}</p>
                         ) : null}
                         {ln.uom ? (
-                          <p className="mt-0.5 text-[10px] uppercase text-stone-400">
-                            {ln.uom}
+                          <p className="mt-0.5 text-[10px] text-stone-400">
+                            {uomLabel(ln.uom)}
                             {ln.discountPct > 0 ? ` · Disc ${ln.discountPct}%` : ''}
                           </p>
                         ) : null}

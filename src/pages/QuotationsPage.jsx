@@ -104,25 +104,28 @@ const SORT_COLUMNS = [
   { id: 'number', label: 'Quote' },
   { id: 'customer', label: 'Customer' },
   { id: 'status', label: 'Status' },
-  { id: 'createdAt', label: 'Created date' },
-  { id: 'lastModifiedAt', label: 'Last modified' },
-  { id: 'createdBy', label: 'Created by' },
-  { id: 'validFrom', label: 'Valid from' },
+  { id: 'buyerEmail', label: 'Buyer email' },
+  { id: 'yourRef', label: 'Your ref' },
+  { id: 'quoteDate', label: 'Quote date' },
   { id: 'validUntil', label: 'Valid until' },
-  { id: 'assignTo', label: 'Assign to' },
-  { id: 'totalInclGst', label: 'Total incl. GST', align: 'right' },
+  { id: 'sentAt', label: 'Sent' },
+  { id: 'subtotal', label: 'Subtotal', align: 'right' },
+  { id: 'totalInclGst', label: 'Total', align: 'right' },
 ]
 
 const sortValue = (q, key) => {
   if (key === 'customer') return String(q.customer || q.forName || '').toLowerCase()
-  if (key === 'totalInclGst') {
-    return q.gstSet && q.totalInclGst != null ? Number(q.totalInclGst) : -1
+  if (key === 'subtotal' || key === 'totalInclGst') {
+    const n = Number(q[key])
+    return Number.isFinite(n) ? n : -1
   }
   if (
     key === 'createdAt' ||
     key === 'lastModifiedAt' ||
+    key === 'quoteDate' ||
     key === 'validFrom' ||
-    key === 'validUntil'
+    key === 'validUntil' ||
+    key === 'sentAt'
   ) {
     const t = new Date(q[key] || 0).getTime()
     return Number.isNaN(t) ? 0 : t
@@ -140,14 +143,20 @@ const downloadQuotesExcel = (rows) => {
   const headers = [
     'Quote',
     'Customer',
+    'GSTIN',
+    'State',
     'Status',
-    'Created date',
-    'Last modified',
-    'Created by',
-    'Valid from',
+    'Buyer email',
+    'Your ref',
+    'Quote date',
     'Valid until',
-    'Assign to',
-    'Total incl. GST',
+    'Sent',
+    'Subtotal',
+    'CGST',
+    'SGST',
+    'IGST',
+    'Total',
+    'Created',
   ]
   const lines = [
     headers.join(','),
@@ -155,14 +164,20 @@ const downloadQuotesExcel = (rows) => {
       [
         q.number,
         q.customer || q.forName || '',
+        q.gstin || '',
+        q.state || '',
         q.status,
-        fmtDateTime(q.createdAt),
-        fmtDateTime(q.lastModifiedAt),
-        q.createdBy || '',
-        fmtDate(q.validFrom),
+        q.buyerEmail || '',
+        q.yourRef || '',
+        fmtDate(q.quoteDate || q.date),
         fmtDate(q.validUntil),
-        q.assignTo || '',
-        q.gstSet && q.totalInclGst != null ? q.totalInclGst : '',
+        fmtDateTime(q.sentAt),
+        q.subtotal != null ? q.subtotal : '',
+        q.cgst != null ? q.cgst : '',
+        q.sgst != null ? q.sgst : '',
+        q.igst != null ? q.igst : '',
+        q.totalInclGst != null ? q.totalInclGst : '',
+        fmtDateTime(q.createdAt),
       ]
         .map(csvEscape)
         .join(','),
@@ -274,10 +289,11 @@ const QuotationsPage = () => {
           row.customer,
           row.forName,
           row.status,
-          row.createdBy,
-          row.assignTo,
-          row.validFrom,
-          row.validUntil,
+          row.gstin,
+          row.state,
+          row.buyerEmail,
+          row.yourRef,
+          row.attention,
         ]
           .map((v) => String(v || '').toLowerCase())
           .join(' ')
@@ -528,7 +544,7 @@ const QuotationsPage = () => {
               <input
                 type="search"
                 className={`${fieldClass} pl-9`}
-                placeholder="Search quote, customer, status…"
+                placeholder="Search quote, customer, email, GSTIN, ref…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -570,7 +586,7 @@ const QuotationsPage = () => {
                 <tbody className="divide-y divide-stone-100">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-4 py-10">
+                      <td colSpan={SORT_COLUMNS.length} className="px-4 py-10">
                         <EmptyState
                           bare
                           title={search.trim() ? 'No matching quotes' : 'No quotes in this range'}
@@ -604,10 +620,25 @@ const QuotationsPage = () => {
                         role="link"
                         aria-label={`Open quote ${q.number}`}
                       >
-                        <td className="px-4 py-3 font-medium whitespace-nowrap text-stone-900">
-                          {q.number}
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <p className="font-medium text-stone-900">{q.number}</p>
+                          {q.quoteDate ? (
+                            <p className="text-xs text-stone-500">
+                              Created {fmtDate(q.createdAt)}
+                            </p>
+                          ) : null}
                         </td>
-                        <td className="px-4 py-3 text-stone-700">{q.customer || q.forName}</td>
+                        <td className="px-4 py-3 min-w-[10rem]">
+                          <p className="font-medium text-stone-800">
+                            {q.customer || q.forName}
+                          </p>
+                          {q.gstin ? (
+                            <p className="text-xs text-stone-500">GSTIN {q.gstin}</p>
+                          ) : null}
+                          {q.state ? (
+                            <p className="text-xs text-stone-400">{q.state}</p>
+                          ) : null}
+                        </td>
                         <td className="px-4 py-3">
                           <span
                             className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${statusChip(
@@ -617,25 +648,48 @@ const QuotationsPage = () => {
                             {q.status}
                           </span>
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
-                          {fmtDateTime(q.createdAt)}
+                        <td className="px-4 py-3 text-stone-700">
+                          <p className="max-w-[12rem] truncate" title={q.buyerEmail || ''}>
+                            {q.buyerEmail || '—'}
+                          </p>
                         </td>
+                        <td className="px-4 py-3 text-stone-700">{q.yourRef || '—'}</td>
                         <td className="px-4 py-3 whitespace-nowrap text-stone-600">
-                          {fmtDateTime(q.lastModifiedAt)}
-                        </td>
-                        <td className="px-4 py-3 text-stone-700">{q.createdBy || '—'}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
-                          {fmtDate(q.validFrom)}
+                          {fmtDate(q.quoteDate || q.date)}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-stone-600">
                           {fmtDate(q.validUntil)}
+                          {q.validDays ? (
+                            <span className="block text-xs text-stone-400">
+                              {q.validDays}d
+                            </span>
+                          ) : null}
                         </td>
-                        <td className="px-4 py-3 text-stone-700">{q.assignTo || '—'}</td>
-                        <td className="px-4 py-3 text-right whitespace-nowrap text-stone-800">
-                          {q.gstSet && q.totalInclGst != null ? (
-                            fmtMoney(q.totalInclGst)
+                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
+                          {q.sentAt ? fmtDateTime(q.sentAt) : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap text-stone-700">
+                          {q.subtotal != null ? fmtMoney(q.subtotal) : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          {q.totalInclGst != null ? (
+                            <>
+                              <p className="font-medium text-stone-900">
+                                {fmtMoney(q.totalInclGst)}
+                              </p>
+                              {(Number(q.cgst) > 0 || Number(q.sgst) > 0) && (
+                                <p className="text-[11px] text-stone-500">
+                                  CGST {fmtMoney(q.cgst)} · SGST {fmtMoney(q.sgst)}
+                                </p>
+                              )}
+                              {Number(q.igst) > 0 ? (
+                                <p className="text-[11px] text-stone-500">
+                                  IGST {fmtMoney(q.igst)}
+                                </p>
+                              ) : null}
+                            </>
                           ) : (
-                            <span className="text-stone-400">GST not set</span>
+                            <span className="text-stone-400">—</span>
                           )}
                         </td>
                       </tr>
