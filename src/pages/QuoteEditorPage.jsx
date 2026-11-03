@@ -43,7 +43,18 @@ import {
 import { fmtDateTime, formFromQuote } from '../features/quotes/store'
 import { isValidEmail } from '../features/settings/store'
 import { apiErrorMessage } from '../utils/errors'
-import { btnGhost, btnPrimary, btnSecondary, fieldClass, labelClass } from '../utils/ui'
+import {
+  btnGhost,
+  btnPrimary,
+  btnSecondary,
+  fieldClass,
+  labelClass,
+  lineMetricCellClass,
+  lineMetricFieldClass,
+  lineMetricGridClass,
+  lineMetricLabelClass,
+  lineMetricValueClass,
+} from '../utils/ui'
 
 const PLATFORM = {
   name: 'O-HM Senior Care',
@@ -1499,21 +1510,21 @@ const QuoteEditorPage = () => {
                     onChange={(e) => patchLine(ln.id, { specification: e.target.value })}
                   />
                 </label>
-                <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
-                  <label className="block min-w-0">
-                    <span className={labelClass}>Qty</span>
+                <div className={lineMetricGridClass}>
+                  <label className={lineMetricCellClass}>
+                    <span className={lineMetricLabelClass}>Qty</span>
                     <input
                       type="number"
                       min={0}
-                      className={fieldClass}
+                      className={lineMetricFieldClass}
                       value={ln.qty}
                       onChange={(e) => patchLine(ln.id, { qty: e.target.value })}
                     />
                   </label>
-                  <label className="block min-w-0">
-                    <span className={labelClass}>UOM</span>
+                  <label className={lineMetricCellClass}>
+                    <span className={lineMetricLabelClass}>UOM</span>
                     <select
-                      className={fieldClass}
+                      className={lineMetricFieldClass}
                       value={ln.uom || 'Pcs'}
                       onChange={(e) => patchLine(ln.id, { uom: e.target.value })}
                     >
@@ -1524,52 +1535,52 @@ const QuoteEditorPage = () => {
                       ))}
                     </select>
                   </label>
-                  <label className="block min-w-0">
-                    <span className={labelClass}>Unit price (₹)</span>
+                  <label className={lineMetricCellClass}>
+                    <span className={lineMetricLabelClass}>Price (₹)</span>
                     <input
                       type="number"
                       min={0}
                       step="0.01"
-                      className={fieldClass}
+                      className={lineMetricFieldClass}
                       value={ln.unitPrice}
                       disabled={isManPowerLine(ln)}
                       onChange={(e) => patchLine(ln.id, { unitPrice: e.target.value })}
                     />
                   </label>
-                  <label className="block min-w-0">
-                    <span className={labelClass}>Disc %</span>
+                  <label className={lineMetricCellClass}>
+                    <span className={lineMetricLabelClass}>Disc %</span>
                     <input
                       type="number"
                       min={0}
                       max={100}
                       step="0.01"
-                      className={fieldClass}
+                      className={lineMetricFieldClass}
                       value={ln.discountPct ?? 0}
                       disabled={isManPowerLine(ln)}
                       onChange={(e) => patchLine(ln.id, { discountPct: e.target.value })}
                     />
                   </label>
-                  <label className="block min-w-0">
-                    <span className={labelClass}>Lead time</span>
+                  <label className={lineMetricCellClass}>
+                    <span className={lineMetricLabelClass}>Lead time</span>
                     <input
-                      className={fieldClass}
+                      className={lineMetricFieldClass}
                       value={ln.leadTime}
                       onChange={(e) => patchLine(ln.id, { leadTime: e.target.value })}
                     />
                   </label>
-                  <div className="min-w-0">
-                    <span className={labelClass}>Taxable</span>
-                    <p className="rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm font-medium tabular-nums text-stone-800">
+                  <div className={lineMetricCellClass}>
+                    <span className={lineMetricLabelClass}>Taxable</span>
+                    <p className={lineMetricValueClass}>
                       {fmtMoney(ln.taxable ?? ln.amount)}
                     </p>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                <div className={lineMetricGridClass}>
                   {intraState === true ? (
-                    <label className="block min-w-0">
-                      <span className={labelClass}>CGST + SGST</span>
+                    <label className={lineMetricCellClass}>
+                      <span className={lineMetricLabelClass}>CGST+SGST</span>
                       <select
-                        className={fieldClass}
+                        className={lineMetricFieldClass}
                         value={gstSelectValue(ln)}
                         disabled={isManPowerLine(ln)}
                         onChange={(e) => {
@@ -1594,10 +1605,10 @@ const QuoteEditorPage = () => {
                       </select>
                     </label>
                   ) : (
-                    <label className="block min-w-0">
-                      <span className={labelClass}>IGST %</span>
+                    <label className={lineMetricCellClass}>
+                      <span className={lineMetricLabelClass}>IGST %</span>
                       <select
-                        className={fieldClass}
+                        className={lineMetricFieldClass}
                         value={gstSelectValue(ln)}
                         disabled={isManPowerLine(ln) || !buyerState}
                         onChange={(e) => {
@@ -1621,34 +1632,34 @@ const QuoteEditorPage = () => {
                   )}
                   {intraState === true ? (
                     <>
-                      <div className="min-w-0">
-                        <span className={labelClass}>CGST</span>
-                        <p className="rounded-lg border border-stone-200 bg-stone-50 px-2 py-2 text-sm font-medium tabular-nums text-stone-800">
+                      <div className={lineMetricCellClass}>
+                        <span className={lineMetricLabelClass}>CGST</span>
+                        <p className={`${lineMetricValueClass} bg-stone-50`}>
                           {fmtMoney(ln.cgst)}
                         </p>
                       </div>
-                      <div className="min-w-0">
-                        <span className={labelClass}>SGST</span>
-                        <p className="rounded-lg border border-stone-200 bg-stone-50 px-2 py-2 text-sm font-medium tabular-nums text-stone-800">
+                      <div className={lineMetricCellClass}>
+                        <span className={lineMetricLabelClass}>SGST</span>
+                        <p className={`${lineMetricValueClass} bg-stone-50`}>
                           {fmtMoney(ln.sgst)}
                         </p>
                       </div>
                     </>
                   ) : (
-                    <div className="min-w-0 sm:col-span-2">
-                      <span className={labelClass}>IGST amt</span>
+                    <div className={`${lineMetricCellClass} sm:col-span-2`}>
+                      <span className={lineMetricLabelClass}>IGST amt</span>
                       <p
-                        className={`rounded-lg border border-stone-200 bg-stone-50 px-2 py-2 text-sm font-medium tabular-nums ${
-                          buyerState ? 'text-stone-800' : 'text-rose-600'
+                        className={`${lineMetricValueClass} bg-stone-50 ${
+                          buyerState ? '' : 'text-rose-600'
                         }`}
                       >
                         {buyerState ? fmtMoney(ln.igst) : 'Set buyer state'}
                       </p>
                     </div>
                   )}
-                  <div className="min-w-0">
-                    <span className={labelClass}>Line total</span>
-                    <p className="rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm font-semibold tabular-nums text-stone-900">
+                  <div className={`${lineMetricCellClass} sm:col-start-6`}>
+                    <span className={lineMetricLabelClass}>Line total</span>
+                    <p className={`${lineMetricValueClass} font-semibold text-stone-900`}>
                       {buyerState ? fmtMoney(ln.lineTotal) : fmtMoney(ln.taxable)}
                     </p>
                   </div>

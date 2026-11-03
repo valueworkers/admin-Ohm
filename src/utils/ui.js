@@ -3,6 +3,16 @@ export const fieldClass =
 
 export const labelClass = 'mb-1.5 block text-xs font-medium text-stone-700'
 
+/** Dense quote/invoice line metric row — labels + controls share one baseline. */
+export const lineMetricGridClass =
+  'grid grid-cols-2 items-end gap-x-2 gap-y-3 sm:grid-cols-6'
+export const lineMetricCellClass = 'flex min-w-0 flex-col justify-end gap-1.5'
+export const lineMetricLabelClass =
+  'block h-8 overflow-hidden text-xs font-medium leading-4 text-stone-700'
+export const lineMetricValueClass =
+  'flex h-10 w-full items-center rounded-lg border border-stone-200 bg-white px-3 text-sm font-medium tabular-nums text-stone-800 sm:h-9'
+export const lineMetricFieldClass = `${fieldClass} box-border h-10 py-0 leading-10 sm:h-9 sm:leading-9`
+
 export const btnPrimary =
   'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-ink px-3.5 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-ink-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 active:bg-ink disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0'
 
