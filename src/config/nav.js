@@ -301,6 +301,8 @@ export const NAV_ITEMS = [
         title: 'Settings',
         icon: FiSettings,
         needsTenant: true,
+        // Tenant admin / owner only — not Super Admin
+        ownerOnly: true,
       },
     ],
   },

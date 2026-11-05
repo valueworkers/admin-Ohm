@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   FiChevronDown,
+  FiChevronLeft,
   FiChevronRight,
   FiDownload,
   FiPlus,
@@ -14,7 +15,15 @@ import { EmptyState, ErrorState, LoadingState, Panel } from '../components/ui/Pa
 import { fetchPlatformQuoteStats, fetchPlatformQuotes } from '../api/quotes'
 import { useAccess } from '../hooks/useAccess'
 import { apiErrorMessage } from '../utils/errors'
-import { btnPrimary, btnSecondary, fieldClass, tableHeadClass, tableWrapClass } from '../utils/ui'
+import {
+  btnGhost,
+  btnPrimary,
+  btnSecondary,
+  fieldClass,
+  labelClass,
+  tableHeadClass,
+  tableWrapClass,
+} from '../utils/ui'
 
 const RANGE_OPTIONS = [
   { id: 30, label: '30 days' },
@@ -54,14 +63,45 @@ const winRatePercent = (winRate) => {
   return Math.round(n)
 }
 
+/** Matches backend Quote.status TextChoices — value sent as API `status`. */
 const STATUS_FILTERS = [
-  { id: 'ALL', label: 'All' },
-  { id: 'DRAFT', label: 'Draft' },
-  { id: 'SENT', label: 'Sent' },
-  { id: 'ACCEPTED', label: 'Accepted' },
-  { id: 'EXPIRED', label: 'Expired' },
-  { id: 'SUPERSEDED', label: 'Superseded' },
+  { id: '', label: 'All statuses' },
+  { id: 'draft', label: 'Draft' },
+  { id: 'sent', label: 'Sent' },
+  { id: 'accepted', label: 'Accepted' },
+  { id: 'rejected', label: 'Rejected' },
+  { id: 'expired', label: 'Expired' },
+  { id: 'superseded', label: 'Superseded' },
 ]
+
+const SUPPLY_TYPE_FILTERS = [
+  { id: '', label: 'All supply types' },
+  { id: 'intra_state', label: 'Intra-state' },
+  { id: 'inter_state', label: 'Inter-state' },
+  { id: 'unknown', label: 'Unknown' },
+]
+
+/**
+ * UI column id → API `ordering` field.
+ * Only columns used for sort (matches backend ordering whitelist).
+ */
+const ORDERING_FIELDS = {
+  number: 'number',
+  customer: 'company',
+  status: 'status',
+  quoteDate: 'quote_date',
+  validUntil: 'valid_until',
+  sentAt: 'sent_at',
+  lastModifiedAt: 'updated_at',
+  totalInclGst: 'total',
+}
+
+const toOrdering = (sortKey, sortDir) => {
+  const field = ORDERING_FIELDS[sortKey] || 'quote_date'
+  return sortDir === 'asc' ? field : `-${field}`
+}
+
+const PAGE_SIZE = 20
 
 const fmtDate = (value) => {
   if (!value) return '—'
@@ -96,42 +136,25 @@ const statusChip = (status) => {
   const s = String(status || '').toUpperCase()
   if (s === 'SENT') return 'border border-stone-300 bg-white text-stone-800'
   if (s === 'ACCEPTED') return 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100'
+  if (s === 'REJECTED') return 'bg-rose-50 text-rose-800 ring-1 ring-rose-100'
   if (s === 'EXPIRED' || s === 'SUPERSEDED') return 'bg-stone-100 text-stone-600'
+  if (s === 'DRAFT') return 'bg-brand-50 text-brand-800 ring-1 ring-brand-100'
   return 'bg-stone-100 text-stone-700'
 }
 
-const SORT_COLUMNS = [
-  { id: 'number', label: 'Quote' },
-  { id: 'customer', label: 'Customer' },
-  { id: 'status', label: 'Status' },
-  { id: 'buyerEmail', label: 'Buyer email' },
-  { id: 'yourRef', label: 'Your ref' },
-  { id: 'quoteDate', label: 'Quote date' },
-  { id: 'validUntil', label: 'Valid until' },
-  { id: 'sentAt', label: 'Sent' },
-  { id: 'subtotal', label: 'Subtotal', align: 'right' },
-  { id: 'totalInclGst', label: 'Total', align: 'right' },
+const TABLE_COLUMNS = [
+  { id: 'number', label: 'Quote', sortable: true },
+  { id: 'customer', label: 'Customer', sortable: true },
+  { id: 'status', label: 'Status', sortable: true },
+  { id: 'buyerEmail', label: 'Buyer email', sortable: false },
+  { id: 'yourRef', label: 'Your ref', sortable: false },
+  { id: 'quoteDate', label: 'Quote date', sortable: true },
+  { id: 'validUntil', label: 'Valid until', sortable: true },
+  { id: 'sentAt', label: 'Sent', sortable: true },
+  { id: 'lastModifiedAt', label: 'Modified', sortable: true },
+  { id: 'subtotal', label: 'Subtotal', align: 'right', sortable: false },
+  { id: 'totalInclGst', label: 'Total', align: 'right', sortable: true },
 ]
-
-const sortValue = (q, key) => {
-  if (key === 'customer') return String(q.customer || q.forName || '').toLowerCase()
-  if (key === 'subtotal' || key === 'totalInclGst') {
-    const n = Number(q[key])
-    return Number.isFinite(n) ? n : -1
-  }
-  if (
-    key === 'createdAt' ||
-    key === 'lastModifiedAt' ||
-    key === 'quoteDate' ||
-    key === 'validFrom' ||
-    key === 'validUntil' ||
-    key === 'sentAt'
-  ) {
-    const t = new Date(q[key] || 0).getTime()
-    return Number.isNaN(t) ? 0 : t
-  }
-  return String(q[key] ?? '').toLowerCase()
-}
 
 const csvEscape = (value) => {
   const text = String(value ?? '')
@@ -151,6 +174,7 @@ const downloadQuotesExcel = (rows) => {
     'Quote date',
     'Valid until',
     'Sent',
+    'Modified',
     'Subtotal',
     'CGST',
     'SGST',
@@ -172,6 +196,7 @@ const downloadQuotesExcel = (rows) => {
         fmtDate(q.quoteDate || q.date),
         fmtDate(q.validUntil),
         fmtDateTime(q.sentAt),
+        fmtDateTime(q.lastModifiedAt),
         q.subtotal != null ? q.subtotal : '',
         q.cgst != null ? q.cgst : '',
         q.sgst != null ? q.sgst : '',
@@ -201,123 +226,133 @@ const QuotationsPage = () => {
   const navigate = useNavigate()
   const { isSuperAdmin, canWrite } = useAccess()
   const [quotes, setQuotes] = useState([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [hasNext, setHasNext] = useState(false)
+  const [hasPrevious, setHasPrevious] = useState(false)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [rangeDays, setRangeDays] = useState(90)
   const [stats, setStats] = useState(emptyStats)
   const [statsLoading, setStatsLoading] = useState(false)
   const [statsError, setStatsError] = useState('')
-  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [statusFilter, setStatusFilter] = useState('')
   const [search, setSearch] = useState('')
-  const [sortKey, setSortKey] = useState('createdAt')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [sortKey, setSortKey] = useState('quoteDate')
   const [sortDir, setSortDir] = useState('desc')
   const [moreOpen, setMoreOpen] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [supplyType, setSupplyType] = useState('')
+  const [totalMin, setTotalMin] = useState('')
+  const [totalMax, setTotalMax] = useState('')
+  const [lineItem, setLineItem] = useState('')
+  const [hsnSac, setHsnSac] = useState('')
+  const [latestOnly, setLatestOnly] = useState(true)
   const [status, setStatus] = useState({ type: '', message: '' })
+  const [reloadKey, setReloadKey] = useState(0)
 
   const bounds = useMemo(() => rangeBounds(rangeDays), [rangeDays])
-  const startMs = useMemo(() => bounds.fromDate.getTime(), [bounds])
-  const endMs = useMemo(() => {
-    const d = new Date(bounds.toDate)
-    d.setHours(23, 59, 59, 999)
-    return d.getTime()
-  }, [bounds])
-
-  const loadQuotes = async () => {
-    setLoading(true)
-    setLoadError('')
-    setStatus({ type: '', message: '' })
-    try {
-      const data = await fetchPlatformQuotes()
-      setQuotes(data.results || [])
-    } catch (err) {
-      setQuotes([])
-      setLoadError(apiErrorMessage(err, 'Could not load quotes.'))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const loadStats = async () => {
-    setStatsLoading(true)
-    setStatsError('')
-    try {
-      const next = await fetchPlatformQuoteStats({
-        from: bounds.from,
-        to: bounds.to,
-      })
-      setStats(next)
-    } catch (err) {
-      setStats(emptyStats())
-      setStatsError(apiErrorMessage(err, 'Could not load quote analytics.'))
-    } finally {
-      setStatsLoading(false)
-    }
-  }
 
   useEffect(() => {
-    if (!isSuperAdmin) return undefined
-    loadQuotes()
-    return undefined
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSuperAdmin])
+    const t = window.setTimeout(() => setDebouncedSearch(search), 350)
+    return () => window.clearTimeout(t)
+  }, [search])
 
-  useEffect(() => {
-    if (!isSuperAdmin) return undefined
-    loadStats()
-    return undefined
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSuperAdmin, bounds.from, bounds.to])
-
-  const inRange = useMemo(
-    () =>
-      quotes.filter((q) => {
-        const d = new Date(q.date)
-        const t = d.getTime()
-        return !Number.isNaN(t) && t >= startMs && t <= endMs
-      }),
-    [quotes, startMs, endMs],
+  const filterParams = useMemo(
+    () => ({
+      status: statusFilter,
+      supplyType,
+      quoteDateAfter: bounds.from,
+      quoteDateBefore: bounds.to,
+      totalMin,
+      totalMax,
+      lineItem,
+      hsnSac,
+      // Show older revisions when filtering superseded
+      latestOnly: statusFilter === 'superseded' ? false : latestOnly,
+      search: debouncedSearch,
+      ordering: toOrdering(sortKey, sortDir),
+      pageSize: PAGE_SIZE,
+    }),
+    [
+      statusFilter,
+      supplyType,
+      bounds.from,
+      bounds.to,
+      totalMin,
+      totalMax,
+      lineItem,
+      hsnSac,
+      latestOnly,
+      debouncedSearch,
+      sortKey,
+      sortDir,
+    ],
   )
 
-  const filtered = useMemo(() => {
-    const q = String(search || '').trim().toLowerCase()
-    let rows =
-      statusFilter === 'ALL' ? inRange : inRange.filter((row) => row.status === statusFilter)
-    if (q) {
-      rows = rows.filter((row) => {
-        const hay = [
-          row.number,
-          row.customer,
-          row.forName,
-          row.status,
-          row.gstin,
-          row.state,
-          row.buyerEmail,
-          row.yourRef,
-          row.attention,
-        ]
-          .map((v) => String(v || '').toLowerCase())
-          .join(' ')
-        return hay.includes(q)
-      })
-    }
-    const dir = sortDir === 'asc' ? 1 : -1
-    return [...rows].sort((a, b) => {
-      const av = sortValue(a, sortKey)
-      const bv = sortValue(b, sortKey)
-      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir
-      return String(av).localeCompare(String(bv), undefined, { numeric: true }) * dir
-    })
-  }, [inRange, statusFilter, search, sortKey, sortDir])
+  // Reset to first page whenever filters / sort change
+  useEffect(() => {
+    setPage(1)
+  }, [filterParams])
 
-  const counts = useMemo(() => {
-    const base = { ALL: inRange.length, DRAFT: 0, SENT: 0, ACCEPTED: 0, EXPIRED: 0, SUPERSEDED: 0 }
-    inRange.forEach((q) => {
-      if (base[q.status] != null) base[q.status] += 1
-    })
-    return base
-  }, [inRange])
+  useEffect(() => {
+    if (!isSuperAdmin) return undefined
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      setLoadError('')
+      try {
+        const data = await fetchPlatformQuotes({ ...filterParams, page })
+        if (cancelled) return
+        setQuotes(data.results || [])
+        setTotalCount(Number(data.count) || (data.results || []).length)
+        setHasNext(Boolean(data.next))
+        setHasPrevious(Boolean(data.previous))
+      } catch (err) {
+        if (cancelled) return
+        setQuotes([])
+        setTotalCount(0)
+        setHasNext(false)
+        setHasPrevious(false)
+        setLoadError(apiErrorMessage(err, 'Could not load quotes.'))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isSuperAdmin, filterParams, page, reloadKey])
+
+  useEffect(() => {
+    if (!isSuperAdmin) return undefined
+    let cancelled = false
+    ;(async () => {
+      setStatsLoading(true)
+      setStatsError('')
+      try {
+        const next = await fetchPlatformQuoteStats({
+          from: bounds.from,
+          to: bounds.to,
+        })
+        if (cancelled) return
+        setStats(next)
+      } catch (err) {
+        if (cancelled) return
+        setStats(emptyStats())
+        setStatsError(apiErrorMessage(err, 'Could not load quote analytics.'))
+      } finally {
+        if (!cancelled) setStatsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isSuperAdmin, bounds.from, bounds.to])
 
   const toggleSort = (key) => {
+    if (!ORDERING_FIELDS[key]) return
     if (sortKey === key) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
       return
@@ -326,15 +361,28 @@ const QuotationsPage = () => {
     setSortDir(key === 'number' || key === 'customer' ? 'asc' : 'desc')
   }
 
+  const clearExtraFilters = () => {
+    setSupplyType('')
+    setTotalMin('')
+    setTotalMax('')
+    setLineItem('')
+    setHsnSac('')
+    setLatestOnly(true)
+  }
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE) || 1)
+  const rangeFrom = totalCount === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const rangeTo = Math.min(page * PAGE_SIZE, totalCount)
+
   const handleExport = () => {
-    if (!filtered.length) {
+    if (!quotes.length) {
       setStatus({ type: 'error', message: 'Nothing to export for the current filters.' })
       return
     }
-    downloadQuotesExcel(filtered)
+    downloadQuotesExcel(quotes)
     setStatus({
       type: 'success',
-      message: `Exported ${filtered.length} quote${filtered.length === 1 ? '' : 's'} to Excel.`,
+      message: `Exported ${quotes.length} quote${quotes.length === 1 ? '' : 's'} to Excel.`,
     })
   }
 
@@ -358,9 +406,9 @@ const QuotationsPage = () => {
         description={
           loading
             ? 'Loading quotes…'
-            : `${inRange.length} quote${inRange.length === 1 ? '' : 's'} as of ${fmtDate(
-                new Date(endMs),
-              )}${
+            : `${totalCount} quote${totalCount === 1 ? '' : 's'} · ${fmtDate(
+                bounds.fromDate,
+              )} – ${fmtDate(bounds.toDate)}${
                 stats.open
                   ? ` · ${stats.open} open${
                       stats.pipeline != null ? `, pipeline ${fmtMoney(stats.pipeline)}` : ''
@@ -393,7 +441,7 @@ const QuotationsPage = () => {
 
       {loading ? <LoadingState label="Loading quotes…" /> : null}
       {!loading && loadError ? (
-        <ErrorState message={loadError} onRetry={loadQuotes} />
+        <ErrorState message={loadError} onRetry={() => setReloadKey((k) => k + 1)} />
       ) : null}
 
       {!loading && !loadError ? (
@@ -512,43 +560,127 @@ const QuotationsPage = () => {
             ) : null}
           </Panel>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <div role="tablist" aria-label="Quote status" className="flex flex-wrap gap-1.5">
-              {STATUS_FILTERS.map((f) => {
-                const on = statusFilter === f.id
-                const n = counts[f.id] ?? 0
-                return (
-                  <button
-                    key={f.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={on}
-                    onClick={() => setStatusFilter(f.id)}
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${
-                      on
-                        ? 'bg-ink text-white'
-                        : 'bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50'
-                    }`}
-                  >
-                    {f.label} ({n})
-                  </button>
-                )
-              })}
+          <div className="space-y-3 rounded-xl border border-stone-200 bg-white p-3 shadow-sm md:p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+              <label className="block min-w-[10rem] sm:w-44">
+                <span className={labelClass}>Status</span>
+                <select
+                  className={fieldClass}
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  {STATUS_FILTERS.map((f) => (
+                    <option key={f.id || 'all'} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="relative block min-w-[12rem] flex-1">
+                <span className={labelClass}>Search</span>
+                <span className="relative block">
+                  <FiSearch
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400"
+                    aria-hidden
+                  />
+                  <input
+                    type="search"
+                    className={`${fieldClass} pl-9`}
+                    placeholder="Quote no., customer, email, GSTIN, ref…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </span>
+              </label>
+              <label className="inline-flex items-center gap-2 pb-2 text-sm text-stone-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-stone-300 text-ink focus:ring-brand-500/30"
+                  checked={latestOnly}
+                  onChange={(e) => setLatestOnly(e.target.checked)}
+                />
+                Latest revision only
+              </label>
+              <button
+                type="button"
+                className={btnGhost}
+                onClick={() => setFiltersOpen((v) => !v)}
+                aria-expanded={filtersOpen}
+              >
+                {filtersOpen ? (
+                  <FiChevronDown className="h-3.5 w-3.5" aria-hidden />
+                ) : (
+                  <FiChevronRight className="h-3.5 w-3.5" aria-hidden />
+                )}
+                More filters
+              </button>
             </div>
-            <label className="relative block min-w-[12rem] flex-1 sm:max-w-xs">
-              <span className="sr-only">Search quotes</span>
-              <FiSearch
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400"
-                aria-hidden
-              />
-              <input
-                type="search"
-                className={`${fieldClass} pl-9`}
-                placeholder="Search quote, customer, email, GSTIN, ref…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </label>
+
+            {filtersOpen ? (
+              <div className="grid gap-3 border-t border-stone-100 pt-3 sm:grid-cols-2 lg:grid-cols-4">
+                <label className="block">
+                  <span className={labelClass}>Supply type</span>
+                  <select
+                    className={fieldClass}
+                    value={supplyType}
+                    onChange={(e) => setSupplyType(e.target.value)}
+                  >
+                    {SUPPLY_TYPE_FILTERS.map((f) => (
+                      <option key={f.id || 'all-supply'} value={f.id}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className={labelClass}>Total min (₹)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    className={fieldClass}
+                    placeholder="e.g. 1000"
+                    value={totalMin}
+                    onChange={(e) => setTotalMin(e.target.value)}
+                  />
+                </label>
+                <label className="block">
+                  <span className={labelClass}>Total max (₹)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    className={fieldClass}
+                    placeholder="e.g. 25000"
+                    value={totalMax}
+                    onChange={(e) => setTotalMax(e.target.value)}
+                  />
+                </label>
+                <label className="block">
+                  <span className={labelClass}>Line item</span>
+                  <input
+                    type="search"
+                    className={fieldClass}
+                    placeholder="e.g. clinic"
+                    value={lineItem}
+                    onChange={(e) => setLineItem(e.target.value)}
+                  />
+                </label>
+                <label className="block">
+                  <span className={labelClass}>HSN/SAC</span>
+                  <input
+                    type="search"
+                    className={fieldClass}
+                    placeholder="e.g. 9993"
+                    value={hsnSac}
+                    onChange={(e) => setHsnSac(e.target.value)}
+                  />
+                </label>
+                <div className="flex items-end sm:col-span-2 lg:col-span-3">
+                  <button type="button" className={btnSecondary} onClick={clearExtraFilters}>
+                    Clear extra filters
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className={tableWrapClass}>
@@ -556,7 +688,7 @@ const QuotationsPage = () => {
               <table className="min-w-full text-left text-sm">
                 <thead className={tableHeadClass}>
                   <tr>
-                    {SORT_COLUMNS.map((col) => {
+                    {TABLE_COLUMNS.map((col) => {
                       const active = sortKey === col.id
                       return (
                         <th
@@ -565,34 +697,48 @@ const QuotationsPage = () => {
                             col.align === 'right' ? 'text-right' : ''
                           }`}
                         >
-                          <button
-                            type="button"
-                            className={`inline-flex items-center gap-1 rounded-md transition-colors hover:text-stone-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${
-                              active ? 'text-stone-900' : 'text-stone-500'
-                            } ${col.align === 'right' ? 'ml-auto' : ''}`}
-                            onClick={() => toggleSort(col.id)}
-                            aria-label={`Sort by ${col.label}`}
-                          >
-                            {col.label}
-                            <span className="text-[10px] tabular-nums" aria-hidden>
-                              {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                          {col.sortable ? (
+                            <button
+                              type="button"
+                              className={`inline-flex items-center gap-1 rounded-md transition-colors hover:text-stone-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${
+                                active ? 'text-stone-900' : 'text-stone-500'
+                              } ${col.align === 'right' ? 'ml-auto' : ''}`}
+                              onClick={() => toggleSort(col.id)}
+                              aria-label={`Sort by ${col.label}`}
+                            >
+                              {col.label}
+                              <span className="text-[10px] tabular-nums" aria-hidden>
+                                {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                              </span>
+                            </button>
+                          ) : (
+                            <span
+                              className={`text-stone-500 ${
+                                col.align === 'right' ? 'block text-right' : ''
+                              }`}
+                            >
+                              {col.label}
                             </span>
-                          </button>
+                          )}
                         </th>
                       )
                     })}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
-                  {filtered.length === 0 ? (
+                  {quotes.length === 0 ? (
                     <tr>
-                      <td colSpan={SORT_COLUMNS.length} className="px-4 py-10">
+                      <td colSpan={TABLE_COLUMNS.length} className="px-4 py-10">
                         <EmptyState
                           bare
-                          title={search.trim() ? 'No matching quotes' : 'No quotes in this range'}
+                          title={
+                            search.trim() || statusFilter || supplyType || lineItem || hsnSac
+                              ? 'No matching quotes'
+                              : 'No quotes in this range'
+                          }
                           hint={
-                            search.trim()
-                              ? 'Try another search, status, or date range.'
+                            search.trim() || statusFilter || supplyType || lineItem || hsnSac
+                              ? 'Try another search, status, or filter.'
                               : 'Try another period or status, or create a new quote.'
                           }
                           actionLabel={canWrite !== false ? 'New quote' : undefined}
@@ -605,7 +751,7 @@ const QuotationsPage = () => {
                       </td>
                     </tr>
                   ) : (
-                    filtered.map((q) => (
+                    quotes.map((q) => (
                       <tr
                         key={q.id}
                         className="cursor-pointer hover:bg-slate-50 focus-within:bg-slate-50"
@@ -668,6 +814,9 @@ const QuotationsPage = () => {
                         <td className="px-4 py-3 whitespace-nowrap text-stone-600">
                           {q.sentAt ? fmtDateTime(q.sentAt) : '—'}
                         </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
+                          {q.lastModifiedAt ? fmtDateTime(q.lastModifiedAt) : '—'}
+                        </td>
                         <td className="px-4 py-3 text-right whitespace-nowrap text-stone-700">
                           {q.subtotal != null ? fmtMoney(q.subtotal) : '—'}
                         </td>
@@ -697,6 +846,35 @@ const QuotationsPage = () => {
                   )}
                 </tbody>
               </table>
+            </div>
+            <div className="flex flex-col gap-3 border-t border-stone-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-stone-500">
+                {totalCount === 0
+                  ? 'No quotes'
+                  : `Showing ${rangeFrom}–${rangeTo} of ${totalCount} · page ${page} of ${totalPages}`}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled={loading || !hasPrevious || page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  aria-label="Previous page"
+                >
+                  <FiChevronLeft className="h-4 w-4" aria-hidden />
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled={loading || !hasNext}
+                  onClick={() => setPage((p) => p + 1)}
+                  aria-label="Next page"
+                >
+                  Next
+                  <FiChevronRight className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
             </div>
           </div>
         </>

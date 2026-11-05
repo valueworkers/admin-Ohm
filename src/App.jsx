@@ -79,7 +79,9 @@ const App = () => (
           </Route>
 
           <Route element={<RequireSelectedTenant />}>
-            <Route path="ops/settings" element={<SettingsPage mode="tenant" />} />
+            <Route element={<RequireTenantOwner />}>
+              <Route path="ops/settings" element={<SettingsPage mode="tenant" />} />
+            </Route>
             <Route element={<RequireFeature />}>
               <Route path="ops/venues" element={<VenuesPage />} />
               <Route path="ops/services" element={<ServicesPage />} />

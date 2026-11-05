@@ -213,9 +213,60 @@ export const normalizePlatformQuote = (row = {}) => {
   }
 }
 
+/**
+ * Build GET /api/platform/quotes/ query params.
+ * Supports: status, supply_type, quote_date_after/before, total_min/max,
+ * line_item, hsn_sac, latest_only, search, ordering, page, page_size.
+ */
+export const buildPlatformQuotesListParams = ({
+  status,
+  supplyType,
+  quoteDateAfter,
+  quoteDateBefore,
+  totalMin,
+  totalMax,
+  lineItem,
+  hsnSac,
+  latestOnly,
+  search,
+  ordering,
+  page,
+  pageSize,
+} = {}) => {
+  const params = {}
+  const statusVal = String(status || '').trim().toLowerCase()
+  if (statusVal && statusVal !== 'all') params.status = statusVal
+  const supply = String(supplyType || '').trim().toLowerCase()
+  if (supply) params.supply_type = supply
+  if (quoteDateAfter) params.quote_date_after = quoteDateAfter
+  if (quoteDateBefore) params.quote_date_before = quoteDateBefore
+  if (totalMin !== '' && totalMin != null && Number.isFinite(Number(totalMin))) {
+    params.total_min = Number(totalMin)
+  }
+  if (totalMax !== '' && totalMax != null && Number.isFinite(Number(totalMax))) {
+    params.total_max = Number(totalMax)
+  }
+  const line = String(lineItem || '').trim()
+  if (line) params.line_item = line
+  const hsn = String(hsnSac || '').trim()
+  if (hsn) params.hsn_sac = hsn
+  if (latestOnly === true || latestOnly === 'true') params.latest_only = true
+  if (latestOnly === false || latestOnly === 'false') params.latest_only = false
+  const q = String(search || '').trim()
+  if (q) params.search = q
+  if (ordering) params.ordering = ordering
+  if (page != null && Number(page) > 0) params.page = Number(page)
+  if (pageSize != null && Number(pageSize) > 0) params.page_size = Number(pageSize)
+  return params
+}
+
 /** GET /api/platform/quotes/ — Super Admin platform quotes list. */
 export const fetchPlatformQuotes = async (params = {}) => {
-  const { data } = await api.get('api/platform/quotes/', { params })
+  const query =
+    params && typeof params === 'object' && !Array.isArray(params)
+      ? buildPlatformQuotesListParams(params)
+      : {}
+  const { data } = await api.get('api/platform/quotes/', { params: query })
   const rows = asList(data).map(normalizePlatformQuote)
   return {
     count: Number(data?.count) || rows.length,
