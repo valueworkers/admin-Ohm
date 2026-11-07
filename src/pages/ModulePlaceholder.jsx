@@ -12,7 +12,6 @@ const TITLES = {
   '/ops/staff/payroll': 'Payroll',
   '/ops/staff/for-hire': 'Staff for hire',
   '/ops/customer-lobby': 'Customer Lobby',
-  '/ops/leads': 'Leads',
   '/ops/quotations': 'Quotations',
   '/ops/invoices': 'Invoices',
   '/ops/payments': 'Payments',

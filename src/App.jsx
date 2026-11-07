@@ -11,6 +11,7 @@ import BookingsPage from './pages/BookingsPage'
 import Dashboard from './pages/Dashboard'
 import EmployeesPage from './pages/EmployeesPage'
 import LocationPackagesPage from './pages/LocationPackagesPage'
+import LeadsPage from './pages/LeadsPage'
 import Lobby from './pages/Lobby'
 import Login from './pages/Login'
 import ModulePlaceholder from './pages/ModulePlaceholder'
@@ -66,7 +67,7 @@ const App = () => (
           <Route path="settings" element={<SettingsPage mode="account" />} />
 
           <Route element={<RequireOpsAccess />}>
-            <Route path="ops/leads" element={<ModulePlaceholder />} />
+            <Route path="ops/leads" element={<LeadsPage />} />
             <Route path="ops/quotations/new" element={<QuoteEditorPage />} />
             <Route path="ops/quotations/:quoteId" element={<QuoteEditorPage />} />
             <Route path="ops/quotations" element={<QuotationsPage />} />

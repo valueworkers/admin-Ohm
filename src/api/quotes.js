@@ -196,7 +196,33 @@ export const normalizePlatformQuote = (row = {}) => {
       sellerAddress: row.seller_address || row.company_header_address || '',
       sellerPhone: row.seller_phone || row.company_header_phone || '',
       sellerGstin: row.seller_gstin || '',
+      sellerUdyam: row.seller_udyam || row.udyam || '',
+      sellerDuns: row.seller_duns || row.duns || '',
       logoUrl: row.logo_url || row.seller_logo || '',
+      brandLinks: Array.isArray(row.brand_links)
+        ? row.brand_links.map((b, i) => ({
+            id: b.id || `bl-${i}`,
+            name: String(b.name || b.website_name || '').trim(),
+            email: String(b.email || '').trim(),
+            website: String(b.website || b.website_url || b.url || '').trim(),
+          }))
+        : row.website_name || row.website_url
+          ? [
+              {
+                id: 'bl-0',
+                name: String(row.website_name || '').trim(),
+                email: String(row.website_email || '').trim(),
+                website: String(row.website_url || '').trim(),
+              },
+            ]
+          : [
+              {
+                id: 'bl-ohm',
+                name: 'O-HM',
+                email: 'connect@o-hm.com',
+                website: 'www.o-hm.com',
+              },
+            ],
       contactName: row.contact_name || 'O-HM Senior Care',
       contactPhone: row.contact_phone || '',
       contactEmail: row.contact_email || 'support@o-hm.com',
@@ -387,6 +413,14 @@ export const buildPlatformQuotePayload = (
     .trim()
     .replace(/\s*R\d+\s*$/i, '')
 
+  const brandLinks = (Array.isArray(form.brandLinks) ? form.brandLinks : [])
+    .map((b) => ({
+      name: String(b.name || '').trim(),
+      email: String(b.email || '').trim(),
+      website: String(b.website || '').trim(),
+    }))
+    .filter((b) => b.name || b.email || b.website)
+
   const body = {
     company: String(form.company || '').trim(),
     attention: String(form.attention || '').trim(),
@@ -404,6 +438,9 @@ export const buildPlatformQuotePayload = (
     freight: money2(freightVal, 0),
     packing: money2(packingVal, 0),
     charges_gst_rate: money2(chargesRateVal, 18),
+    brand_links: brandLinks,
+    seller_udyam: String(form.sellerUdyam || '').trim(),
+    seller_duns: String(form.sellerDuns || '').trim(),
     lines,
   }
   if (number) body.number = number

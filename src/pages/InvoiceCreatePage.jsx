@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   FiArrowDown,
@@ -32,11 +32,16 @@ import {
   normalizeUom,
 } from '../features/billing/gstLines'
 import {
-  createTenantInvoice,
+  createPlatformInvoice,
+  fetchPlatformInvoiceById,
+  raisePlatformInvoice,
+  updatePlatformInvoice,
+} from '../api/invoices'
+import {
   fmtMoney,
-  getInvoice,
   nextInvoiceNumber,
 } from '../features/invoices/store'
+import { ErrorState, LoadingState } from '../components/ui/PageState'
 import {
   IN_STATES,
   SELLER_STATE_CODE,
@@ -160,13 +165,48 @@ const hydrateLines = (existing) => {
   ]
 }
 
+const applyInvoiceToForm = (row, sellerDefaults) => {
+  if (!row) return null
+  return {
+    tenantId: row.tenantId || '',
+    company: row.payerName || row.customerName || row.clientName || '',
+    legalName: row.legalName || '',
+    attention: row.attention || '',
+    address: row.address || '',
+    gstin: row.gstin || '',
+    stateCode:
+      row.stateCode || stateFromGstin(row.gstin)?.code || SELLER_STATE_CODE,
+    buyerEmail: row.buyerEmail || row.email || '',
+    ccEmails: row.ccEmails || '',
+    bccEmails: row.bccEmails || '',
+    shipTo: row.shipTo || 'Same as above',
+    yourRef: row.yourRef || row.bookingRef || '',
+    number: row.numberRaw || row.number || nextInvoiceNumber(),
+    date: row.issueDate || row.date || todayInput(),
+    dueDays:
+      row.dueDays != null
+        ? Number(row.dueDays) || 15
+        : row.issueDate && row.dueDate
+          ? daysBetween(row.issueDate, row.dueDate)
+          : 15,
+    terms: row.terms || DEFAULT_TERMS,
+    notes: row.notes || row.note || '',
+    received: String(row.received != null ? row.received : 0),
+    sellerName: row.sellerName || sellerDefaults.sellerName,
+    sellerAddress: row.sellerAddress || sellerDefaults.sellerAddress,
+    sellerPhone: row.sellerPhone || sellerDefaults.sellerPhone,
+    sellerGstin: row.sellerGstin || sellerDefaults.sellerGstin,
+    logoUrl: row.logoUrl || sellerDefaults.logoUrl || '',
+    contactName: row.contactName || sellerDefaults.contactName,
+    contactPhone: row.contactPhone || sellerDefaults.contactPhone,
+    contactEmail: row.contactEmail || sellerDefaults.contactEmail,
+    lines: hydrateLines(row),
+  }
+}
+
 const InvoiceCreatePage = () => {
   const navigate = useNavigate()
   const { invoiceId } = useParams()
-  const existing = useMemo(
-    () => (invoiceId ? getInvoice(invoiceId) : null),
-    [invoiceId],
-  )
   const isEdit = Boolean(invoiceId)
   const { canWrite, isSuperAdmin } = useAccess()
   const tenants = useMemo(
@@ -175,79 +215,39 @@ const InvoiceCreatePage = () => {
   )
   const seller = useMemo(() => readPlatformSeller(), [])
 
+  const [existing, setExisting] = useState(null)
+  const [loadingInvoice, setLoadingInvoice] = useState(isEdit)
+  const [loadError, setLoadError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
   const [status, setStatus] = useState({ type: '', message: '' })
   const [saving, setSaving] = useState(false)
-  const [tenantId, setTenantId] = useState(
-    () => existing?.tenantId || '',
-  )
-  const [company, setCompany] = useState(
-    () =>
-      existing?.payerName ||
-      existing?.clientName ||
-      existing?.tenantName ||
-      '',
-  )
-  const [legalName, setLegalName] = useState(() => existing?.legalName || '')
-  const [attention, setAttention] = useState(
-    () => existing?.attention || existing?.ownerName || '',
-  )
-  const [address, setAddress] = useState(
-    () => existing?.address || existing?.city || existing?.venue || '',
-  )
-  const [gstin, setGstin] = useState(() => existing?.gstin || '')
-  const [stateCode, setStateCode] = useState(
-    () => existing?.stateCode || stateFromGstin(existing?.gstin)?.code || SELLER_STATE_CODE,
-  )
-  const [buyerEmail, setBuyerEmail] = useState(() => existing?.email || '')
-  const [ccEmails, setCcEmails] = useState(() => existing?.ccEmails || '')
-  const [bccEmails, setBccEmails] = useState(() => existing?.bccEmails || '')
-  const [shipTo, setShipTo] = useState(
-    () => existing?.shipTo || 'Same as above',
-  )
-  const [yourRef, setYourRef] = useState(
-    () => existing?.yourRef || existing?.bookingRef || '',
-  )
-  const [number, setNumber] = useState(
-    () => existing?.number || nextInvoiceNumber(),
-  )
-  const [date, setDate] = useState(() => existing?.date || todayInput())
-  const [dueDays, setDueDays] = useState(() =>
-    existing?.date && existing?.dueDate
-      ? daysBetween(existing.date, existing.dueDate)
-      : 15,
-  )
-  const [terms, setTerms] = useState(
-    () => existing?.terms || DEFAULT_TERMS,
-  )
-  const [notes, setNotes] = useState(() => existing?.note || '')
-  const [received, setReceived] = useState(() =>
-    String(existing?.received != null ? existing.received : 0),
-  )
-  const [sellerName, setSellerName] = useState(
-    () => existing?.sellerName || seller.sellerName,
-  )
-  const [sellerAddress, setSellerAddress] = useState(
-    () => existing?.sellerAddress || seller.sellerAddress,
-  )
-  const [sellerPhone, setSellerPhone] = useState(
-    () => existing?.sellerPhone || seller.sellerPhone,
-  )
-  const [sellerGstin, setSellerGstin] = useState(
-    () => existing?.sellerGstin || seller.sellerGstin,
-  )
-  const [logoUrl, setLogoUrl] = useState(
-    () => existing?.logoUrl || seller.logoUrl || '',
-  )
-  const [contactName, setContactName] = useState(
-    () => existing?.contactName || seller.contactName,
-  )
-  const [contactPhone, setContactPhone] = useState(
-    () => existing?.contactPhone || seller.contactPhone,
-  )
-  const [contactEmail, setContactEmail] = useState(
-    () => existing?.contactEmail || seller.contactEmail,
-  )
-  const [lines, setLines] = useState(() => hydrateLines(existing))
+  const [tenantId, setTenantId] = useState('')
+  const [company, setCompany] = useState('')
+  const [legalName, setLegalName] = useState('')
+  const [attention, setAttention] = useState('')
+  const [address, setAddress] = useState('')
+  const [gstin, setGstin] = useState('')
+  const [stateCode, setStateCode] = useState(SELLER_STATE_CODE)
+  const [buyerEmail, setBuyerEmail] = useState('')
+  const [ccEmails, setCcEmails] = useState('')
+  const [bccEmails, setBccEmails] = useState('')
+  const [shipTo, setShipTo] = useState('Same as above')
+  const [yourRef, setYourRef] = useState('')
+  const [number, setNumber] = useState(() => nextInvoiceNumber())
+  const [date, setDate] = useState(() => todayInput())
+  const [dueDays, setDueDays] = useState(15)
+  const [terms, setTerms] = useState(DEFAULT_TERMS)
+  const [notes, setNotes] = useState('')
+  const [received, setReceived] = useState('0')
+  const [sellerName, setSellerName] = useState(() => seller.sellerName)
+  const [sellerAddress, setSellerAddress] = useState(() => seller.sellerAddress)
+  const [sellerPhone, setSellerPhone] = useState(() => seller.sellerPhone)
+  const [sellerGstin, setSellerGstin] = useState(() => seller.sellerGstin)
+  const [logoUrl, setLogoUrl] = useState(() => seller.logoUrl || '')
+  const [contactName, setContactName] = useState(() => seller.contactName)
+  const [contactPhone, setContactPhone] = useState(() => seller.contactPhone)
+  const [contactEmail, setContactEmail] = useState(() => seller.contactEmail)
+  const [lines, setLines] = useState(() => hydrateLines(null))
 
   const [gstLookupBusy, setGstLookupBusy] = useState(false)
   const [gstLookupNote, setGstLookupNote] = useState('')
@@ -256,6 +256,64 @@ const InvoiceCreatePage = () => {
   const [gstCaptchaCookie, setGstCaptchaCookie] = useState('')
   const [gstCaptchaText, setGstCaptchaText] = useState('')
   const portalCaptcha = gstinUsesCaptcha()
+
+  useEffect(() => {
+    if (!isSuperAdmin || !isEdit) {
+      setLoadingInvoice(false)
+      setExisting(null)
+      setLoadError('')
+      return undefined
+    }
+    let cancelled = false
+    ;(async () => {
+      setLoadingInvoice(true)
+      setLoadError('')
+      try {
+        const row = await fetchPlatformInvoiceById(invoiceId)
+        if (cancelled) return
+        setExisting(row)
+        const form = applyInvoiceToForm(row, seller)
+        if (form) {
+          setTenantId(form.tenantId)
+          setCompany(form.company)
+          setLegalName(form.legalName)
+          setAttention(form.attention)
+          setAddress(form.address)
+          setGstin(form.gstin)
+          setStateCode(form.stateCode)
+          setBuyerEmail(form.buyerEmail)
+          setCcEmails(form.ccEmails)
+          setBccEmails(form.bccEmails)
+          setShipTo(form.shipTo)
+          setYourRef(form.yourRef)
+          setNumber(form.number)
+          setDate(form.date)
+          setDueDays(form.dueDays)
+          setTerms(form.terms)
+          setNotes(form.notes)
+          setReceived(form.received)
+          setSellerName(form.sellerName)
+          setSellerAddress(form.sellerAddress)
+          setSellerPhone(form.sellerPhone)
+          setSellerGstin(form.sellerGstin)
+          setLogoUrl(form.logoUrl)
+          setContactName(form.contactName)
+          setContactPhone(form.contactPhone)
+          setContactEmail(form.contactEmail)
+          setLines(form.lines)
+        }
+      } catch (err) {
+        if (cancelled) return
+        setExisting(null)
+        setLoadError(apiErrorMessage(err, 'Could not load invoice.'))
+      } finally {
+        if (!cancelled) setLoadingInvoice(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [invoiceId, isEdit, isSuperAdmin, reloadKey, seller])
 
   const dueDate = addDays(date, Math.max(0, Number(dueDays) || 0))
 
@@ -423,7 +481,6 @@ const InvoiceCreatePage = () => {
   const igstTotal = linesComputed.reduce((s, ln) => s + ln.igst, 0)
   const gstAmount = cgstTotal + sgstTotal + igstTotal
   const total = subtotal + gstAmount
-  const tenant = tenants.find((t) => String(t.id) === String(tenantId)) || null
   const blockers = useMemo(() => {
     const list = []
     if (!String(company).trim()) list.push('Add the customer name.')
@@ -446,7 +503,24 @@ const InvoiceCreatePage = () => {
     return list
   }, [company, gstin, stateCode, number, lines, buyerEmail])
 
-  const persist = (asSent) => {
+  const invoiceForm = {
+    company,
+    attention,
+    address,
+    buyerEmail,
+    gstin,
+    stateCode: buyerState?.code || stateCode,
+    dueDays,
+    notes,
+    terms,
+    yourRef,
+    shipTo,
+    ccEmails,
+    bccEmails,
+    lines,
+  }
+
+  const persist = async (asSent) => {
     if (canWrite === false) {
       setStatus({ type: 'error', message: 'You do not have permission to save invoices.' })
       return
@@ -464,57 +538,36 @@ const InvoiceCreatePage = () => {
     }
 
     setSaving(true)
+    setStatus({ type: '', message: '' })
     try {
-      const row = createTenantInvoice({
-        existing: existing || null,
-        tenant,
-        payerName: company.trim(),
-        number: number.trim(),
-        date,
-        dueDate,
-        terms,
-        notes,
-        lines: linesComputed,
-        asSent,
-        amountReceived: Number(received) || 0,
-        subtotal,
-        gstAmount,
-        cgstTotal,
-        sgstTotal,
-        igstTotal,
-        total,
-        customer: {
-          legalName,
-          attention,
-          address,
-          gstin,
-          stateCode: buyerState?.code || stateCode,
-          email: buyerEmail,
-          ccEmails,
-          bccEmails,
-          shipTo,
-          yourRef,
-        },
-        seller: {
-          sellerName,
-          sellerAddress,
-          sellerPhone,
-          sellerGstin,
-          logoUrl,
-          contactName,
-          contactPhone,
-          contactEmail,
-        },
-      })
+      // Always persist draft first (POST create or PATCH update)
+      let row = isEdit
+        ? await updatePlatformInvoice(existing?.id || invoiceId, invoiceForm)
+        : await createPlatformInvoice(invoiceForm)
+
+      if (asSent) {
+        row = await raisePlatformInvoice(row.id || existing?.id || invoiceId)
+      }
+
+      setExisting(row)
       setStatus({
         type: 'success',
         message: asSent
-          ? `Invoice ${row.number} saved and raised.`
-          : `Invoice ${row.number} saved.`,
+          ? `Invoice ${row.number || row.id} raised.`
+          : `Invoice ${row.number || row.id} saved as draft.`,
       })
-      window.setTimeout(() => navigate(`/ops/invoices/${row.id}`), 500)
-    } catch {
-      setStatus({ type: 'error', message: 'Could not save the invoice.' })
+      window.setTimeout(
+        () => navigate(row.id ? `/ops/invoices/${row.id}` : '/ops/invoices'),
+        500,
+      )
+    } catch (err) {
+      setStatus({
+        type: 'error',
+        message: apiErrorMessage(
+          err,
+          asSent ? 'Could not raise the invoice.' : 'Could not save the invoice.',
+        ),
+      })
     } finally {
       setSaving(false)
     }
@@ -529,12 +582,19 @@ const InvoiceCreatePage = () => {
     )
   }
 
-  if (isEdit && !existing) {
+  if (isEdit && loadingInvoice) {
+    return <LoadingState label="Loading invoice…" />
+  }
+
+  if (isEdit && (loadError || !existing)) {
     return (
       <div className="sc-page-enter space-y-4">
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-10 text-center">
-          <p className="font-medium text-rose-800">Invoice not found</p>
-          <Link to="/ops/invoices" className={`${btnPrimary} mt-4 inline-flex`}>
+        <ErrorState
+          message={loadError || 'Invoice not found'}
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
+        <div className="text-center">
+          <Link to="/ops/invoices" className={btnSecondary}>
             Back to invoices
           </Link>
         </div>
@@ -1176,7 +1236,7 @@ const InvoiceCreatePage = () => {
                 disabled={saving || blockers.length > 0}
                 onClick={() => persist(true)}
               >
-                {isEdit ? 'Save & raise' : 'Raise invoice'}
+                {saving ? 'Saving…' : isEdit ? 'Save & raise' : 'Raise invoice'}
               </button>
               <button
                 type="button"
@@ -1184,7 +1244,7 @@ const InvoiceCreatePage = () => {
                 disabled={saving || blockers.length > 0}
                 onClick={() => persist(false)}
               >
-                {isEdit ? 'Save changes' : 'Save draft'}
+                {saving ? 'Saving…' : 'Save draft'}
               </button>
             </div>
           </section>

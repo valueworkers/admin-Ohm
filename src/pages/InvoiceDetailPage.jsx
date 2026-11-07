@@ -1,21 +1,28 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { FiCheck, FiDownload, FiPlus } from 'react-icons/fi'
+import {
+  deletePlatformInvoice,
+  downloadPlatformInvoicePdf,
+  fetchPlatformInvoiceById,
+  raisePlatformInvoice,
+} from '../api/invoices'
 import InvoiceDocumentPreview from '../components/InvoiceDocumentPreview'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import StatusBanner from '../components/ui/StatusBanner'
 import TenantOpsPlaceholder from '../components/TenantOpsPlaceholder'
+import { ErrorState, LoadingState } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
 import { loadSettingsForMode } from '../features/settings/store'
 import {
   DUE_STEPS,
-  deleteInvoice,
   displayPayer,
   fmtDate,
   fmtDateTime,
   fmtMoney,
   getInvoice,
 } from '../features/invoices/store'
+import { apiErrorMessage } from '../utils/errors'
 import { btnDanger, btnGhost, btnPrimary, btnSecondary, fieldClass, labelClass } from '../utils/ui'
 
 const readSellerGstin = () => {
@@ -507,26 +514,66 @@ const InvoiceDetailPage = () => {
   const { invoiceId } = useParams()
   const navigate = useNavigate()
   const { canWrite, isSuperAdmin } = useAccess()
-  const record = useMemo(() => getInvoice(invoiceId), [invoiceId])
+  const [record, setRecord] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
   const [status, setStatus] = useState({ type: '', message: '' })
   const [testEmail, setTestEmail] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [pdfBusy, setPdfBusy] = useState(false)
+  const [raiseBusy, setRaiseBusy] = useState(false)
 
   useEffect(() => {
-    setTestEmail(record?.email || '')
-    setStatus({ type: '', message: '' })
-  }, [record])
+    if (!isSuperAdmin) {
+      setLoading(false)
+      return undefined
+    }
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      setLoadError('')
+      try {
+        const row = await fetchPlatformInvoiceById(invoiceId)
+        if (cancelled) return
+        setRecord(row)
+        setTestEmail(row.buyerEmail || row.email || '')
+        setStatus({ type: '', message: '' })
+      } catch (err) {
+        if (cancelled) return
+        // Fallback to local demo store for legacy “due” records
+        const local = getInvoice(invoiceId)
+        if (local) {
+          setRecord(local)
+          setTestEmail(local.email || '')
+          setLoadError('')
+        } else {
+          setRecord(null)
+          setLoadError(apiErrorMessage(err, 'Could not load invoice.'))
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [invoiceId, isSuperAdmin, reloadKey])
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (canWrite === false || !record) return
     setDeleting(true)
+    setStatus({ type: '', message: '' })
     try {
-      deleteInvoice(record.id)
+      await deletePlatformInvoice(record.id)
       setConfirmDelete(false)
       navigate('/ops/invoices')
-    } catch {
-      setStatus({ type: 'error', message: 'Could not delete this invoice.' })
+    } catch (err) {
+      setStatus({
+        type: 'error',
+        message: apiErrorMessage(err, 'Could not delete this invoice.'),
+      })
       setDeleting(false)
     }
   }
@@ -537,6 +584,26 @@ const InvoiceDetailPage = () => {
         title="Invoices"
         description="Your organization’s invoices will appear here when tenant billing is enabled."
       />
+    )
+  }
+
+  if (loading) {
+    return <LoadingState label="Loading invoice…" />
+  }
+
+  if (loadError && !record) {
+    return (
+      <div className="sc-page-enter space-y-4">
+        <ErrorState
+          message={loadError}
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
+        <div className="text-center">
+          <Link to="/ops/invoices" className={btnSecondary}>
+            Back to invoices
+          </Link>
+        </div>
+      </div>
     )
   }
 
@@ -568,35 +635,96 @@ const InvoiceDetailPage = () => {
   }
 
   const owed = Number(record.owed) || 0
-  const paidInFull = owed <= 0
+  const paidInFull = owed <= 0 && Number(record.received) > 0
   const timeline = Array.isArray(record.timeline) ? record.timeline : []
+  const payments = Array.isArray(record.payments) ? record.payments : []
   const lines = Array.isArray(record.lines) ? record.lines : []
   const sellerGstin = readSellerGstin()
   const subtotal =
     record.subtotal != null
       ? Number(record.subtotal)
-      : lines.reduce((s, ln) => s + (Number(ln.qty) || 0) * (Number(ln.unitPrice) || 0), 0)
+      : lines.reduce(
+          (s, ln) => s + (Number(ln.taxable) || (Number(ln.qty) || 0) * (Number(ln.unitPrice) || 0)),
+          0,
+        )
   const gstAmount =
-    record.gstAmount != null ? Number(record.gstAmount) : Math.max(0, Number(record.amount) - subtotal)
+    record.gstAmount != null
+      ? Number(record.gstAmount)
+      : Math.max(0, Number(record.amount) - subtotal)
   const cgstTotal = Number(record.cgstTotal) || 0
   const sgstTotal = Number(record.sgstTotal) || 0
   const igstTotal = Number(record.igstTotal) || 0
   const total = Number(record.amount) || subtotal + gstAmount
   const intraState =
-    cgstTotal > 0 || sgstTotal > 0 ? true : igstTotal > 0 ? false : null
+    record.isInterstate === true
+      ? false
+      : record.isInterstate === false
+        ? true
+        : cgstTotal > 0 || sgstTotal > 0
+          ? true
+          : igstTotal > 0
+            ? false
+            : null
 
-  const handleDownload = () => {
-    setStatus({
-      type: 'info',
-      message: 'PDF download is demo-only — use the on-screen tax invoice preview.',
-    })
+  const handleDownload = async () => {
+    const id = record?.id || invoiceId
+    if (!id) {
+      setStatus({ type: 'error', message: 'Invoice id is missing.' })
+      return
+    }
+    setPdfBusy(true)
+    setStatus({ type: '', message: '' })
+    try {
+      const { blob, filename } = await downloadPlatformInvoicePdf(id)
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename || `invoice-${id}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+      setStatus({ type: 'success', message: 'PDF downloaded.' })
+    } catch (err) {
+      setStatus({
+        type: 'error',
+        message: apiErrorMessage(err, 'Could not download PDF.'),
+      })
+    } finally {
+      setPdfBusy(false)
+    }
   }
 
-  const handleSend = () => {
-    setStatus({
-      type: 'success',
-      message: `Invoice queued to ${testEmail || record.email} (demo — not emailed).`,
-    })
+  const handleSend = async () => {
+    const id = record?.id || invoiceId
+    if (!id) {
+      setStatus({ type: 'error', message: 'Invoice id is missing.' })
+      return
+    }
+    if (canWrite === false) {
+      setStatus({ type: 'error', message: 'You do not have permission to raise invoices.' })
+      return
+    }
+    setRaiseBusy(true)
+    setStatus({ type: '', message: '' })
+    try {
+      const raised = await raisePlatformInvoice(id)
+      setRecord(raised)
+      setTestEmail(raised.buyerEmail || raised.email || testEmail)
+      setStatus({
+        type: 'success',
+        message: `Invoice ${raised.number || raised.id} raised${
+          testEmail || raised.buyerEmail ? ` · ${testEmail || raised.buyerEmail}` : ''
+        }.`,
+      })
+    } catch (err) {
+      setStatus({
+        type: 'error',
+        message: apiErrorMessage(err, 'Could not raise the invoice.'),
+      })
+    } finally {
+      setRaiseBusy(false)
+    }
   }
 
   return (
@@ -614,22 +742,20 @@ const InvoiceDetailPage = () => {
             <span className="inline-flex rounded-full bg-brand-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand-800 ring-1 ring-brand-100">
               Invoice · {record.number}
             </span>
-            {record.billTo === 'tenant' ? (
+            <span className="inline-flex rounded-full bg-stone-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-stone-700">
+              {record.status}
+            </span>
+            {record.tenantName ? (
               <span className="inline-flex rounded-full bg-stone-100 px-2.5 py-0.5 text-[11px] font-semibold text-stone-700">
-                Tenant bill
+                Tenant · {record.tenantName}
               </span>
             ) : null}
           </div>
           <h1 className="mt-2 text-2xl font-bold tracking-tight text-stone-900">
             {displayPayer(record)}
           </h1>
-          {record.patientName && record.patientName !== '— (tenant package)' ? (
-            <p className="mt-1 text-sm text-stone-600">
-              Resident <span className="font-medium text-stone-800">{record.patientName}</span>
-              {record.tenantName ? ` · ${record.tenantName}` : ''}
-            </p>
-          ) : record.tenantName ? (
-            <p className="mt-1 text-sm text-stone-600">Tenant · {record.tenantName}</p>
+          {record.buyerEmail ? (
+            <p className="mt-1 text-sm text-stone-600">{record.buyerEmail}</p>
           ) : null}
           <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-stone-600">
             {paidInFull ? (
@@ -650,13 +776,15 @@ const InvoiceDetailPage = () => {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <span className="inline-flex items-center rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-sm font-medium text-stone-700">
-            {record.bookingRef}
-          </span>
+          {record.yourRef ? (
+            <span className="inline-flex items-center rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-sm font-medium text-stone-700">
+              Ref · {record.yourRef}
+            </span>
+          ) : null}
           {canWrite !== false && isSuperAdmin ? (
             <>
               <Link to={`/ops/invoices/${record.id}/edit`} className={btnSecondary}>
-                Edit
+                Make Revision
               </Link>
               <button
                 type="button"
@@ -699,12 +827,16 @@ const InvoiceDetailPage = () => {
             <h2 className={sectionLabel}>Status</h2>
             <dl className="space-y-2.5 text-sm">
               <div className="flex justify-between gap-3">
-                <dt className="text-stone-500">Total incl. GST</dt>
-                <dd className="font-semibold text-stone-900">{fmtMoney(total)}</dd>
+                <dt className="text-stone-500">Issue date</dt>
+                <dd className="text-stone-800">{fmtDate(record.issueDate || record.date)}</dd>
               </div>
               <div className="flex justify-between gap-3">
-                <dt className="text-stone-500">Terms</dt>
-                <dd className="text-right text-stone-800">{record.terms || '—'}</dd>
+                <dt className="text-stone-500">Due date</dt>
+                <dd className="text-stone-800">{fmtDate(record.dueDate)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-stone-500">Total incl. GST</dt>
+                <dd className="font-semibold text-stone-900">{fmtMoney(total)}</dd>
               </div>
               <div className="flex justify-between gap-3">
                 <dt className="text-stone-500">Received</dt>
@@ -722,9 +854,14 @@ const InvoiceDetailPage = () => {
               </div>
             </dl>
             <div className="flex flex-col gap-2 pt-1">
-              <button type="button" className={btnPrimary} onClick={handleDownload}>
+              <button
+                type="button"
+                className={btnPrimary}
+                disabled={pdfBusy}
+                onClick={handleDownload}
+              >
                 <FiDownload className="h-4 w-4" aria-hidden />
-                Download PDF
+                {pdfBusy ? 'Downloading…' : 'Download PDF'}
               </button>
               {canWrite !== false && isSuperAdmin ? (
                 <Link to={`/ops/invoices/${record.id}/edit`} className={btnSecondary}>
@@ -734,7 +871,7 @@ const InvoiceDetailPage = () => {
             </div>
             <div className="border-t border-stone-100 pt-3">
               <p className="text-[11px] font-bold uppercase tracking-wide text-stone-400">
-                Send to
+                Raise invoice
               </p>
               <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
                 <input
@@ -743,18 +880,95 @@ const InvoiceDetailPage = () => {
                   value={testEmail}
                   onChange={(e) => setTestEmail(e.target.value)}
                   aria-label="Recipient email"
+                  disabled={raiseBusy}
                 />
-                <button type="button" className={btnGhost} onClick={handleSend}>
-                  Send
+                <button
+                  type="button"
+                  className={btnGhost}
+                  disabled={raiseBusy || canWrite === false}
+                  onClick={handleSend}
+                >
+                  {raiseBusy ? 'Raising…' : 'Send'}
                 </button>
               </div>
+              <p className="mt-1.5 text-[11px] text-stone-500">
+                Send raises this invoice via the platform API.
+              </p>
             </div>
+          </section>
+
+          <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
+            <h2 className={sectionLabel}>Customer</h2>
+            <dl className="space-y-2 text-sm">
+              <div>
+                <dt className="text-[11px] font-medium text-stone-400">Name</dt>
+                <dd className="text-stone-800">{displayPayer(record)}</dd>
+              </div>
+              {record.attention ? (
+                <div>
+                  <dt className="text-[11px] font-medium text-stone-400">Attention</dt>
+                  <dd className="text-stone-800">{record.attention}</dd>
+                </div>
+              ) : null}
+              {record.address ? (
+                <div>
+                  <dt className="text-[11px] font-medium text-stone-400">Address</dt>
+                  <dd className="text-stone-800">{record.address}</dd>
+                </div>
+              ) : null}
+              <div>
+                <dt className="text-[11px] font-medium text-stone-400">State</dt>
+                <dd className="text-stone-800">
+                  {record.state || '—'}
+                  {record.stateCode ? ` (${record.stateCode})` : ''}
+                  {record.isInterstate ? ' · Inter-state' : ' · Intra-state'}
+                </dd>
+              </div>
+              {record.gstin ? (
+                <div>
+                  <dt className="text-[11px] font-medium text-stone-400">GSTIN</dt>
+                  <dd className="text-stone-800">{record.gstin}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </section>
+
+          <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
+            <h2 className={sectionLabel}>Payments</h2>
+            {payments.length === 0 ? (
+              <p className="text-sm text-stone-500">No payments recorded.</p>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {payments.map((p, i) => (
+                  <li
+                    key={p.id || i}
+                    className="flex justify-between gap-2 rounded-lg border border-stone-100 px-2.5 py-2"
+                  >
+                    <span className="text-stone-600">
+                      {fmtDate(p.paid_at || p.date || p.created_at)}
+                    </span>
+                    <span className="font-medium text-stone-900">
+                      {fmtMoney(p.amount ?? p.paid_amount)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
             <h2 className={sectionLabel}>History</h2>
             {timeline.length === 0 ? (
-              <p className="text-sm text-stone-500">No history yet.</p>
+              <div className="space-y-1 text-sm text-stone-600">
+                {record.createdAt ? (
+                  <p>Created {fmtDateTime(record.createdAt)}</p>
+                ) : (
+                  <p className="text-stone-500">No history yet.</p>
+                )}
+                {record.updatedAt && record.updatedAt !== record.createdAt ? (
+                  <p>Updated {fmtDateTime(record.updatedAt)}</p>
+                ) : null}
+              </div>
             ) : (
               <ol className="relative space-y-4 border-l border-stone-200 pl-4">
                 {timeline.map((step) => (
@@ -770,25 +984,6 @@ const InvoiceDetailPage = () => {
               </ol>
             )}
           </section>
-
-          <section className="space-y-2 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
-            <h2 className={sectionLabel}>Care booking</h2>
-            <p className="text-sm text-stone-800">
-              <span className="text-stone-500">Tenant · </span>
-              {record.tenantName || '—'}
-            </p>
-            <p className="text-sm text-stone-800">
-              <span className="text-stone-500">Venue · </span>
-              {record.venue || '—'}
-            </p>
-            <button
-              type="button"
-              className="mt-1 text-sm font-medium text-brand-800 hover:underline"
-              onClick={() => navigate('/ops/bookings')}
-            >
-              Open bookings
-            </button>
-          </section>
         </div>
 
         <aside>
@@ -802,14 +997,14 @@ const InvoiceDetailPage = () => {
             contactName={record.contactName || ''}
             contactPhone={record.contactPhone || ''}
             number={record.number}
-            date={record.date}
+            date={record.issueDate || record.date}
             dueDate={record.dueDate}
             terms={record.terms}
             billToName={displayPayer(record)}
-            billToAttention={record.attention || record.ownerName || ''}
-            billToAddress={record.address || record.city || record.venue || ''}
+            billToAttention={record.attention || ''}
+            billToAddress={record.address || ''}
             billToGstin={record.gstin || ''}
-            billToEmail={record.email || ''}
+            billToEmail={record.buyerEmail || record.email || ''}
             yourRef={record.yourRef || record.bookingRef}
             notes={record.note}
             lines={lines}

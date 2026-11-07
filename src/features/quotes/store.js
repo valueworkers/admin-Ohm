@@ -25,12 +25,23 @@ const demoPayload = (partial) => ({
   notes: '',
   terms: DEFAULT_QUOTE_TERMS,
   sellerName: 'O-HM Senior Care',
-  sellerAddress: 'India',
-  sellerPhone: '',
-  sellerGstin: '',
+  sellerAddress:
+    '#136, 1st Phase, 4th main,\nDoddakammanahalli, Ramanashree Nagar, Bengaluru-560076',
+  sellerPhone: '+91 96112 36211',
+  sellerGstin: '29AAZFV4451B1ZP',
+  sellerUdyam: 'UDYAM-KR-03-0558282',
+  sellerDuns: '581379712',
   logoUrl: '',
+  brandLinks: [
+    {
+      id: 'bl-ohm',
+      name: 'O-HM',
+      email: 'connect@o-hm.com',
+      website: 'www.o-hm.com',
+    },
+  ],
   contactName: 'O-HM Senior Care',
-  contactPhone: '',
+  contactPhone: '+91 96112 36211',
   contactEmail: 'support@o-hm.com',
   lines: [
     {
@@ -317,7 +328,15 @@ export const formFromQuote = (quote) => {
     sellerAddress: p.sellerAddress || s.sellerAddress,
     sellerPhone: p.sellerPhone || s.sellerPhone,
     sellerGstin: p.sellerGstin || s.sellerGstin,
+    sellerUdyam: p.sellerUdyam || p.seller_udyam || s.sellerUdyam,
+    sellerDuns: p.sellerDuns || p.seller_duns || s.sellerDuns,
     logoUrl: p.logoUrl || s.logoUrl,
+    brandLinks:
+      Array.isArray(p.brandLinks) && p.brandLinks.length
+        ? p.brandLinks
+        : Array.isArray(p.brand_links) && p.brand_links.length
+          ? p.brand_links
+          : s.brandLinks,
     contactName: p.contactName || s.contactName,
     contactPhone: p.contactPhone || s.contactPhone,
     contactEmail: p.contactEmail || s.contactEmail || 'support@o-hm.com',

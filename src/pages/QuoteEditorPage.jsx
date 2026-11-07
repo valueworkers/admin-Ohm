@@ -60,9 +60,38 @@ import {
 const PLATFORM = {
   name: 'O-HM Senior Care',
   email: 'support@o-hm.com',
-  address: 'India',
-  phone: '',
+  address:
+    '#136, 1st Phase, 4th main,\nDoddakammanahalli, Ramanashree Nagar, Bengaluru-560076',
+  phone: '+91 96112 36211',
+  gstin: '29AAZFV4451B1ZP',
+  udyam: 'UDYAM-KR-03-0558282',
+  duns: '581379712',
 }
+
+const MSME_BADGE = '/badges/msme.png'
+const DUNS_BADGE = '/badges/duns.png'
+
+const websiteHref = (url) => {
+  const u = String(url || '').trim()
+  if (!u) return ''
+  return /^https?:\/\//i.test(u) ? u : `https://${u}`
+}
+
+const emptyBrandLink = () => ({
+  id: `bl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  name: '',
+  email: '',
+  website: '',
+})
+
+const DEFAULT_BRAND_LINKS = [
+  {
+    id: 'bl-ohm',
+    name: 'O-HM',
+    email: 'connect@o-hm.com',
+    website: 'www.o-hm.com',
+  },
+]
 
 const joinAddress = (...parts) =>
   parts
@@ -91,7 +120,9 @@ const readPlatformSeller = () => {
       sellerEmail: PLATFORM.email,
       sellerAddress,
       sellerPhone: String(manualPay.phone || billing.phone || PLATFORM.phone || '').trim(),
-      sellerGstin: billing.gstin || '',
+      sellerGstin: billing.gstin || PLATFORM.gstin,
+      sellerUdyam: billing.udyam || org.udyam || PLATFORM.udyam,
+      sellerDuns: billing.duns || org.duns || PLATFORM.duns,
       logoUrl: String(org.logoUrl || '').trim(),
       manualPay,
       contactName: PLATFORM.name,
@@ -104,13 +135,15 @@ const readPlatformSeller = () => {
       sellerName: PLATFORM.name,
       sellerEmail: PLATFORM.email,
       sellerAddress: PLATFORM.address,
-      sellerPhone: '',
-      sellerGstin: '',
+      sellerPhone: PLATFORM.phone,
+      sellerGstin: PLATFORM.gstin,
+      sellerUdyam: PLATFORM.udyam,
+      sellerDuns: PLATFORM.duns,
       logoUrl: '',
       manualPay: {},
       contactName: PLATFORM.name,
       contactEmail: PLATFORM.email,
-      contactPhone: '',
+      contactPhone: PLATFORM.phone,
       contactAddress: PLATFORM.address,
     }
   }
@@ -157,7 +190,10 @@ const blankForm = () => {
     sellerAddress: s.sellerAddress,
     sellerPhone: s.sellerPhone,
     sellerGstin: s.sellerGstin,
+    sellerUdyam: s.sellerUdyam,
+    sellerDuns: s.sellerDuns,
     logoUrl: s.logoUrl,
+    brandLinks: DEFAULT_BRAND_LINKS.map((b) => ({ ...b })),
     // Your contact — person details only
     contactName: s.contactName,
     contactPhone: s.contactPhone,
@@ -321,7 +357,45 @@ const QuoteEditorPage = () => {
   const headerAddress = form.sellerAddress || seller.sellerAddress || ''
   const headerPhone = form.sellerPhone || seller.sellerPhone || ''
   const headerGstin = form.sellerGstin || seller.sellerGstin || ''
+  const headerUdyam = form.sellerUdyam || seller.sellerUdyam || ''
+  const headerDuns = form.sellerDuns || seller.sellerDuns || ''
   const headerLogo = form.logoUrl || seller.logoUrl || ''
+  const headerRegLine = [headerPhone, headerGstin && `GSTIN ${headerGstin}`, headerUdyam && `Udyam ${headerUdyam}`, headerDuns && `D-U-N-S ${headerDuns}`]
+    .filter(Boolean)
+    .join('  ||  ')
+  const headerBrandRows = useMemo(
+    () =>
+      (Array.isArray(form.brandLinks) ? form.brandLinks : []).filter(
+        (b) => String(b.name || b.email || b.website || '').trim(),
+      ),
+    [form.brandLinks],
+  )
+
+  const setBrandLink = (id, key, value) => {
+    setForm((prev) => ({
+      ...prev,
+      brandLinks: (prev.brandLinks || []).map((b) =>
+        b.id === id ? { ...b, [key]: value } : b,
+      ),
+    }))
+  }
+
+  const addBrandLink = () => {
+    setForm((prev) => ({
+      ...prev,
+      brandLinks: [...(prev.brandLinks || []), emptyBrandLink()],
+    }))
+  }
+
+  const removeBrandLink = (id) => {
+    setForm((prev) => {
+      const next = (prev.brandLinks || []).filter((b) => b.id !== id)
+      return {
+        ...prev,
+        brandLinks: next.length ? next : [emptyBrandLink()],
+      }
+    })
+  }
 
   const onLogoFile = (file) => {
     if (!file) return
@@ -873,7 +947,7 @@ const QuoteEditorPage = () => {
   const previewCard = (
     <div className="overflow-hidden rounded-2xl border border-stone-300 bg-white shadow-md">
       <div className="space-y-3 p-4 text-[11px] leading-relaxed text-stone-700">
-        {/* Header: editable company letterhead (left) · QUOTATION + meta (right) */}
+        {/* Header: letterhead (left) · MSME/DUNS + QUOTATION meta (right) */}
         <div className="flex items-start justify-between gap-4 border-b border-stone-200 pb-3">
           <div className="flex min-w-0 flex-1 items-start gap-2.5">
             {headerLogo ? (
@@ -884,7 +958,7 @@ const QuoteEditorPage = () => {
               />
             ) : (
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-ink text-[11px] font-bold text-white">
-                {(headerName || 'SC').slice(0, 2).toUpperCase()}
+                o-
               </span>
             )}
             <div className="min-w-0">
@@ -894,15 +968,61 @@ const QuoteEditorPage = () => {
                   {headerAddress}
                 </p>
               ) : null}
-              {headerPhone ? (
-                <p className="text-[10px] text-stone-600">Ph: {headerPhone}</p>
+              {headerRegLine ? (
+                <p className="mt-1 text-[9px] leading-snug text-stone-600">{headerRegLine}</p>
               ) : null}
-              {headerGstin ? (
-                <p className="text-[10px] text-stone-600">GSTIN {headerGstin}</p>
+              {headerBrandRows.length ? (
+                <div className="mt-1.5 space-y-0.5 border-t border-stone-100 pt-1.5">
+                  {headerBrandRows.map((b) => {
+                    const name = String(b.name || '').trim()
+                    const email = String(b.email || '').trim()
+                    const site = String(b.website || '').trim()
+                    return (
+                      <p
+                        key={b.id || `${name}-${email}-${site}`}
+                        className="text-[10px] leading-snug text-stone-600"
+                      >
+                        {name ? <span className="font-semibold text-stone-800">{name}</span> : null}
+                        {name && (email || site) ? ' : ' : null}
+                        {email ? (
+                          <a
+                            href={`mailto:${email}`}
+                            className="text-brand-800 hover:underline"
+                          >
+                            {email}
+                          </a>
+                        ) : null}
+                        {email && site ? ' · ' : null}
+                        {site ? (
+                          <a
+                            href={websiteHref(site)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-brand-800 hover:underline"
+                          >
+                            {site.replace(/^https?:\/\//i, '')}
+                          </a>
+                        ) : null}
+                      </p>
+                    )
+                  })}
+                </div>
               ) : null}
             </div>
           </div>
-          <div className="w-[42%] max-w-[200px] shrink-0 text-right">
+          <div className="w-[44%] max-w-[220px] shrink-0 text-right">
+            <div className="mb-1.5 flex items-center justify-end gap-2">
+              <img
+                src={MSME_BADGE}
+                alt="MSME"
+                className="h-11 w-11 bg-transparent object-contain"
+              />
+              <img
+                src={DUNS_BADGE}
+                alt="D-U-N-S Registered"
+                className="h-11 w-auto max-w-[96px] bg-transparent object-contain"
+              />
+            </div>
             <p className="text-2xl font-bold uppercase tracking-wide text-brand-700">Quotation</p>
             <div className="mt-2 space-y-0.5 text-left text-[10px]">
               <div className="flex justify-between gap-2">
@@ -1984,7 +2104,7 @@ const QuoteEditorPage = () => {
           <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
             <h2 className={sectionLabel}>Company header</h2>
             <p className="text-xs text-stone-500">
-              Letterhead on the quote (arrow area): logo, company name, address, and phone.
+              Letterhead on the quote: logo, company name, address, phone, and brand website lines.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               {form.logoUrl ? (
@@ -2059,6 +2179,90 @@ const QuoteEditorPage = () => {
                   maxLength={15}
                 />
               </label>
+              <label className="block">
+                <span className={labelClass}>Udyam (MSME)</span>
+                <input
+                  className={fieldClass}
+                  value={form.sellerUdyam || ''}
+                  onChange={(e) => set('sellerUdyam', e.target.value.toUpperCase())}
+                  placeholder="UDYAM-KR-…"
+                />
+              </label>
+              <label className="block">
+                <span className={labelClass}>D-U-N-S</span>
+                <input
+                  className={fieldClass}
+                  value={form.sellerDuns || ''}
+                  onChange={(e) => set('sellerDuns', e.target.value.replace(/[^\d]/g, ''))}
+                  placeholder="581379712"
+                />
+              </label>
+            </div>
+
+            <div className="space-y-3 border-t border-stone-100 pt-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-stone-800">Website name &amp; link</p>
+                  <p className="text-[11px] text-stone-500">
+                    Shown under the letterhead, e.g. O-HM : connect@o-hm.com · www.o-hm.com
+                  </p>
+                </div>
+                <button type="button" className={btnGhost} onClick={addBrandLink}>
+                  <FiPlus className="h-3.5 w-3.5" aria-hidden />
+                  Add line
+                </button>
+              </div>
+              {(form.brandLinks || []).map((b, idx) => (
+                <div
+                  key={b.id}
+                  className="space-y-2 rounded-xl border border-stone-200 bg-stone-50/60 p-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-400">
+                      Line {idx + 1}
+                    </p>
+                    <button
+                      type="button"
+                      className={btnGhost}
+                      onClick={() => removeBrandLink(b.id)}
+                      aria-label={`Remove website line ${idx + 1}`}
+                    >
+                      <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
+                      Remove
+                    </button>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <label className="block">
+                      <span className={labelClass}>Website name</span>
+                      <input
+                        className={fieldClass}
+                        value={b.name}
+                        onChange={(e) => setBrandLink(b.id, 'name', e.target.value)}
+                        placeholder="O-HM"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={labelClass}>Email</span>
+                      <input
+                        className={fieldClass}
+                        type="email"
+                        value={b.email}
+                        onChange={(e) => setBrandLink(b.id, 'email', e.target.value)}
+                        placeholder="connect@o-hm.com"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={labelClass}>Website link</span>
+                      <input
+                        className={fieldClass}
+                        value={b.website}
+                        onChange={(e) => setBrandLink(b.id, 'website', e.target.value)}
+                        placeholder="www.o-hm.com"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
 
