@@ -93,6 +93,8 @@ const textToEmails = (text) =>
     .map((e) => e.trim())
     .filter(Boolean)
 
+const truthyFlag = (value) => value === true || value === 'true' || value === 1 || value === '1'
+
 const formFromRow = (row) => ({
   organization_name: row.organization_name || '',
   email: row.email || row.applicant_email || '',
@@ -101,8 +103,10 @@ const formFromRow = (row) => ({
   ops_admin_email: row.ops_admin_email || '',
   co_owner_emails: emailsToText(row.co_owner_emails),
   slug: row.slug || '',
-  custom_domain: row.custom_domain || '',
-  wants_custom_website: Boolean(row.wants_custom_website),
+  custom_domain: row.domain || row.custom_domain || '',
+  wants_custom_website: truthyFlag(row.needs_website ?? row.wants_custom_website),
+  needs_erp: truthyFlag(row.needs_erp),
+  current_erp: row.current_erp || '',
   branches:
     Array.isArray(row.branches) && row.branches.length > 0
       ? row.branches.map(mapBranch)
@@ -132,6 +136,8 @@ const buildEditPayload = (current, baseline) => {
     slug: String(current.slug || '').trim(),
     custom_domain: String(current.custom_domain || '').trim(),
     wants_custom_website: Boolean(current.wants_custom_website),
+    needs_erp: Boolean(current.needs_erp),
+    current_erp: String(current.current_erp || '').trim(),
     branches: normalizeBranches(current.branches),
   }
   const prev = {
@@ -144,6 +150,8 @@ const buildEditPayload = (current, baseline) => {
     slug: String(baseline.slug || '').trim(),
     custom_domain: String(baseline.custom_domain || '').trim(),
     wants_custom_website: Boolean(baseline.wants_custom_website),
+    needs_erp: Boolean(baseline.needs_erp),
+    current_erp: String(baseline.current_erp || '').trim(),
     branches: normalizeBranches(baseline.branches),
   }
 
@@ -157,6 +165,8 @@ const buildEditPayload = (current, baseline) => {
     'slug',
     'custom_domain',
     'wants_custom_website',
+    'needs_erp',
+    'current_erp',
   ]) {
     if (next[key] !== prev[key]) payload[key] = next[key]
   }
@@ -489,7 +499,7 @@ const Lobby = () => {
                     <th className="px-4 py-3">Phone</th>
                     <th className="px-4 py-3">Branches</th>
                     <th className="px-4 py-3">Plan</th>
-                    <th className="px-4 py-3">Custom website</th>
+                    <th className="px-4 py-3">Website / ERP</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Submitted</th>
                   </tr>
@@ -592,15 +602,25 @@ const Lobby = () => {
                             (row.requested_plan != null ? String(row.requested_plan) : '—')}
                         </td>
                         <td className="px-4 py-3">
-                          {row.wants_custom_website === true ||
-                          row.wants_custom_website === 'true' ||
-                          row.wants_custom_website === 1 ? (
-                            <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800 ring-1 ring-brand-100">
-                              Custom website required
-                            </span>
-                          ) : (
-                            <span className="text-stone-400">—</span>
-                          )}
+                          <div className="flex flex-wrap gap-1">
+                            {truthyFlag(row.needs_website ?? row.wants_custom_website) ? (
+                              <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800 ring-1 ring-brand-100">
+                                Website
+                                {row.domain || row.custom_domain
+                                  ? `: ${row.domain || row.custom_domain}`
+                                  : ''}
+                              </span>
+                            ) : null}
+                            {truthyFlag(row.needs_erp) ? (
+                              <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-semibold text-teal-800 ring-1 ring-teal-100">
+                                ERP{row.current_erp ? `: ${row.current_erp}` : ''}
+                              </span>
+                            ) : null}
+                            {!truthyFlag(row.needs_website ?? row.wants_custom_website) &&
+                            !truthyFlag(row.needs_erp) ? (
+                              <span className="text-stone-400">—</span>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <span className={statusChip(row.status)}>{row.status || '—'}</span>
@@ -772,7 +792,7 @@ const Lobby = () => {
               </div>
               <div>
                 <label htmlFor="edit-domain" className={labelClass}>
-                  Custom domain
+                  Domain
                 </label>
                 <input
                   id="edit-domain"
@@ -780,6 +800,20 @@ const Lobby = () => {
                   value={editForm.custom_domain}
                   onChange={(e) => setEditField('custom_domain', e.target.value)}
                   disabled={saving}
+                  placeholder="care.example.com"
+                />
+              </div>
+              <div>
+                <label htmlFor="edit-current-erp" className={labelClass}>
+                  Current ERP
+                </label>
+                <input
+                  id="edit-current-erp"
+                  className={fieldClass}
+                  value={editForm.current_erp}
+                  onChange={(e) => setEditField('current_erp', e.target.value)}
+                  disabled={saving}
+                  placeholder="e.g. Tally, Zoho Books"
                 />
               </div>
               <div className="sm:col-span-2">
@@ -795,7 +829,7 @@ const Lobby = () => {
                   disabled={saving}
                 />
               </div>
-              <div className="flex items-end pb-2">
+              <div className="flex flex-wrap items-end gap-4 pb-2 sm:col-span-2">
                 <label className="flex items-center gap-2 text-sm text-stone-700">
                   <input
                     type="checkbox"
@@ -804,7 +838,17 @@ const Lobby = () => {
                     onChange={(e) => setEditField('wants_custom_website', e.target.checked)}
                     disabled={saving}
                   />
-                  Wants custom website
+                  Needs customize website
+                </label>
+                <label className="flex items-center gap-2 text-sm text-stone-700">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-stone-300 text-brand-500 focus:ring-brand-500"
+                    checked={editForm.needs_erp}
+                    onChange={(e) => setEditField('needs_erp', e.target.checked)}
+                    disabled={saving}
+                  />
+                  Needs ERP
                 </label>
               </div>
             </div>

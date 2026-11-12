@@ -8,12 +8,14 @@ import {
   FiPlus,
   FiSearch,
 } from 'react-icons/fi'
+import DraggableTh from '../components/ui/DraggableTh'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
 import TenantOpsPlaceholder from '../components/TenantOpsPlaceholder'
 import { EmptyState, ErrorState, LoadingState, Panel } from '../components/ui/PageState'
 import { fetchPlatformQuoteStats, fetchPlatformQuotes } from '../api/quotes'
 import { useAccess } from '../hooks/useAccess'
+import { useColumnOrder } from '../hooks/useColumnOrder'
 import { apiErrorMessage } from '../utils/errors'
 import {
   btnGhost,
@@ -156,6 +158,111 @@ const TABLE_COLUMNS = [
   { id: 'totalInclGst', label: 'Total', align: 'right', sortable: true },
 ]
 
+const QUOTE_COLUMN_IDS = TABLE_COLUMNS.map((c) => c.id)
+
+const renderQuoteCell = (colId, q) => {
+  switch (colId) {
+    case 'number':
+      return (
+        <td key={colId} className="whitespace-nowrap px-4 py-3">
+          <p className="font-medium text-stone-900">{q.number}</p>
+          {q.quoteDate ? (
+            <p className="text-xs text-stone-500">Created {fmtDate(q.createdAt)}</p>
+          ) : null}
+        </td>
+      )
+    case 'customer':
+      return (
+        <td key={colId} className="min-w-[10rem] px-4 py-3">
+          <p className="font-medium text-stone-800">{q.customer || q.forName}</p>
+          {q.gstin ? <p className="text-xs text-stone-500">GSTIN {q.gstin}</p> : null}
+          {q.state ? <p className="text-xs text-stone-400">{q.state}</p> : null}
+        </td>
+      )
+    case 'status':
+      return (
+        <td key={colId} className="px-4 py-3">
+          <span
+            className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${statusChip(
+              q.status,
+            )}`}
+          >
+            {q.status}
+          </span>
+        </td>
+      )
+    case 'buyerEmail':
+      return (
+        <td key={colId} className="px-4 py-3 text-stone-700">
+          <p className="max-w-[12rem] truncate" title={q.buyerEmail || ''}>
+            {q.buyerEmail || '—'}
+          </p>
+        </td>
+      )
+    case 'yourRef':
+      return (
+        <td key={colId} className="px-4 py-3 text-stone-700">
+          {q.yourRef || '—'}
+        </td>
+      )
+    case 'quoteDate':
+      return (
+        <td key={colId} className="whitespace-nowrap px-4 py-3 text-stone-600">
+          {fmtDate(q.quoteDate || q.date)}
+        </td>
+      )
+    case 'validUntil':
+      return (
+        <td key={colId} className="whitespace-nowrap px-4 py-3 text-stone-600">
+          {fmtDate(q.validUntil)}
+          {q.validDays ? (
+            <span className="block text-xs text-stone-400">{q.validDays}d</span>
+          ) : null}
+        </td>
+      )
+    case 'sentAt':
+      return (
+        <td key={colId} className="whitespace-nowrap px-4 py-3 text-stone-600">
+          {q.sentAt ? fmtDateTime(q.sentAt) : '—'}
+        </td>
+      )
+    case 'lastModifiedAt':
+      return (
+        <td key={colId} className="whitespace-nowrap px-4 py-3 text-stone-600">
+          {q.lastModifiedAt ? fmtDateTime(q.lastModifiedAt) : '—'}
+        </td>
+      )
+    case 'subtotal':
+      return (
+        <td key={colId} className="whitespace-nowrap px-4 py-3 text-right text-stone-700">
+          {q.subtotal != null ? fmtMoney(q.subtotal) : '—'}
+        </td>
+      )
+    case 'totalInclGst':
+      return (
+        <td key={colId} className="whitespace-nowrap px-4 py-3 text-right">
+          {q.totalInclGst != null ? (
+            <>
+              <p className="font-medium text-stone-900">{fmtMoney(q.totalInclGst)}</p>
+              {(Number(q.cgst) > 0 || Number(q.sgst) > 0) && (
+                <p className="text-[11px] text-stone-500">
+                  CGST {fmtMoney(q.cgst)} · SGST {fmtMoney(q.sgst)}
+                </p>
+              )}
+              {Number(q.igst) > 0 ? (
+                <p className="text-[11px] text-stone-500">IGST {fmtMoney(q.igst)}</p>
+              ) : null}
+            </>
+          ) : (
+            <span className="text-stone-400">—</span>
+          )}
+        </td>
+      )
+    default:
+      return null
+  }
+}
+
 const csvEscape = (value) => {
   const text = String(value ?? '')
   if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`
@@ -239,6 +346,17 @@ const QuotationsPage = () => {
   const [statusFilter, setStatusFilter] = useState('')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  const { columnOrder, moveColumn } = useColumnOrder(
+    'sc_ops_quotes_col_order_v1',
+    QUOTE_COLUMN_IDS,
+  )
+  const orderedColumns = useMemo(
+    () =>
+      columnOrder
+        .map((id) => TABLE_COLUMNS.find((c) => c.id === id))
+        .filter(Boolean),
+    [columnOrder],
+  )
   const [sortKey, setSortKey] = useState('quoteDate')
   const [sortDir, setSortDir] = useState('desc')
   const [moreOpen, setMoreOpen] = useState(false)
@@ -683,26 +801,30 @@ const QuotationsPage = () => {
             ) : null}
           </div>
 
+          <p className="mb-2 text-xs text-stone-500">
+            Drag the handle on a column header to reorder. Order is saved on this device.
+          </p>
           <div className={tableWrapClass}>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
                 <thead className={tableHeadClass}>
                   <tr>
-                    {TABLE_COLUMNS.map((col) => {
+                    {orderedColumns.map((col) => {
                       const active = sortKey === col.id
                       return (
-                        <th
+                        <DraggableTh
                           key={col.id}
-                          className={`px-4 py-3 font-semibold ${
-                            col.align === 'right' ? 'text-right' : ''
-                          }`}
+                          id={col.id}
+                          onReorder={moveColumn}
+                          align={col.align === 'right' ? 'right' : 'left'}
+                          className="font-semibold"
                         >
                           {col.sortable ? (
                             <button
                               type="button"
                               className={`inline-flex items-center gap-1 rounded-md transition-colors hover:text-stone-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${
                                 active ? 'text-stone-900' : 'text-stone-500'
-                              } ${col.align === 'right' ? 'ml-auto' : ''}`}
+                              }`}
                               onClick={() => toggleSort(col.id)}
                               aria-label={`Sort by ${col.label}`}
                             >
@@ -712,15 +834,9 @@ const QuotationsPage = () => {
                               </span>
                             </button>
                           ) : (
-                            <span
-                              className={`text-stone-500 ${
-                                col.align === 'right' ? 'block text-right' : ''
-                              }`}
-                            >
-                              {col.label}
-                            </span>
+                            <span className="text-stone-500">{col.label}</span>
                           )}
-                        </th>
+                        </DraggableTh>
                       )
                     })}
                   </tr>
@@ -728,7 +844,7 @@ const QuotationsPage = () => {
                 <tbody className="divide-y divide-stone-100">
                   {quotes.length === 0 ? (
                     <tr>
-                      <td colSpan={TABLE_COLUMNS.length} className="px-4 py-10">
+                      <td colSpan={orderedColumns.length} className="px-4 py-10">
                         <EmptyState
                           bare
                           title={
@@ -766,81 +882,7 @@ const QuotationsPage = () => {
                         role="link"
                         aria-label={`Open quote ${q.number}`}
                       >
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <p className="font-medium text-stone-900">{q.number}</p>
-                          {q.quoteDate ? (
-                            <p className="text-xs text-stone-500">
-                              Created {fmtDate(q.createdAt)}
-                            </p>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3 min-w-[10rem]">
-                          <p className="font-medium text-stone-800">
-                            {q.customer || q.forName}
-                          </p>
-                          {q.gstin ? (
-                            <p className="text-xs text-stone-500">GSTIN {q.gstin}</p>
-                          ) : null}
-                          {q.state ? (
-                            <p className="text-xs text-stone-400">{q.state}</p>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${statusChip(
-                              q.status,
-                            )}`}
-                          >
-                            {q.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-stone-700">
-                          <p className="max-w-[12rem] truncate" title={q.buyerEmail || ''}>
-                            {q.buyerEmail || '—'}
-                          </p>
-                        </td>
-                        <td className="px-4 py-3 text-stone-700">{q.yourRef || '—'}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
-                          {fmtDate(q.quoteDate || q.date)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
-                          {fmtDate(q.validUntil)}
-                          {q.validDays ? (
-                            <span className="block text-xs text-stone-400">
-                              {q.validDays}d
-                            </span>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
-                          {q.sentAt ? fmtDateTime(q.sentAt) : '—'}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
-                          {q.lastModifiedAt ? fmtDateTime(q.lastModifiedAt) : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-right whitespace-nowrap text-stone-700">
-                          {q.subtotal != null ? fmtMoney(q.subtotal) : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-right whitespace-nowrap">
-                          {q.totalInclGst != null ? (
-                            <>
-                              <p className="font-medium text-stone-900">
-                                {fmtMoney(q.totalInclGst)}
-                              </p>
-                              {(Number(q.cgst) > 0 || Number(q.sgst) > 0) && (
-                                <p className="text-[11px] text-stone-500">
-                                  CGST {fmtMoney(q.cgst)} · SGST {fmtMoney(q.sgst)}
-                                </p>
-                              )}
-                              {Number(q.igst) > 0 ? (
-                                <p className="text-[11px] text-stone-500">
-                                  IGST {fmtMoney(q.igst)}
-                                </p>
-                              ) : null}
-                            </>
-                          ) : (
-                            <span className="text-stone-400">—</span>
-                          )}
-                        </td>
+                        {columnOrder.map((colId) => renderQuoteCell(colId, q))}
                       </tr>
                     ))
                   )}

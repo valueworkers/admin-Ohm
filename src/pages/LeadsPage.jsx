@@ -9,13 +9,17 @@ import {
   FiPlus,
   FiRefreshCw,
 } from 'react-icons/fi'
+import DraggableTh from '../components/ui/DraggableTh'
 import Modal from '../components/ui/Modal'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
 import TenantOpsPlaceholder from '../components/TenantOpsPlaceholder'
 import { EmptyState, LoadingState } from '../components/ui/PageState'
 import { BENGALURU_SENIOR_CARE_LEADS } from '../data/bengaluruSeniorCareLeads'
+import { TENANT_ROLES, normalizeTenantRole } from '../config/features'
 import { useAccess } from '../hooks/useAccess'
+import { useColumnOrder } from '../hooks/useColumnOrder'
+import { listCollection } from '../store/platformStore'
 import {
   btnGhost,
   btnPrimary,
@@ -155,11 +159,79 @@ const LEAD_TYPES = [
     hint: 'Leads from fairs, events and exhibitions',
   },
   {
+    key: 'enquire',
+    label: 'Enquire',
+    hint: 'Inbound enquiries from website, forms or calls',
+  },
+  {
     key: 'potential',
     label: 'Potential Leads',
     hint: 'Scraped / prospect list',
   },
 ]
+
+const LEAD_TYPE_TABS = [
+  {
+    key: 'all',
+    label: 'All',
+    hint: 'Every lead across all types',
+  },
+  ...LEAD_TYPES,
+]
+
+const userDisplayName = (u) => {
+  const name = [u?.first_name, u?.last_name].filter(Boolean).join(' ').trim()
+  return name || u?.email || 'Ops admin'
+}
+
+const assigneeOptionLabel = (u) => {
+  const name = [u?.first_name, u?.last_name].filter(Boolean).join(' ').trim()
+  if (name && u?.email && name.toLowerCase() !== String(u.email).toLowerCase()) {
+    return `${name} · ${u.email}`
+  }
+  return name || u?.email || 'Ops admin'
+}
+
+/** Placeholder platform ops until assign-user API is wired. */
+const PLATFORM_OPS_PLACEHOLDERS = [
+  {
+    id: 'ops01@admin.com',
+    email: 'ops01@admin.com',
+    first_name: '',
+    last_name: '',
+    user_type: 'PLATFORM_OPS',
+    tenant_role: TENANT_ROLES.OPS_ADMIN,
+    tenant_id: null,
+  },
+  {
+    id: 'ops02@admin.com',
+    email: 'ops02@admin.com',
+    first_name: '',
+    last_name: '',
+    user_type: 'PLATFORM_OPS',
+    tenant_role: TENANT_ROLES.OPS_ADMIN,
+    tenant_id: null,
+  },
+]
+
+/** Super Admin → platform ops; Tenant Admin → ops admins in their org. */
+const listAssignableOpsAdmins = (actor, { isSuperAdmin, isTenantAdmin, tenantId } = {}) => {
+  const users = listCollection('users')
+  if (isSuperAdmin) {
+    return PLATFORM_OPS_PLACEHOLDERS
+  }
+  if (isTenantAdmin && tenantId) {
+    return users.filter(
+      (u) =>
+        String(u.tenant_id) === String(tenantId) &&
+        normalizeTenantRole(u.tenant_role || u.role_label) === TENANT_ROLES.OPS_ADMIN,
+    )
+  }
+  return []
+}
+
+const assigneeLabel = (lead) =>
+  lead?.assignedToName || lead?.assignedToEmail || (lead?.assignedToId ? 'Assigned' : '')
 
 const PIPELINE_STATUSES = [
   { key: 'yet_to_start', label: 'Yet to Start' },
@@ -312,6 +384,220 @@ const onboardChip = (value) =>
 const leadsTheadClass =
   'border-b border-stone-200 bg-white text-xs font-medium text-stone-500'
 
+const LEAD_COLUMNS = [
+  { id: 'leadId', label: 'Lead ID' },
+  { id: 'name', label: 'Name' },
+  { id: 'company', label: 'Company' },
+  { id: 'primaryContact', label: 'Primary contact' },
+  { id: 'altContact', label: 'Alt. contact' },
+  { id: 'email', label: 'Email' },
+  { id: 'address', label: 'Address' },
+  { id: 'website', label: 'Website' },
+  { id: 'identified', label: 'Identified' },
+  { id: 'status', label: 'Status' },
+  { id: 'type', label: 'Type' },
+  { id: 'assigned', label: 'Assigned to' },
+  { id: 'affiliate', label: 'Affiliate' },
+  { id: 'onboarded', label: 'Onboarded' },
+  { id: 'pipeline', label: 'Pipeline' },
+  { id: 'action', label: 'Action' },
+]
+
+const LEAD_COLUMN_IDS = LEAD_COLUMNS.map((c) => c.id)
+
+const renderLeadCell = (colId, lead, { canWrite, onEmail, onOpen, canAssign, assignees, onAssign }) => {
+  switch (colId) {
+    case 'leadId':
+      return (
+        <td key={colId} className="whitespace-nowrap px-3 py-3 font-medium tabular-nums text-ink">
+          {lead.leadId}
+        </td>
+      )
+    case 'name':
+      return (
+        <td key={colId} className="min-w-0 px-3 py-3 text-stone-800">
+          <div className="max-w-[10rem]">
+            <p className="truncate font-medium">{displayName(lead)}</p>
+            {(lead.firstName || lead.lastName) && lead.primaryContactName ? (
+              <p className="truncate text-xs text-stone-500">
+                {[lead.salutation, lead.firstName, lead.middleName, lead.lastName]
+                  .filter(Boolean)
+                  .join(' ')}
+              </p>
+            ) : null}
+          </div>
+        </td>
+      )
+    case 'company':
+      return (
+        <td key={colId} className="px-3 py-3">
+          <p className="max-w-[11rem] truncate font-medium text-ink">
+            {lead.companyName || '—'}
+          </p>
+        </td>
+      )
+    case 'primaryContact':
+      return (
+        <td key={colId} className="px-3 py-3 text-stone-700">
+          <p className="max-w-[9rem] truncate">{lead.primaryContactName || '—'}</p>
+          <p className="truncate text-xs tabular-nums text-stone-500">
+            {lead.primaryContactNumber || '—'}
+          </p>
+        </td>
+      )
+    case 'altContact':
+      return (
+        <td key={colId} className="px-3 py-3 text-stone-700">
+          <p className="max-w-[9rem] truncate">{lead.alternateContactName || '—'}</p>
+          <p className="truncate text-xs tabular-nums text-stone-500">
+            {lead.alternateContactNumber || '—'}
+          </p>
+        </td>
+      )
+    case 'email':
+      return (
+        <td key={colId} className="px-3 py-3 text-stone-700">
+          <p className="max-w-[12rem] truncate">{lead.primaryEmailId || '—'}</p>
+          {lead.secondaryEmailId ? (
+            <p className="max-w-[12rem] truncate text-xs text-stone-500">
+              {lead.secondaryEmailId}
+            </p>
+          ) : null}
+        </td>
+      )
+    case 'address':
+      return (
+        <td key={colId} className="px-3 py-3">
+          <p className="max-w-[12rem] truncate text-stone-600">{lead.address || '—'}</p>
+        </td>
+      )
+    case 'website':
+      return (
+        <td key={colId} className="px-3 py-3">
+          {lead.website ? (
+            <a
+              href={
+                lead.website.startsWith('http') ? lead.website : `https://${lead.website}`
+              }
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block max-w-[9rem] truncate text-brand-800 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {lead.website.replace(/^https?:\/\//, '')}
+            </a>
+          ) : (
+            <span className="text-stone-400">—</span>
+          )}
+        </td>
+      )
+    case 'identified':
+      return (
+        <td key={colId} className="whitespace-nowrap px-3 py-3 text-stone-600">
+          {fmtDate(lead.leadIdentifiedDate)}
+        </td>
+      )
+    case 'status':
+      return (
+        <td key={colId} className="px-3 py-3">
+          <span
+            className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${statusChip(lead.status)}`}
+          >
+            {lead.status}
+          </span>
+        </td>
+      )
+    case 'type':
+      return (
+        <td key={colId} className="px-3 py-3 text-xs text-stone-600">
+          {leadTypeLabel(lead.leadType)}
+        </td>
+      )
+    case 'assigned':
+      return (
+        <td key={colId} className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+          {canAssign ? (
+            <select
+              className={`${fieldClass} min-w-[9rem] py-1.5 text-xs`}
+              value={lead.assignedToId || ''}
+              aria-label={`Assign ${lead.companyName || displayName(lead)}`}
+              onChange={(e) => onAssign?.(lead.leadId, e.target.value)}
+            >
+              <option value="">Unassigned</option>
+              {(assignees || []).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {userDisplayName(u)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="max-w-[9rem] truncate text-stone-700">
+              {assigneeLabel(lead) || '—'}
+            </p>
+          )}
+        </td>
+      )
+    case 'affiliate':
+      return (
+        <td key={colId} className="px-3 py-3">
+          <p className="max-w-[8rem] truncate text-stone-600">{lead.affiliate || '—'}</p>
+        </td>
+      )
+    case 'onboarded':
+      return (
+        <td key={colId} className="px-3 py-3">
+          <span
+            className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${onboardChip(lead.onboardingStatus)}`}
+          >
+            {lead.onboardingStatus}
+          </span>
+        </td>
+      )
+    case 'pipeline':
+      return (
+        <td key={colId} className="px-3 py-3 text-xs text-stone-600">
+          {pipelineLabel(lead.pipelineStatus)}
+        </td>
+      )
+    case 'action':
+      return (
+        <td key={colId} className="px-3 py-3">
+          {canWrite !== false && lead.pipelineStatus === 'yet_to_start' ? (
+            <button
+              type="button"
+              className={btnGhost}
+              disabled={!lead.primaryEmailId && !lead.secondaryEmailId}
+              onClick={(e) => {
+                e.stopPropagation()
+                onEmail?.(lead)
+              }}
+              title={
+                lead.primaryEmailId || lead.secondaryEmailId
+                  ? 'Compose outreach email'
+                  : 'No email on this lead'
+              }
+            >
+              Email
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={btnGhost}
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpen?.(lead)
+              }}
+            >
+              Open
+            </button>
+          )}
+        </td>
+      )
+    default:
+      return null
+  }
+}
+
 const buildEmailSubject = (lead) =>
   `Tenant-based management software for ${lead.companyName || displayName(lead)}`
 
@@ -387,6 +673,9 @@ const makeLead = (partial, seq) => {
     affiliate: partial.affiliate || '',
     onboardingStatus: partial.onboardingStatus || 'No',
     pipelineStatus: partial.pipelineStatus || 'yet_to_start',
+    assignedToId: partial.assignedToId || '',
+    assignedToName: partial.assignedToName || '',
+    assignedToEmail: partial.assignedToEmail || '',
     history: historyFromLegacy({
       ...partial,
       leadType: partial.leadType || 'direct',
@@ -412,13 +701,14 @@ const blankLeadForm = (leadType = 'direct') => ({
   website: '',
   leadIdentifiedDate: new Date().toISOString().slice(0, 10),
   status: 'Open',
-  leadType,
+  leadType: LEAD_TYPES.some((t) => t.key === leadType) ? leadType : 'direct',
   affiliate: '',
   onboardingStatus: 'No',
   pipelineStatus: 'yet_to_start',
+  assignedToId: '',
 })
 
-const AddLeadModal = ({ initialType, onClose, onSave }) => {
+const AddLeadModal = ({ initialType, onClose, onSave, assignees = [], canAssign = false }) => {
   const [form, setForm] = useState(() => blankLeadForm(initialType))
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
@@ -519,6 +809,23 @@ const AddLeadModal = ({ initialType, onClose, onSave }) => {
               ))}
             </select>
           </label>
+          {canAssign ? (
+            <label className="block sm:col-span-2">
+              <span className={labelClass}>Assign to ops admin</span>
+              <select
+                className={fieldClass}
+                value={form.assignedToId}
+                onChange={set('assignedToId')}
+              >
+                <option value="">Unassigned</option>
+                {assignees.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {assigneeOptionLabel(u)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1026,11 +1333,14 @@ const HistoryTimelineItem = ({ item, isLast }) => {
 const LeadDetailModal = ({
   lead,
   canWrite,
+  canAssign,
+  assignees = [],
   onClose,
   onEmail,
   onLogReply,
   onCreateMeeting,
   onMovePipeline,
+  onAssign,
 }) => {
   const emailBtnRef = useRef(null)
   const [tab, setTab] = useState('overview')
@@ -1227,23 +1537,47 @@ const LeadDetailModal = ({
             </div>
           </div>
 
-          {canWrite !== false ? (
-            <div className="mt-4 flex max-w-sm flex-col gap-1.5">
-              <label htmlFor="lead-pipeline-select" className={labelClass}>
-                Pipeline stage
-              </label>
-              <select
-                id="lead-pipeline-select"
-                className={fieldClass}
-                value={lead.pipelineStatus}
-                onChange={(e) => onMovePipeline(lead.leadId, e.target.value)}
-              >
-                {PIPELINE_STATUSES.map((p) => (
-                  <option key={p.key} value={p.key}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+          {canWrite !== false || canAssign ? (
+            <div className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
+              {canWrite !== false ? (
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="lead-pipeline-select" className={labelClass}>
+                    Pipeline stage
+                  </label>
+                  <select
+                    id="lead-pipeline-select"
+                    className={fieldClass}
+                    value={lead.pipelineStatus}
+                    onChange={(e) => onMovePipeline(lead.leadId, e.target.value)}
+                  >
+                    {PIPELINE_STATUSES.map((p) => (
+                      <option key={p.key} value={p.key}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              {canAssign ? (
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="lead-assign-select" className={labelClass}>
+                    Assign to ops admin
+                  </label>
+                  <select
+                    id="lead-assign-select"
+                    className={fieldClass}
+                    value={lead.assignedToId || ''}
+                    onChange={(e) => onAssign?.(lead.leadId, e.target.value)}
+                  >
+                    <option value="">Unassigned</option>
+                    {assignees.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {assigneeOptionLabel(u)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -1568,6 +1902,9 @@ const LeadDetailModal = ({
               <DetailField label="Address">{lead.address}</DetailField>
               <DetailField label="Identified">{fmtDate(lead.leadIdentifiedDate)}</DetailField>
               <DetailField label="Affiliate">{lead.affiliate}</DetailField>
+              <DetailField label="Assigned to">
+                {assigneeLabel(lead) || 'Unassigned'}
+              </DetailField>
               <DetailField label="Onboarding">
                 <span
                   className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${onboardChip(lead.onboardingStatus)}`}
@@ -1899,6 +2236,11 @@ const PipelineBoard = ({ leads, onMove, onEmail, onOpen, canWrite }) => {
                                 <span className="text-stone-400"> / </span>
                                 {leadTypeLabel(lead.leadType)}
                               </p>
+                              {assigneeLabel(lead) ? (
+                                <p className="mt-0.5 truncate text-xs text-stone-500">
+                                  → {assigneeLabel(lead)}
+                                </p>
+                              ) : null}
                             </div>
                           </button>
                           {canWrite !== false ? (
@@ -1953,10 +2295,30 @@ const PipelineBoard = ({ leads, onMove, onEmail, onOpen, canWrite }) => {
 }
 
 const LeadsPage = () => {
-  const { isSuperAdmin, canWrite } = useAccess()
+  const {
+    user,
+    isSuperAdmin,
+    isTenantAdmin,
+    isOpsAdmin,
+    tenantId,
+    canWrite,
+  } = useAccess()
+  const canManageLeads = isSuperAdmin || isTenantAdmin
+  const canAssign = canManageLeads && canWrite !== false
+  const { columnOrder, moveColumn } = useColumnOrder(
+    'sc_ops_leads_col_order_v1',
+    LEAD_COLUMN_IDS,
+  )
+  const orderedLeadColumns = useMemo(
+    () =>
+      columnOrder
+        .map((id) => LEAD_COLUMNS.find((c) => c.id === id))
+        .filter(Boolean),
+    [columnOrder],
+  )
   const stored = useMemo(() => loadStored(), [])
   const [leads, setLeads] = useState(() => stored?.leads || SEED_LEADS)
-  const [leadType, setLeadType] = useState('direct')
+  const [leadType, setLeadType] = useState('all')
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [onboardFilter, setOnboardFilter] = useState('All')
@@ -1999,16 +2361,34 @@ const LeadsPage = () => {
   const deferredQuery = useDeferredValue(query)
   const q = deferredQuery.trim().toLowerCase()
 
-  const typeMeta = LEAD_TYPES.find((t) => t.key === leadType) || LEAD_TYPES[0]
-
-  const counts = useMemo(
-    () => Object.fromEntries(LEAD_TYPES.map((t) => [t.key, leads.filter((l) => l.leadType === t.key).length])),
-    [leads],
+  const assignees = useMemo(
+    () => listAssignableOpsAdmins(user, { isSuperAdmin, isTenantAdmin, tenantId }),
+    [user, isSuperAdmin, isTenantAdmin, tenantId],
   )
 
+  const scopedLeads = useMemo(() => {
+    if (canManageLeads) return leads
+    if (isOpsAdmin && user?.id) {
+      return leads.filter((l) => String(l.assignedToId) === String(user.id))
+    }
+    return []
+  }, [leads, canManageLeads, isOpsAdmin, user?.id])
+
+  const typeMeta = LEAD_TYPE_TABS.find((t) => t.key === leadType) || LEAD_TYPE_TABS[0]
+
+  const counts = useMemo(() => {
+    const byType = Object.fromEntries(
+      LEAD_TYPES.map((t) => [t.key, scopedLeads.filter((l) => l.leadType === t.key).length]),
+    )
+    return { ...byType, all: scopedLeads.length }
+  }, [scopedLeads])
+
   const typeLeads = useMemo(
-    () => leads.filter((l) => l.leadType === leadType),
-    [leads, leadType],
+    () =>
+      leadType === 'all'
+        ? scopedLeads
+        : scopedLeads.filter((l) => l.leadType === leadType),
+    [scopedLeads, leadType],
   )
 
   const visible = useMemo(
@@ -2032,6 +2412,8 @@ const LeadsPage = () => {
           l.address,
           l.website,
           l.affiliate,
+          l.assignedToName,
+          l.assignedToEmail,
           leadTypeLabel(l.leadType),
           pipelineLabel(l.pipelineStatus),
         ]
@@ -2075,6 +2457,51 @@ const LeadsPage = () => {
       ),
       { pipelineStatus },
     )
+  }
+
+  const assignLead = (leadId, assigneeId) => {
+    const lead = leads.find((l) => l.leadId === leadId)
+    if (!lead) return
+    const nextId = String(assigneeId || '').trim()
+    if (String(lead.assignedToId || '') === nextId) return
+    const person = nextId ? assignees.find((u) => String(u.id) === nextId) : null
+    const fromLabel = assigneeLabel(lead) || 'Unassigned'
+    const toLabel = person ? userDisplayName(person) : 'Unassigned'
+    appendHistory(
+      leadId,
+      makeHistoryEntry(
+        'pipeline',
+        `Assigned to ${toLabel}`,
+        `From ${fromLabel}`,
+        {
+          fromAssignee: lead.assignedToId || '',
+          toAssignee: nextId,
+        },
+      ),
+      {
+        assignedToId: person?.id || '',
+        assignedToName: person ? userDisplayName(person) : '',
+        assignedToEmail: person?.email || '',
+      },
+    )
+    setStatus({
+      type: 'success',
+      message: person
+        ? `Assigned ${lead.companyName || displayName(lead)} to ${userDisplayName(person)}.`
+        : `Unassigned ${lead.companyName || displayName(lead)}.`,
+    })
+  }
+
+  const resolveAssigneeFields = (assignedToId) => {
+    const person = assignees.find((u) => String(u.id) === String(assignedToId || ''))
+    if (!person) {
+      return { assignedToId: '', assignedToName: '', assignedToEmail: '' }
+    }
+    return {
+      assignedToId: person.id,
+      assignedToName: userDisplayName(person),
+      assignedToEmail: person.email || '',
+    }
   }
 
   const sendLeadEmail = async (lead, message) => {
@@ -2153,6 +2580,7 @@ const LeadsPage = () => {
     const lead = makeLead(
       {
         ...form,
+        ...resolveAssigneeFields(form.assignedToId),
         leadIdentifiedDate: identified,
       },
       nextSeq,
@@ -2247,7 +2675,7 @@ const LeadsPage = () => {
     }
   }
 
-  if (!isSuperAdmin) {
+  if (!canManageLeads && !isOpsAdmin) {
     return (
       <TenantOpsPlaceholder
         title="Leads"
@@ -2261,9 +2689,15 @@ const LeadsPage = () => {
       <PageHeader
         eyebrow=""
         title="Leads"
-        description={`${typeMeta.hint} ${counts[leadType]} in this type, ${leads.length} total.`}
+        description={
+          isOpsAdmin && !canManageLeads
+            ? `Leads assigned to you. ${scopedLeads.length} total.`
+            : leadType === 'all'
+              ? `${typeMeta.hint}. ${scopedLeads.length} total.`
+              : `${typeMeta.hint} ${counts[leadType] || 0} in this type, ${scopedLeads.length} total.`
+        }
         actions={
-          canWrite !== false ? (
+          canManageLeads && canWrite !== false ? (
             <div className="flex flex-wrap gap-2">
               {leadType === 'potential' ? (
                 <button
@@ -2295,7 +2729,7 @@ const LeadsPage = () => {
         aria-label="Lead types"
         className="flex gap-1 overflow-x-auto border-b border-stone-200 pb-px"
       >
-        {LEAD_TYPES.map((t) => {
+        {LEAD_TYPE_TABS.map((t) => {
           const on = leadType === t.key
           return (
             <button
@@ -2312,7 +2746,7 @@ const LeadsPage = () => {
               }`}
             >
               {t.label}
-              <span className="ml-1.5 tabular-nums text-stone-400">{counts[t.key]}</span>
+              <span className="ml-1.5 tabular-nums text-stone-400">{counts[t.key] || 0}</span>
             </button>
           )
         })}
@@ -2465,25 +2899,23 @@ const LeadsPage = () => {
           </ul>
 
           <div className={`${tableWrapClass} hidden md:block`}>
+            <p className="border-b border-stone-100 px-3 py-2 text-xs text-stone-500">
+              Drag the handle on a column header to reorder. Order is saved on this device.
+            </p>
             <div className="overflow-x-auto">
               <table className="min-w-[1100px] w-full text-left text-sm">
                 <thead className={leadsTheadClass}>
                   <tr>
-                    <th className="px-3 py-3 font-medium">Lead ID</th>
-                    <th className="px-3 py-3 font-medium">Name</th>
-                    <th className="px-3 py-3 font-medium">Company</th>
-                    <th className="px-3 py-3 font-medium">Primary contact</th>
-                    <th className="px-3 py-3 font-medium">Alt. contact</th>
-                    <th className="px-3 py-3 font-medium">Email</th>
-                    <th className="px-3 py-3 font-medium">Address</th>
-                    <th className="px-3 py-3 font-medium">Website</th>
-                    <th className="px-3 py-3 font-medium">Identified</th>
-                    <th className="px-3 py-3 font-medium">Status</th>
-                    <th className="px-3 py-3 font-medium">Type</th>
-                    <th className="px-3 py-3 font-medium">Affiliate</th>
-                    <th className="px-3 py-3 font-medium">Onboarded</th>
-                    <th className="px-3 py-3 font-medium">Pipeline</th>
-                    <th className="px-3 py-3 font-medium">Action</th>
+                    {orderedLeadColumns.map((col) => (
+                      <DraggableTh
+                        key={col.id}
+                        id={col.id}
+                        onReorder={moveColumn}
+                        className="font-medium"
+                      >
+                        <span className="text-stone-500">{col.label}</span>
+                      </DraggableTh>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -2502,126 +2934,16 @@ const LeadsPage = () => {
                       role="button"
                       aria-label={`Open ${lead.companyName || displayName(lead)}`}
                     >
-                      <td className="whitespace-nowrap px-3 py-3 font-medium tabular-nums text-ink">
-                        {lead.leadId}
-                      </td>
-                      <td className="min-w-0 px-3 py-3 text-stone-800">
-                        <div className="max-w-[10rem]">
-                          <p className="truncate font-medium">{displayName(lead)}</p>
-                          {(lead.firstName || lead.lastName) && lead.primaryContactName ? (
-                            <p className="truncate text-xs text-stone-500">
-                              {[lead.salutation, lead.firstName, lead.middleName, lead.lastName]
-                                .filter(Boolean)
-                                .join(' ')}
-                            </p>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-3 py-3">
-                        <p className="max-w-[11rem] truncate font-medium text-ink">
-                          {lead.companyName || '—'}
-                        </p>
-                      </td>
-                      <td className="px-3 py-3 text-stone-700">
-                        <p className="max-w-[9rem] truncate">{lead.primaryContactName || '—'}</p>
-                        <p className="truncate text-xs tabular-nums text-stone-500">
-                          {lead.primaryContactNumber || '—'}
-                        </p>
-                      </td>
-                      <td className="px-3 py-3 text-stone-700">
-                        <p className="max-w-[9rem] truncate">{lead.alternateContactName || '—'}</p>
-                        <p className="truncate text-xs tabular-nums text-stone-500">
-                          {lead.alternateContactNumber || '—'}
-                        </p>
-                      </td>
-                      <td className="px-3 py-3 text-stone-700">
-                        <p className="max-w-[12rem] truncate">{lead.primaryEmailId || '—'}</p>
-                        {lead.secondaryEmailId ? (
-                          <p className="max-w-[12rem] truncate text-xs text-stone-500">
-                            {lead.secondaryEmailId}
-                          </p>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-3">
-                        <p className="max-w-[12rem] truncate text-stone-600">{lead.address || '—'}</p>
-                      </td>
-                      <td className="px-3 py-3">
-                        {lead.website ? (
-                          <a
-                            href={
-                              lead.website.startsWith('http')
-                                ? lead.website
-                                : `https://${lead.website}`
-                            }
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-block max-w-[9rem] truncate text-brand-800 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"
-                          >
-                            {lead.website.replace(/^https?:\/\//, '')}
-                          </a>
-                        ) : (
-                          <span className="text-stone-400">—</span>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-3 text-stone-600">
-                        {fmtDate(lead.leadIdentifiedDate)}
-                      </td>
-                      <td className="px-3 py-3">
-                        <span
-                          className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${statusChip(lead.status)}`}
-                        >
-                          {lead.status}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-xs text-stone-600">
-                        {leadTypeLabel(lead.leadType)}
-                      </td>
-                      <td className="px-3 py-3">
-                        <p className="max-w-[8rem] truncate text-stone-600">
-                          {lead.affiliate || '—'}
-                        </p>
-                      </td>
-                      <td className="px-3 py-3">
-                        <span
-                          className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${onboardChip(lead.onboardingStatus)}`}
-                        >
-                          {lead.onboardingStatus}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-xs text-stone-600">
-                        {pipelineLabel(lead.pipelineStatus)}
-                      </td>
-                      <td className="px-3 py-3">
-                        {canWrite !== false && lead.pipelineStatus === 'yet_to_start' ? (
-                          <button
-                            type="button"
-                            className={btnGhost}
-                            disabled={!lead.primaryEmailId && !lead.secondaryEmailId}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setEmailFor(lead)
-                            }}
-                            title={
-                              lead.primaryEmailId || lead.secondaryEmailId
-                                ? 'Compose outreach email'
-                                : 'No email on this lead'
-                            }
-                          >
-                            Email
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            className={btnGhost}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedId(lead.leadId)
-                            }}
-                          >
-                            Open
-                          </button>
-                        )}
-                      </td>
+                      {columnOrder.map((colId) =>
+                        renderLeadCell(colId, lead, {
+                          canWrite,
+                          canAssign,
+                          assignees,
+                          onAssign: assignLead,
+                          onEmail: setEmailFor,
+                          onOpen: (row) => setSelectedId(row.leadId),
+                        }),
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -2632,7 +2954,7 @@ const LeadsPage = () => {
       )}
 
       <PipelineBoard
-        leads={leads}
+        leads={scopedLeads}
         onMove={movePipeline}
         onEmail={setEmailFor}
         onOpen={(lead) => setSelectedId(lead.leadId)}
@@ -2641,9 +2963,11 @@ const LeadsPage = () => {
 
       {createOpen ? (
         <AddLeadModal
-          initialType={leadType}
+          initialType={leadType === 'all' ? 'direct' : leadType}
           onClose={() => setCreateOpen(false)}
           onSave={saveNewLead}
+          assignees={assignees}
+          canAssign={canAssign}
         />
       ) : null}
 
@@ -2660,11 +2984,14 @@ const LeadsPage = () => {
         <LeadDetailModal
           lead={selectedLead}
           canWrite={canWrite}
+          canAssign={canAssign}
+          assignees={assignees}
           onClose={() => setSelectedId(null)}
           onEmail={(lead) => setEmailFor(lead)}
           onLogReply={logLeadReply}
           onCreateMeeting={createLeadMeeting}
           onMovePipeline={movePipeline}
+          onAssign={assignLead}
         />
       ) : null}
 

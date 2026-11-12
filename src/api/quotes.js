@@ -226,6 +226,27 @@ export const normalizePlatformQuote = (row = {}) => {
       contactName: row.contact_name || 'O-HM Senior Care',
       contactPhone: row.contact_phone || '',
       contactEmail: row.contact_email || 'support@o-hm.com',
+      secondaryContactName: row.secondary_contact_name || '',
+      secondaryContactPhone: row.secondary_contact_phone || '',
+      secondaryContactEmail: row.secondary_contact_email || '',
+      tertiaryContactName: row.tertiary_contact_name || '',
+      tertiaryContactPhone: row.tertiary_contact_phone || '',
+      tertiaryContactEmail: row.tertiary_contact_email || '',
+      showSecondaryContact: Boolean(
+        row.secondary_contact_name ||
+          row.secondary_contact_phone ||
+          row.secondary_contact_email ||
+          row.tertiary_contact_name ||
+          row.tertiary_contact_phone ||
+          row.tertiary_contact_email ||
+          row.show_secondary_contact,
+      ),
+      showTertiaryContact: Boolean(
+        row.tertiary_contact_name ||
+          row.tertiary_contact_phone ||
+          row.tertiary_contact_email ||
+          row.show_tertiary_contact,
+      ),
       lines: Array.isArray(row.lines) ? row.lines.map(normalizeLine) : [],
       subtotal,
       cgst,
@@ -441,6 +462,27 @@ export const buildPlatformQuotePayload = (
     brand_links: brandLinks,
     seller_udyam: String(form.sellerUdyam || '').trim(),
     seller_duns: String(form.sellerDuns || '').trim(),
+    contact_name: String(form.contactName || '').trim(),
+    contact_phone: String(form.contactPhone || '').trim(),
+    contact_email: String(form.contactEmail || '').trim(),
+    secondary_contact_name: form.showSecondaryContact
+      ? String(form.secondaryContactName || '').trim()
+      : '',
+    secondary_contact_phone: form.showSecondaryContact
+      ? String(form.secondaryContactPhone || '').trim()
+      : '',
+    secondary_contact_email: form.showSecondaryContact
+      ? String(form.secondaryContactEmail || '').trim()
+      : '',
+    tertiary_contact_name: form.showTertiaryContact
+      ? String(form.tertiaryContactName || '').trim()
+      : '',
+    tertiary_contact_phone: form.showTertiaryContact
+      ? String(form.tertiaryContactPhone || '').trim()
+      : '',
+    tertiary_contact_email: form.showTertiaryContact
+      ? String(form.tertiaryContactEmail || '').trim()
+      : '',
     lines,
   }
   if (number) body.number = number

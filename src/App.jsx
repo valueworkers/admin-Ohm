@@ -71,6 +71,7 @@ const App = () => (
             <Route path="ops/quotations/new" element={<QuoteEditorPage />} />
             <Route path="ops/quotations/:quoteId" element={<QuoteEditorPage />} />
             <Route path="ops/quotations" element={<QuotationsPage />} />
+            <Route path="ops/booking" element={<BookingsPage eyebrow="Operations" />} />
             <Route path="ops/invoices/new" element={<InvoiceCreatePage />} />
             <Route path="ops/invoices/:invoiceId/edit" element={<InvoiceCreatePage />} />
             <Route path="ops/invoices/:invoiceId" element={<InvoiceDetailPage />} />

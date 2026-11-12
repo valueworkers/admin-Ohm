@@ -43,6 +43,14 @@ const demoPayload = (partial) => ({
   contactName: 'O-HM Senior Care',
   contactPhone: '+91 96112 36211',
   contactEmail: 'support@o-hm.com',
+  showSecondaryContact: false,
+  secondaryContactName: '',
+  secondaryContactPhone: '',
+  secondaryContactEmail: '',
+  showTertiaryContact: false,
+  tertiaryContactName: '',
+  tertiaryContactPhone: '',
+  tertiaryContactEmail: '',
   lines: [
     {
       id: 'ln-demo-1',
@@ -340,6 +348,27 @@ export const formFromQuote = (quote) => {
     contactName: p.contactName || s.contactName,
     contactPhone: p.contactPhone || s.contactPhone,
     contactEmail: p.contactEmail || s.contactEmail || 'support@o-hm.com',
+    secondaryContactName: p.secondaryContactName || '',
+    secondaryContactPhone: p.secondaryContactPhone || '',
+    secondaryContactEmail: p.secondaryContactEmail || '',
+    tertiaryContactName: p.tertiaryContactName || '',
+    tertiaryContactPhone: p.tertiaryContactPhone || '',
+    tertiaryContactEmail: p.tertiaryContactEmail || '',
+    showSecondaryContact: Boolean(
+      p.showSecondaryContact ||
+        p.secondaryContactName ||
+        p.secondaryContactPhone ||
+        p.secondaryContactEmail ||
+        p.tertiaryContactName ||
+        p.tertiaryContactPhone ||
+        p.tertiaryContactEmail,
+    ),
+    showTertiaryContact: Boolean(
+      p.showTertiaryContact ||
+        p.tertiaryContactName ||
+        p.tertiaryContactPhone ||
+        p.tertiaryContactEmail,
+    ),
     lines: Array.isArray(p.lines) && p.lines.length ? p.lines : s.lines,
   }
 }

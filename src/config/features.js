@@ -41,7 +41,7 @@ export const FEATURE_CATALOG = [
     label: 'Document Manager',
     description: 'Documents and file management for the tenant.',
     group: 'Catalog',
-    core: false,
+    core: true,
     route: '/ops/emr',
   },
   {
@@ -93,6 +93,14 @@ export const FEATURE_CATALOG = [
     route: '/ops/quotations',
   },
   {
+    key: 'ops_booking',
+    label: 'Booking',
+    description: 'Operations booking after quotation (orders and care subscriptions).',
+    group: 'Operations',
+    core: true,
+    route: '/ops/booking',
+  },
+  {
     key: 'invoices',
     label: 'Invoices',
     description: 'Invoices for your organization (tenant view).',
@@ -121,7 +129,7 @@ export const FEATURE_CATALOG = [
     label: 'Attendance',
     description: 'Staff attendance capture and reports.',
     group: 'Manage Staff',
-    core: false,
+    core: true,
     route: '/ops/staff/attendance',
   },
   {
@@ -129,7 +137,7 @@ export const FEATURE_CATALOG = [
     label: 'Payroll',
     description: 'Staff payroll runs.',
     group: 'Manage Staff',
-    core: false,
+    core: true,
     route: '/ops/staff/payroll',
   },
   {
@@ -137,7 +145,7 @@ export const FEATURE_CATALOG = [
     label: 'Staff payouts',
     description: 'Staff payout runs and payment status.',
     group: 'Manage Staff',
-    core: false,
+    core: true,
     route: '/ops/staff/payouts',
   },
   {
@@ -145,7 +153,7 @@ export const FEATURE_CATALOG = [
     label: 'Staff for hire',
     description: 'Hiring / contractor pool.',
     group: 'Manage Staff',
-    core: false,
+    core: true,
     route: '/ops/staff/for-hire',
   },
   {
@@ -161,7 +169,7 @@ export const FEATURE_CATALOG = [
     label: 'N8N Templates',
     description: 'Automation templates for the tenant.',
     group: 'More',
-    core: false,
+    core: true,
     route: '/ops/n8n-templates',
   },
   {

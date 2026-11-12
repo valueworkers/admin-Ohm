@@ -31,10 +31,11 @@ export const EMPTY_ONBOARD = {
   wantsCoOwners: 'no',
   coOwnerEmails: [''],
   branches: [emptyBranch()],
-  hasDomain: 'no',
-  customDomain: '',
+  needWebsite: 'no',
+  domain: '',
   slug: '',
-  customizeWebsite: 'no',
+  needErp: 'no',
+  currentErp: '',
   requestedPlan: null,
 }
 
@@ -96,9 +97,10 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
 
   const derivedSlug = useMemo(() => {
-    if (form.hasDomain === 'yes') return slugFromOrgName(form.tenantName)
-    return normalizeSlug(form.slug)
-  }, [form.hasDomain, form.tenantName, form.slug])
+    const typed = normalizeSlug(form.slug)
+    if (typed) return typed
+    return slugFromOrgName(form.tenantName)
+  }, [form.tenantName, form.slug])
 
   const reset = () => {
     setForm(EMPTY_ONBOARD)
@@ -260,8 +262,11 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
       return 'Wait for slug availability to confirm.'
     }
 
-    if (form.hasDomain === 'yes' && !String(form.customDomain || '').trim()) {
-      return 'Custom domain is required when you have a domain.'
+    if (form.needWebsite === 'yes' && !String(form.domain || '').trim()) {
+      return 'Enter the domain when a website is needed.'
+    }
+    if (!String(form.currentErp || '').trim()) {
+      return 'Enter the existing ERP (or “none” if they do not use one).'
     }
 
     return ''
@@ -297,11 +302,19 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
       coOwnerEmails?.length ? JSON.stringify(coOwnerEmails) : 'null',
     )
     fd.append('slug', slug)
+    fd.append('needs_website', form.needWebsite === 'yes' ? 'true' : 'false')
+    fd.append(
+      'domain',
+      form.needWebsite === 'yes' ? String(form.domain || '').trim() : '',
+    )
+    // Back-compat aliases for older lobby handlers
     fd.append(
       'custom_domain',
-      form.hasDomain === 'yes' ? String(form.customDomain || '').trim() : '',
+      form.needWebsite === 'yes' ? String(form.domain || '').trim() : '',
     )
-    fd.append('wants_custom_website', form.customizeWebsite === 'yes' ? 'true' : 'false')
+    fd.append('wants_custom_website', form.needWebsite === 'yes' ? 'true' : 'false')
+    fd.append('needs_erp', form.needErp === 'yes' ? 'true' : 'false')
+    fd.append('current_erp', String(form.currentErp || '').trim())
     fd.append('requested_plan', form.requestedPlan != null ? String(form.requestedPlan) : '')
     if (form.tenantLogo) fd.append('logo', form.tenantLogo)
     return fd
@@ -583,45 +596,57 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
           ))}
         </div>
 
-        <div className="space-y-3 rounded-xl border border-stone-200 p-4">
+        <div className="space-y-4 rounded-xl border border-stone-200 p-4">
+          <p className="text-sm font-semibold text-ink">Website &amp; ERP</p>
+
           <div>
-            <p className={labelClass}>Have a custom domain?</p>
+            <p className={labelClass}>Do you need a customize website?</p>
             <YesNo
-              name="hasDomain"
-              value={form.hasDomain}
-              onChange={(v) => set('hasDomain', v)}
+              name="needWebsite"
+              value={form.needWebsite}
+              onChange={(v) =>
+                setForm((f) => ({
+                  ...f,
+                  needWebsite: v,
+                  domain: v === 'no' ? '' : f.domain,
+                }))
+              }
               disabled={saving}
             />
           </div>
 
-          {form.hasDomain === 'yes' ? (
+          {form.needWebsite === 'yes' ? (
             <label className="block">
-              <span className={labelClass}>Custom domain</span>
+              <span className={labelClass}>
+                Domain <span className="text-rose-600">*</span>
+              </span>
               <input
                 className={fieldClass}
-                value={form.customDomain}
-                onChange={(e) => set('customDomain', e.target.value)}
+                value={form.domain}
+                onChange={(e) => set('domain', e.target.value)}
                 disabled={saving}
                 placeholder="care.example.com"
+                autoComplete="url"
               />
+              <span className="mt-1 block text-xs text-stone-500">
+                Capture the domain you want for this tenant’s website.
+              </span>
             </label>
-          ) : (
-            <label className="block">
-              <span className={labelClass}>Free subdomain (slug)</span>
-              <input
-                className={fieldClass}
-                value={form.slug}
-                onChange={(e) => set('slug', normalizeSlug(e.target.value))}
-                disabled={saving}
-                placeholder="vaishnavi-medicare"
-              />
-            </label>
-          )}
+          ) : null}
 
-          <div>
-            <p className="text-xs text-slate-500">
-              Slug used: <span className="font-medium text-slate-700">{derivedSlug || '—'}</span>
-              {form.hasDomain === 'yes' ? ' (derived from organization name)' : ''}
+          <label className="block">
+            <span className={labelClass}>Free subdomain (slug)</span>
+            <input
+              className={fieldClass}
+              value={form.slug}
+              onChange={(e) => set('slug', normalizeSlug(e.target.value))}
+              disabled={saving}
+              placeholder="vaishnavi-medicare"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Slug used:{' '}
+              <span className="font-medium text-slate-700">{derivedSlug || '—'}</span>
+              {!form.slug ? ' (from organization name if left blank)' : ''}
             </p>
             {derivedSlug.length >= 3 ? (
               <p
@@ -642,17 +667,30 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
                     : slugStatus.reason || 'Slug not available.'}
               </p>
             ) : null}
-          </div>
+          </label>
 
           <div>
-            <p className={labelClass}>Customize website?</p>
+            <p className={labelClass}>Do you need ERP?</p>
             <YesNo
-              name="customizeWebsite"
-              value={form.customizeWebsite}
-              onChange={(v) => set('customizeWebsite', v)}
+              name="needErp"
+              value={form.needErp}
+              onChange={(v) => set('needErp', v)}
               disabled={saving}
             />
           </div>
+
+          <label className="block">
+            <span className={labelClass}>
+              Existing ERP <span className="text-rose-600">*</span>
+            </span>
+            <input
+              className={fieldClass}
+              value={form.currentErp}
+              onChange={(e) => set('currentErp', e.target.value)}
+              disabled={saving}
+              placeholder="e.g. Tally, Zoho Books, SAP, none"
+            />
+          </label>
         </div>
 
         <div className="flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end">

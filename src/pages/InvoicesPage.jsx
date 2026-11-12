@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { FiPlus } from 'react-icons/fi'
 import { fetchInvoices } from '../api/invoices'
+import DraggableTh from '../components/ui/DraggableTh'
 import PageHeader from '../components/ui/PageHeader'
 import TenantOpsPlaceholder from '../components/TenantOpsPlaceholder'
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
+import { useColumnOrder } from '../hooks/useColumnOrder'
 import {
   displayPayer,
   fmtDate,
@@ -15,6 +17,116 @@ import {
 } from '../features/invoices/store'
 import { apiErrorMessage } from '../utils/errors'
 import { btnPrimary, tableHeadClass, tableWrapClass } from '../utils/ui'
+
+const INVOICE_COLUMNS = [
+  { id: 'number', label: 'Invoice' },
+  { id: 'customer', label: 'Customer' },
+  { id: 'status', label: 'Status' },
+  { id: 'tenant', label: 'Tenant' },
+  { id: 'issueDate', label: 'Issue date' },
+  { id: 'dueDate', label: 'Due date' },
+  { id: 'yourRef', label: 'Your ref' },
+  { id: 'amount', label: 'Amount', align: 'right' },
+  { id: 'received', label: 'Received', align: 'right' },
+  { id: 'owed', label: 'Owed', align: 'right' },
+  { id: 'age', label: 'Age', align: 'right' },
+]
+
+const INVOICE_COLUMN_IDS = INVOICE_COLUMNS.map((c) => c.id)
+
+const renderInvoiceCell = (colId, inv) => {
+  const owed = owedLabel(inv)
+  const age = invoiceAgeDays(inv.issueDate || inv.date)
+  switch (colId) {
+    case 'number':
+      return (
+        <td key={colId} className="whitespace-nowrap px-4 py-3">
+          <p className="font-medium text-stone-900">{inv.number}</p>
+          {inv.createdAt ? (
+            <p className="text-xs text-stone-500">Created {fmtDateTime(inv.createdAt)}</p>
+          ) : null}
+        </td>
+      )
+    case 'customer':
+      return (
+        <td key={colId} className="min-w-[10rem] px-4 py-3">
+          <p className="font-medium text-stone-800">{displayPayer(inv)}</p>
+          {inv.buyerEmail ? (
+            <p className="max-w-[12rem] truncate text-xs text-stone-500" title={inv.buyerEmail}>
+              {inv.buyerEmail}
+            </p>
+          ) : null}
+          {inv.gstin ? <p className="text-xs text-stone-400">GSTIN {inv.gstin}</p> : null}
+        </td>
+      )
+    case 'status':
+      return (
+        <td key={colId} className="px-4 py-3">
+          <span
+            className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${statusChip(
+              inv.status,
+            )}`}
+          >
+            {inv.status}
+          </span>
+        </td>
+      )
+    case 'tenant':
+      return (
+        <td key={colId} className="px-4 py-3 text-stone-700">
+          {inv.tenantName || '—'}
+        </td>
+      )
+    case 'issueDate':
+      return (
+        <td key={colId} className="whitespace-nowrap px-4 py-3 text-stone-600">
+          {fmtDate(inv.issueDate || inv.date)}
+        </td>
+      )
+    case 'dueDate':
+      return (
+        <td key={colId} className="whitespace-nowrap px-4 py-3 text-stone-600">
+          {fmtDate(inv.dueDate)}
+        </td>
+      )
+    case 'yourRef':
+      return (
+        <td key={colId} className="px-4 py-3 text-stone-700">
+          {inv.yourRef || '—'}
+        </td>
+      )
+    case 'amount':
+      return (
+        <td key={colId} className="whitespace-nowrap px-4 py-3 text-right text-stone-800">
+          {inv.amount != null ? fmtMoney(inv.amount) : '—'}
+        </td>
+      )
+    case 'received':
+      return (
+        <td key={colId} className="whitespace-nowrap px-4 py-3 text-right text-stone-800">
+          {fmtMoney(inv.received)}
+        </td>
+      )
+    case 'owed':
+      return (
+        <td key={colId} className={`whitespace-nowrap px-4 py-3 text-right ${owed.className}`}>
+          {owed.text}
+        </td>
+      )
+    case 'age':
+      return (
+        <td key={colId} className="px-4 py-3 text-right text-stone-600">
+          {inv.status === 'PAID' || Number(inv.owed) <= 0
+            ? '—'
+            : age != null
+              ? `${age}d`
+              : '—'}
+        </td>
+      )
+    default:
+      return null
+  }
+}
 
 const statusChip = (status) => {
   const s = String(status || '').toUpperCase()
@@ -41,6 +153,17 @@ const owedLabel = (inv) => {
 const InvoicesPage = () => {
   const navigate = useNavigate()
   const { isSuperAdmin, canWrite } = useAccess()
+  const { columnOrder, moveColumn } = useColumnOrder(
+    'sc_ops_invoices_col_order_v1',
+    INVOICE_COLUMN_IDS,
+  )
+  const orderedColumns = useMemo(
+    () =>
+      columnOrder
+        .map((id) => INVOICE_COLUMNS.find((c) => c.id === id))
+        .filter(Boolean),
+    [columnOrder],
+  )
   const [invoices, setInvoices] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -96,44 +219,45 @@ const InvoicesPage = () => {
       />
 
       <div>
-        <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-stone-400">
+        <p className="mb-2 text-xs text-stone-500">
           Invoices · {invoices.length}
-          {owedCount === 0 ? ' · nothing owed' : ` · ${owedCount} with balance`}
+          {owedCount === 0 ? ' · nothing owed' : ` · ${owedCount} with balance`}. Drag column
+          handles to reorder.
         </p>
         <div className={tableWrapClass}>
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead className={tableHeadClass}>
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Invoice</th>
-                  <th className="px-4 py-3 font-semibold">Customer</th>
-                  <th className="px-4 py-3 font-semibold">Status</th>
-                  <th className="px-4 py-3 font-semibold">Tenant</th>
-                  <th className="px-4 py-3 font-semibold">Issue date</th>
-                  <th className="px-4 py-3 font-semibold">Due date</th>
-                  <th className="px-4 py-3 font-semibold">Your ref</th>
-                  <th className="px-4 py-3 font-semibold text-right">Amount</th>
-                  <th className="px-4 py-3 font-semibold text-right">Received</th>
-                  <th className="px-4 py-3 font-semibold text-right">Owed</th>
-                  <th className="px-4 py-3 font-semibold text-right">Age</th>
+                  {orderedColumns.map((col) => (
+                    <DraggableTh
+                      key={col.id}
+                      id={col.id}
+                      onReorder={moveColumn}
+                      align={col.align === 'right' ? 'right' : 'left'}
+                      className="font-semibold"
+                    >
+                      <span className="text-stone-500">{col.label}</span>
+                    </DraggableTh>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={11} className="px-4 py-10">
+                    <td colSpan={orderedColumns.length} className="px-4 py-10">
                       <LoadingState label="Loading invoices…" />
                     </td>
                   </tr>
                 ) : error ? (
                   <tr>
-                    <td colSpan={11} className="px-4 py-10">
+                    <td colSpan={orderedColumns.length} className="px-4 py-10">
                       <ErrorState bare message={error} onRetry={load} />
                     </td>
                   </tr>
                 ) : invoices.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="px-4 py-10">
+                    <td colSpan={orderedColumns.length} className="px-4 py-10">
                       <EmptyState
                         bare
                         title="No invoices yet"
@@ -148,84 +272,24 @@ const InvoicesPage = () => {
                     </td>
                   </tr>
                 ) : (
-                  invoices.map((inv) => {
-                    const owed = owedLabel(inv)
-                    const age = invoiceAgeDays(inv.issueDate || inv.date)
-                    return (
-                      <tr
-                        key={inv.id}
-                        className="cursor-pointer hover:bg-slate-50 focus-within:bg-slate-50"
-                        onClick={() => navigate(`/ops/invoices/${inv.id}`)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            navigate(`/ops/invoices/${inv.id}`)
-                          }
-                        }}
-                        tabIndex={0}
-                        role="link"
-                        aria-label={`Open invoice ${inv.number}`}
-                      >
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <p className="font-medium text-stone-900">{inv.number}</p>
-                          {inv.createdAt ? (
-                            <p className="text-xs text-stone-500">
-                              Created {fmtDateTime(inv.createdAt)}
-                            </p>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3 min-w-[10rem]">
-                          <p className="font-medium text-stone-800">{displayPayer(inv)}</p>
-                          {inv.buyerEmail ? (
-                            <p
-                              className="max-w-[12rem] truncate text-xs text-stone-500"
-                              title={inv.buyerEmail}
-                            >
-                              {inv.buyerEmail}
-                            </p>
-                          ) : null}
-                          {inv.gstin ? (
-                            <p className="text-xs text-stone-400">GSTIN {inv.gstin}</p>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${statusChip(
-                              inv.status,
-                            )}`}
-                          >
-                            {inv.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-stone-700">
-                          {inv.tenantName || '—'}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
-                          {fmtDate(inv.issueDate || inv.date)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-stone-600">
-                          {fmtDate(inv.dueDate)}
-                        </td>
-                        <td className="px-4 py-3 text-stone-700">{inv.yourRef || '—'}</td>
-                        <td className="px-4 py-3 text-right whitespace-nowrap text-stone-800">
-                          {inv.amount != null ? fmtMoney(inv.amount) : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-right whitespace-nowrap text-stone-800">
-                          {fmtMoney(inv.received)}
-                        </td>
-                        <td className={`px-4 py-3 text-right whitespace-nowrap ${owed.className}`}>
-                          {owed.text}
-                        </td>
-                        <td className="px-4 py-3 text-right text-stone-600">
-                          {inv.status === 'PAID' || Number(inv.owed) <= 0
-                            ? '—'
-                            : age != null
-                              ? `${age}d`
-                              : '—'}
-                        </td>
-                      </tr>
-                    )
-                  })
+                  invoices.map((inv) => (
+                    <tr
+                      key={inv.id}
+                      className="cursor-pointer hover:bg-slate-50 focus-within:bg-slate-50"
+                      onClick={() => navigate(`/ops/invoices/${inv.id}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          navigate(`/ops/invoices/${inv.id}`)
+                        }
+                      }}
+                      tabIndex={0}
+                      role="link"
+                      aria-label={`Open invoice ${inv.number}`}
+                    >
+                      {columnOrder.map((colId) => renderInvoiceCell(colId, inv))}
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>

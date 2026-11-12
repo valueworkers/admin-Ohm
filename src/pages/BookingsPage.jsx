@@ -25,6 +25,7 @@ const EMPTY = {
   patient_name: '',
   patient_id: '',
   phone: '',
+  email: '',
   age: '',
   package_name: '',
   package_id: '',
@@ -39,6 +40,13 @@ const EMPTY = {
   auto_renew: false,
   emergency_contact_name: '',
   emergency_contact_phone: '',
+}
+
+const packageServiceLabel = (row) => {
+  const pkg = String(row?.package_name || '').trim()
+  const svc = String(row?.service_name || '').trim()
+  if (pkg && svc && pkg !== svc) return `${pkg} / ${svc}`
+  return pkg || svc || '—'
 }
 
 const statusChip = (status) => {
@@ -98,9 +106,10 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
     setEditing(row)
     setForm({
       order_id: row.order_id || row.id || '',
-      patient_name: row.patient_name || '',
-      patient_id: row.patient_id || '',
-      phone: row.phone || '',
+      patient_name: row.patient_name || row.customer_name || row.tenant_name || '',
+      patient_id: row.patient_id || row.customer_id || row.tenant_id || '',
+      phone: row.phone || row.phone_number || '',
+      email: row.email || row.patient_email || '',
       age: row.age ?? '',
       package_name: row.package_name || '',
       package_id: row.package_id || '',
@@ -130,6 +139,7 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
       patient_id: p.patient_id || p.id,
       patient_name: p.full_name || p.name || '',
       phone: p.phone || '',
+      email: p.email || '',
       age: p.age ?? '',
     }))
   }
@@ -167,7 +177,7 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
   const handleSave = (e) => {
     e.preventDefault()
     if (!form.patient_name.trim()) {
-      setStatus({ type: 'error', message: 'Patient name is required.' })
+      setStatus({ type: 'error', message: 'Patient / customer / tenant name is required.' })
       return
     }
     if (!form.starting_date) {
@@ -184,6 +194,7 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
         patient_name: form.patient_name.trim(),
         patient_id: form.patient_id.trim(),
         phone: form.phone.trim(),
+        email: form.email.trim(),
         age: form.age === '' ? '' : Number(form.age),
         package_name: form.package_name.trim(),
         package_id: form.package_id,
@@ -251,99 +262,112 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
       <StatusBanner type={status.type} message={status.message} />
 
       <div className={tableWrapClass}>
-        {filtered.length === 0 ? (
-          <EmptyState
-            bare
-            title="No bookings"
-            hint={canWrite ? 'Create a booking for a patient and package.' : 'Nothing on file.'}
-            actionLabel={canWrite ? 'Add booking' : undefined}
-            onAction={canWrite ? openCreate : undefined}
-          />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className={tableHeadClass}>
+        <div className="overflow-x-auto">
+          <table className="min-w-[1400px] w-full text-left text-sm">
+            <thead className={tableHeadClass}>
+              <tr>
+                <th className="px-3 py-3 font-semibold">Patient / customer / tenant</th>
+                <th className="px-3 py-3 font-semibold">Order ID</th>
+                <th className="px-3 py-3 font-semibold">Patient / customer / tenant ID</th>
+                <th className="px-3 py-3 font-semibold">Phone number</th>
+                <th className="px-3 py-3 font-semibold">Email</th>
+                <th className="px-3 py-3 font-semibold">Package / service</th>
+                <th className="px-3 py-3 font-semibold">Location type</th>
+                <th className="px-3 py-3 font-semibold">Locality</th>
+                <th className="px-3 py-3 font-semibold">Location</th>
+                <th className="px-3 py-3 font-semibold">
+                  <span className="inline-flex items-center gap-1">
+                    <FiCalendar className="h-3.5 w-3.5" aria-hidden />
+                    Starting date
+                  </span>
+                </th>
+                <th className="px-3 py-3 font-semibold">
+                  <span className="inline-flex items-center gap-1">
+                    <FiCalendar className="h-3.5 w-3.5" aria-hidden />
+                    Ending date
+                  </span>
+                </th>
+                <th className="px-3 py-3 font-semibold">Status</th>
+                <th className="px-3 py-3 font-semibold">Auto-renew</th>
+                <th className="px-3 py-3 font-semibold">Emergency contact</th>
+                {canWrite ? <th className="px-3 py-3 text-right font-semibold">Actions</th> : null}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.length === 0 ? (
                 <tr>
-                  <th className="px-3 py-3">Order ID</th>
-                  <th className="px-3 py-3">Patient name</th>
-                  <th className="px-3 py-3">Patient ID</th>
-                  <th className="px-3 py-3">Phone</th>
-                  <th className="px-3 py-3">Age</th>
-                  <th className="px-3 py-3">Package name</th>
-                  <th className="px-3 py-3">Service name</th>
-                  <th className="px-3 py-3">Location type</th>
-                  <th className="px-3 py-3">Locality</th>
-                  <th className="px-3 py-3">Location</th>
-                  <th className="px-3 py-3">
-                    <span className="inline-flex items-center gap-1">
-                      <FiCalendar className="h-3.5 w-3.5" aria-hidden />
-                      Starting date
-                    </span>
-                  </th>
-                  <th className="px-3 py-3">
-                    <span className="inline-flex items-center gap-1">
-                      <FiCalendar className="h-3.5 w-3.5" aria-hidden />
-                      Ending date
-                    </span>
-                  </th>
-                  <th className="px-3 py-3">Status</th>
-                  <th className="px-3 py-3">Auto-renew</th>
-                  <th className="px-3 py-3">Emergency contact</th>
-                  {canWrite ? <th className="px-3 py-3 text-right">Actions</th> : null}
+                  <td colSpan={canWrite ? 15 : 14} className="px-3 py-10">
+                    <EmptyState
+                      bare
+                      title="No bookings"
+                      hint={
+                        canWrite
+                          ? 'Create a booking for a patient and package.'
+                          : 'Nothing on file.'
+                      }
+                      actionLabel={canWrite ? 'Add booking' : undefined}
+                      onAction={canWrite ? openCreate : undefined}
+                    />
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filtered.map((row) => (
+              ) : (
+                filtered.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50">
-                    <td className="px-3 py-3 font-medium text-slate-900 whitespace-nowrap">
+                    <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-900">
+                      {row.patient_name || row.customer_name || row.tenant_name || '—'}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 font-medium tabular-nums text-slate-900">
                       {row.order_id || row.id}
                     </td>
-                    <td className="px-3 py-3 font-medium text-slate-900 whitespace-nowrap">
-                      {row.patient_name || '—'}
+                    <td className="whitespace-nowrap px-3 py-3 text-slate-600">
+                      {row.patient_id || row.customer_id || row.tenant_id || '—'}
                     </td>
-                    <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
-                      {row.patient_id || '—'}
+                    <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-600">
+                      {row.phone || row.phone_number || '—'}
                     </td>
-                    <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{row.phone || '—'}</td>
-                    <td className="px-3 py-3 text-slate-600">{row.age ?? '—'}</td>
-                    <td className="px-3 py-3 text-slate-700 max-w-[160px]">
-                      <span className="line-clamp-2">{row.package_name || '—'}</span>
+                    <td className="max-w-[12rem] px-3 py-3 text-slate-600">
+                      <span
+                        className="block truncate"
+                        title={row.email || row.patient_email || ''}
+                      >
+                        {row.email || row.patient_email || '—'}
+                      </span>
                     </td>
-                    <td className="px-3 py-3 text-slate-700 max-w-[140px]">
-                      <span className="line-clamp-2">{row.service_name || '—'}</span>
+                    <td className="max-w-[180px] px-3 py-3 text-slate-700">
+                      <span className="line-clamp-2">{packageServiceLabel(row)}</span>
                     </td>
-                    <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                    <td className="whitespace-nowrap px-3 py-3 text-slate-600">
                       {(row.location_type || '—').toString().replace(/_/g, ' ')}
                     </td>
-                    <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                    <td className="whitespace-nowrap px-3 py-3 text-slate-600">
                       {row.locality || '—'}
                     </td>
-                    <td className="px-3 py-3 text-slate-600 max-w-[160px]">
+                    <td className="max-w-[160px] px-3 py-3 text-slate-600">
                       <span className="line-clamp-2">{row.location || '—'}</span>
                     </td>
-                    <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                    <td className="whitespace-nowrap px-3 py-3 text-slate-600">
                       {fmtDate(row.starting_date || row.scheduled_at)}
                     </td>
-                    <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                    <td className="whitespace-nowrap px-3 py-3 text-slate-600">
                       {fmtDate(row.ending_date)}
                     </td>
-                    <td className="px-3 py-3 whitespace-nowrap">
+                    <td className="whitespace-nowrap px-3 py-3">
                       <span
                         className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase ${statusChip(row.status)}`}
                       >
                         {row.status || '—'}
                       </span>
                     </td>
-                    <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                    <td className="whitespace-nowrap px-3 py-3 text-slate-600">
                       {row.auto_renew ? 'Yes' : 'No'}
                     </td>
-                    <td className="px-3 py-3 text-slate-700 whitespace-nowrap">
+                    <td className="whitespace-nowrap px-3 py-3 text-slate-700">
                       {row.emergency_contact_name || row.emergency_contact_phone ? (
                         <div>
                           <div className="font-medium text-slate-900">
                             {row.emergency_contact_name || '—'}
                           </div>
-                          <div className="text-xs text-slate-500">
+                          <div className="text-xs tabular-nums text-slate-500">
                             {row.emergency_contact_phone || '—'}
                           </div>
                         </div>
@@ -374,11 +398,14 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                       </td>
                     ) : null}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <p className="border-t border-stone-100 px-3 py-2 text-xs text-stone-500">
+          Scroll horizontally to see all columns.
+        </p>
       </div>
 
       <Modal
@@ -430,7 +457,7 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
             </div>
             <div>
               <label className={labelClass} htmlFor="bk-pname">
-                Patient name <span className="text-rose-600">*</span>
+                Patient / customer / tenant <span className="text-rose-600">*</span>
               </label>
               <input
                 id="bk-pname"
@@ -442,7 +469,7 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
             </div>
             <div>
               <label className={labelClass} htmlFor="bk-pid">
-                Patient ID
+                Patient / customer / tenant ID
               </label>
               <input
                 id="bk-pid"
@@ -453,13 +480,27 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
             </div>
             <div>
               <label className={labelClass} htmlFor="bk-phone">
-                Phone
+                Phone number
               </label>
               <input
                 id="bk-phone"
                 className={fieldClass}
+                type="tel"
                 value={form.phone}
                 onChange={(e) => set('phone', e.target.value)}
+              />
+            </div>
+            <div>
+              <label className={labelClass} htmlFor="bk-email">
+                Email
+              </label>
+              <input
+                id="bk-email"
+                className={fieldClass}
+                type="email"
+                autoComplete="email"
+                value={form.email}
+                onChange={(e) => set('email', e.target.value)}
               />
             </div>
             <div>

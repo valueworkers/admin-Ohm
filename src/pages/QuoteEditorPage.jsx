@@ -194,10 +194,18 @@ const blankForm = () => {
     sellerDuns: s.sellerDuns,
     logoUrl: s.logoUrl,
     brandLinks: DEFAULT_BRAND_LINKS.map((b) => ({ ...b })),
-    // Your contact — person details only
+    // Your contact — primary always; secondary/tertiary optional via +
     contactName: s.contactName,
     contactPhone: s.contactPhone,
     contactEmail: s.contactEmail,
+    showSecondaryContact: false,
+    secondaryContactName: '',
+    secondaryContactPhone: '',
+    secondaryContactEmail: '',
+    showTertiaryContact: false,
+    tertiaryContactName: '',
+    tertiaryContactPhone: '',
+    tertiaryContactEmail: '',
     lines: [emptyLine()],
   }
 }
@@ -1085,6 +1093,18 @@ const QuoteEditorPage = () => {
             ) : null}
             {(form.contactEmail || defaultContactEmail) ? (
               <p className="text-stone-600">{form.contactEmail || defaultContactEmail}</p>
+            ) : null}
+            {form.showSecondaryContact && form.secondaryContactPhone ? (
+              <p className="text-stone-600">Ph: {form.secondaryContactPhone}</p>
+            ) : null}
+            {form.showSecondaryContact && form.secondaryContactEmail ? (
+              <p className="text-stone-600">{form.secondaryContactEmail}</p>
+            ) : null}
+            {form.showTertiaryContact && form.tertiaryContactPhone ? (
+              <p className="text-stone-600">Ph: {form.tertiaryContactPhone}</p>
+            ) : null}
+            {form.showTertiaryContact && form.tertiaryContactEmail ? (
+              <p className="text-stone-600">{form.tertiaryContactEmail}</p>
             ) : null}
           </div>
         </div>
@@ -2267,40 +2287,170 @@ const QuoteEditorPage = () => {
           </section>
 
           <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
-            <h2 className={sectionLabel}>Your contact</h2>
-            <p className="text-xs text-stone-500">
-              Person details on the quote (boxed area): name, phone, and email only.
-            </p>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <label className="block">
-                <span className={labelClass}>Name</span>
-                <input
-                  className={fieldClass}
-                  value={form.contactName}
-                  onChange={(e) => set('contactName', e.target.value)}
-                  placeholder={defaultContactName}
-                />
-              </label>
-              <label className="block">
-                <span className={labelClass}>Phone</span>
-                <input
-                  className={fieldClass}
-                  value={form.contactPhone}
-                  onChange={(e) => set('contactPhone', e.target.value)}
-                  placeholder={defaultContactPhone || 'Phone'}
-                />
-              </label>
-              <label className="block">
-                <span className={labelClass}>Email</span>
-                <input
-                  type="email"
-                  className={fieldClass}
-                  value={form.contactEmail}
-                  onChange={(e) => set('contactEmail', e.target.value)}
-                  placeholder={defaultContactEmail}
-                />
-              </label>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className={sectionLabel}>Your contact</h2>
+                <p className="mt-1 text-xs text-stone-500">
+                  Primary contact is required on the quote. Add secondary or tertiary with +.
+                </p>
+              </div>
+              {!form.showSecondaryContact || !form.showTertiaryContact ? (
+                <button
+                  type="button"
+                  className={btnGhost}
+                  disabled={readOnly}
+                  onClick={() => {
+                    if (!form.showSecondaryContact) {
+                      setForm((f) => ({ ...f, showSecondaryContact: true }))
+                      return
+                    }
+                    setForm((f) => ({ ...f, showTertiaryContact: true }))
+                  }}
+                >
+                  <FiPlus className="h-3.5 w-3.5" aria-hidden />
+                  {!form.showSecondaryContact ? 'Secondary contact' : 'Tertiary contact'}
+                </button>
+              ) : null}
             </div>
+
+            <div className="space-y-3 rounded-xl border border-stone-200 bg-stone-50/60 p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-400">
+                Primary contact
+              </p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="block">
+                  <span className={labelClass}>Name</span>
+                  <input
+                    className={fieldClass}
+                    value={form.contactName}
+                    onChange={(e) => set('contactName', e.target.value)}
+                    placeholder={defaultContactName}
+                    disabled={readOnly}
+                  />
+                </label>
+                <label className="block">
+                  <span className={labelClass}>Phone</span>
+                  <input
+                    className={fieldClass}
+                    value={form.contactPhone}
+                    onChange={(e) => set('contactPhone', e.target.value)}
+                    placeholder={defaultContactPhone || 'Phone'}
+                    disabled={readOnly}
+                  />
+                </label>
+                <label className="block">
+                  <span className={labelClass}>Email</span>
+                  <input
+                    type="email"
+                    className={fieldClass}
+                    value={form.contactEmail}
+                    onChange={(e) => set('contactEmail', e.target.value)}
+                    placeholder={defaultContactEmail}
+                    disabled={readOnly}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {form.showSecondaryContact ? (
+              <div className="space-y-3 rounded-xl border border-stone-200 bg-stone-50/60 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-400">
+                    Secondary contact
+                  </p>
+                  <button
+                    type="button"
+                    className={btnGhost}
+                    disabled={readOnly}
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        showSecondaryContact: false,
+                        showTertiaryContact: false,
+                        secondaryContactPhone: '',
+                        secondaryContactEmail: '',
+                        tertiaryContactPhone: '',
+                        tertiaryContactEmail: '',
+                      }))
+                    }
+                    aria-label="Remove secondary contact"
+                  >
+                    <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
+                    Remove
+                  </button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className={labelClass}>Phone</span>
+                    <input
+                      className={fieldClass}
+                      value={form.secondaryContactPhone}
+                      onChange={(e) => set('secondaryContactPhone', e.target.value)}
+                      disabled={readOnly}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={labelClass}>Email</span>
+                    <input
+                      type="email"
+                      className={fieldClass}
+                      value={form.secondaryContactEmail}
+                      onChange={(e) => set('secondaryContactEmail', e.target.value)}
+                      disabled={readOnly}
+                    />
+                  </label>
+                </div>
+              </div>
+            ) : null}
+
+            {form.showTertiaryContact ? (
+              <div className="space-y-3 rounded-xl border border-stone-200 bg-stone-50/60 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-400">
+                    Tertiary contact
+                  </p>
+                  <button
+                    type="button"
+                    className={btnGhost}
+                    disabled={readOnly}
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        showTertiaryContact: false,
+                        tertiaryContactPhone: '',
+                        tertiaryContactEmail: '',
+                      }))
+                    }
+                    aria-label="Remove tertiary contact"
+                  >
+                    <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
+                    Remove
+                  </button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className={labelClass}>Phone</span>
+                    <input
+                      className={fieldClass}
+                      value={form.tertiaryContactPhone}
+                      onChange={(e) => set('tertiaryContactPhone', e.target.value)}
+                      disabled={readOnly}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={labelClass}>Email</span>
+                    <input
+                      type="email"
+                      className={fieldClass}
+                      value={form.tertiaryContactEmail}
+                      onChange={(e) => set('tertiaryContactEmail', e.target.value)}
+                      disabled={readOnly}
+                    />
+                  </label>
+                </div>
+              </div>
+            ) : null}
+
             <div className="rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-3 text-sm">
               <div className="flex justify-between gap-2">
                 <span className="text-stone-500">Subtotal</span>

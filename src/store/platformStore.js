@@ -9,7 +9,8 @@ import {
 } from '../config/features'
 import { SEED_TENANTS, SEED_USERS, buildSeedCollections } from '../data/seed'
 
-const STORAGE_KEY = 'sc_platform_v11'
+const STORAGE_KEY = 'sc_platform_v13'
+/** Skip recent keys so staff/customer feature flags reseed for tenant admin. */
 const LEGACY_STORAGE_KEYS = ['sc_platform_v10', 'sc_platform_v9', 'sc_platform_v2']
 const EVENT = 'platform-changed'
 

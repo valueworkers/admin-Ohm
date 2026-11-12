@@ -4,7 +4,7 @@ import { useAccess } from '../hooks/useAccess'
 import { EmptyState, Panel } from './ui/PageState'
 
 /**
- * Operations (leads / quotations / invoices / payments).
+ * Operations (leads / quotations / booking / invoices / payments).
  * Super Admin: no tenant required; sees platform billing content.
  * Tenant Admin: needs an organization + feature flag; sees tenant-scoped placeholders
  * (not the Super Admin quotes / invoices / payments UI).

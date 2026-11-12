@@ -137,6 +137,52 @@ export const getPayment = (id) => {
   return loadPayments().find((p) => String(p.id) === String(id)) || null
 }
 
+export const nextPaymentRef = () => {
+  const d = new Date()
+  const yy = String(d.getFullYear()).slice(2)
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const seq = String(Date.now()).slice(-3)
+  return `PAY-${yy}${mm}-${seq}`
+}
+
+/** Persist a payment tagged to a tenant and optionally an invoice. */
+export const createPayment = (input = {}) => {
+  const now = new Date()
+  const paidAt = input.paidAt ? new Date(input.paidAt) : now
+  const paidIso = Number.isNaN(paidAt.getTime()) ? now.toISOString() : paidAt.toISOString()
+  const status = String(input.status || 'SUCCESS').toUpperCase()
+  const amount = Math.max(0, Number(input.amount) || 0)
+  const invoiceId = input.invoiceId ? String(input.invoiceId) : null
+  const invoiceNumber = input.invoiceNumber ? String(input.invoiceNumber).trim() : null
+
+  const row = {
+    id: input.id || `pay-${Date.now()}`,
+    ref: String(input.ref || '').trim() || nextPaymentRef(),
+    tenantId: input.tenantId ? String(input.tenantId) : null,
+    tenantName: String(input.tenantName || '').trim() || 'Tenant',
+    amount,
+    currency: 'INR',
+    status,
+    paidAt: paidIso,
+    receivedAt: status === 'SUCCESS' ? paidIso : null,
+    mode: String(input.mode || 'UPI').trim() || 'UPI',
+    modeDetail: String(input.modeDetail || '').trim() || null,
+    gateway: String(input.gateway || 'Manual').trim() || 'Manual',
+    gatewayTxnId: String(input.gatewayTxnId || '').trim() || null,
+    bankRef: String(input.bankRef || '').trim() || null,
+    invoiceNumber: invoiceId || invoiceNumber ? invoiceNumber : null,
+    invoiceId,
+    purpose: String(input.purpose || '').trim() || 'Platform payment',
+    payerName: String(input.payerName || '').trim() || null,
+    payerEmail: String(input.payerEmail || '').trim() || null,
+    notes: String(input.notes || '').trim() || null,
+  }
+
+  const saved = readSaved().filter((p) => String(p.id) !== String(row.id))
+  localStorage.setItem(KEY, JSON.stringify([row, ...saved]))
+  return row
+}
+
 export const fmtDate = (value) => {
   if (!value) return '—'
   const d = new Date(value)
