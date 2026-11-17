@@ -1,20 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { FiBriefcase, FiEdit2, FiImage, FiMapPin, FiPhone, FiPlus, FiTrash2 } from 'react-icons/fi'
 import {
-  FiBriefcase,
-  FiEdit2,
-  FiMapPin,
-  FiPhone,
-  FiPlus,
-  FiTrash2,
-} from 'react-icons/fi'
+  createService,
+  deleteService,
+  fetchServices,
+  fetchVenues,
+  updateService,
+} from '../api/catalog'
+import CatalogPhotosModal from '../components/CatalogPhotosModal'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import Modal from '../components/ui/Modal'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
-import { EmptyState } from '../components/ui/PageState'
+import { EmptyState, ErrorState, LoadingState } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
-import { usePlatformCollection } from '../hooks/usePlatformCollection'
 import { useVenueScope } from '../hooks/useVenueScope'
+import { apiErrorMessage } from '../utils/errors'
+import { resolveCatalogTenantSlug } from '../utils/tenantHeader'
 import {
   btnGhost,
   btnPrimary,
@@ -25,50 +27,20 @@ import {
   tableWrapClass,
 } from '../utils/ui'
 
-const SERVICE_TYPES = [
-  'Care Companion',
-  'Home Care',
-  'Nursing',
-  'Physiotherapy',
-  'Medical Equipment',
-  'Daycare',
-  'Other',
-]
+const SERVICE_TYPES = ['IN_HOUSE', 'OPD', 'CLIENT_SIDE']
 
 const EMPTY = {
   name: '',
-  contact: '',
-  email: '',
+  service_type: 'OPD',
+  description: '',
   address: '',
   city: '',
-  service_type: '',
-  venue_ids: [],
-  photos: [],
-  logo_url: '',
+  contact: '',
   website: '',
-  description: '',
+  venue_ids: [],
   tags: '',
-  active: true,
-  show_to_tenant: true,
+  duration_mins: '45',
 }
-
-const isShownToTenant = (row) => row.show_to_tenant !== false
-
-const readFilesAsDataUrls = (files, max = 6) =>
-  Promise.all(
-    Array.from(files || [])
-      .slice(0, max)
-      .filter((f) => f.type.startsWith('image/'))
-      .map(
-        (file) =>
-          new Promise((resolve) => {
-            const reader = new FileReader()
-            reader.onload = () => resolve(String(reader.result || ''))
-            reader.onerror = () => resolve('')
-            reader.readAsDataURL(file)
-          })
-      )
-  ).then((urls) => urls.filter(Boolean))
 
 const LocationCell = ({ locations }) => {
   if (!locations.length) return <span className="text-slate-400">—</span>
@@ -98,19 +70,17 @@ const LocationCell = ({ locations }) => {
   )
 }
 
-const parseTags = (value) =>
-  String(value || '')
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean)
-
 const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } = {}) => {
   const access = useAccess()
   const tenantId = tenantIdProp || access.tenantId
   const canWrite = canWriteProp ?? access.canWrite
-  const { rows, save, remove } = usePlatformCollection('services', tenantId)
-  const { rows: venues } = usePlatformCollection('venues', tenantId)
   const { isSuperAdmin } = access
+  const tenantSlug = resolveCatalogTenantSlug(access.tenant)
+
+  const [rows, setRows] = useState([])
+  const [venues, setVenues] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const { selectedId, displayVenues, allVenues, tenantRestricted } = useVenueScope(
     tenantId,
     venues
@@ -122,8 +92,38 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
-  const photoRef = useRef(null)
-  const logoRef = useRef(null)
+  const [deleting, setDeleting] = useState(false)
+  const [photoTarget, setPhotoTarget] = useState(null)
+
+  const load = useCallback(async () => {
+    if (!tenantSlug) {
+      setRows([])
+      setVenues([])
+      setLoadError('')
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setLoadError('')
+    try {
+      const [serviceRows, venueRows] = await Promise.all([
+        fetchServices(tenantSlug),
+        fetchVenues(tenantSlug),
+      ])
+      setRows(serviceRows)
+      setVenues(venueRows)
+    } catch (err) {
+      setRows([])
+      setVenues([])
+      setLoadError(apiErrorMessage(err, 'Could not load services.'))
+    } finally {
+      setLoading(false)
+    }
+  }, [tenantSlug])
+
+  useEffect(() => {
+    load()
+  }, [load])
 
   const venueMap = useMemo(() => {
     const map = new Map()
@@ -132,19 +132,12 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
   }, [venues])
 
   const visibleServices = useMemo(() => {
-    let list = rows
-    if (!isSuperAdmin) {
-      list = list.filter(isShownToTenant)
-    }
-    if (tenantRestricted && selectedId) {
-      list = list.filter((row) => {
-        const ids = Array.isArray(row.venue_ids) ? row.venue_ids.map(String) : []
-        if (!ids.length) return true
-        return ids.includes(String(selectedId))
-      })
-    }
-    return list
-  }, [rows, isSuperAdmin, tenantRestricted, selectedId])
+    if (!tenantRestricted || !selectedId) return rows
+    return rows.filter((row) => {
+      const ids = Array.isArray(row.venue_ids) ? row.venue_ids.map(String) : []
+      return !ids.length || ids.includes(String(selectedId))
+    })
+  }, [rows, tenantRestricted, selectedId])
 
   const resolveLocations = (row) => {
     const ids = Array.isArray(row.venue_ids) ? row.venue_ids : []
@@ -153,15 +146,12 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
         .map((id) => {
           const v = venueMap.get(String(id))
           if (!v) return null
-          const area = v.area || v.city || ''
+          const area = v.locality || v.city || ''
           return area ? `${v.name} (${area})` : v.name
         })
         .filter(Boolean)
     }
-    if (row.address) {
-      const bits = [row.address, row.city].filter(Boolean)
-      return [bits.join(', ')]
-    }
+    if (row.address) return [[row.address, row.city].filter(Boolean).join(', ')]
     return []
   }
 
@@ -169,7 +159,7 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
 
   const toggleVenue = (id) => {
     if (tenantRestricted) {
-      setForm((f) => ({ ...f, venue_ids: [id] }))
+      setForm((f) => ({ ...f, venue_ids: [String(id)] }))
       return
     }
     setForm((f) => {
@@ -177,7 +167,7 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
       const has = f.venue_ids.map(String).includes(sid)
       return {
         ...f,
-        venue_ids: has ? f.venue_ids.filter((x) => String(x) !== sid) : [...f.venue_ids, id],
+        venue_ids: has ? f.venue_ids.filter((x) => String(x) !== sid) : [...f.venue_ids, sid],
       }
     })
   }
@@ -186,113 +176,80 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
     setEditing(null)
     setForm({
       ...EMPTY,
-      venue_ids: tenantRestricted && selectedId ? [selectedId] : [],
+      venue_ids: tenantRestricted && selectedId ? [String(selectedId)] : [],
     })
     setModalOpen(true)
   }
-
-  useEffect(() => {
-    if (!modalOpen || !tenantRestricted || !selectedId) return
-    setForm((f) => {
-      const ids = f.venue_ids.map(String)
-      if (ids.length === 1 && ids[0] === String(selectedId)) return f
-      return { ...f, venue_ids: [selectedId] }
-    })
-  }, [modalOpen, tenantRestricted, selectedId])
 
   const openEdit = (row) => {
     setEditing(row)
     setForm({
       name: row.name || '',
-      contact: row.contact || '',
-      email: row.email || '',
+      service_type: row.service_type || 'OPD',
+      description: row.description || '',
       address: row.address || '',
       city: row.city || '',
-      service_type: row.service_type || row.category || '',
-      venue_ids: Array.isArray(row.venue_ids) ? [...row.venue_ids] : [],
-      photos: Array.isArray(row.photos) ? [...row.photos] : [],
-      logo_url: row.logo_url || '',
+      contact: row.contact || '',
       website: row.website || '',
-      description: row.description || '',
-      tags: Array.isArray(row.tags) ? row.tags.join(', ') : row.tags || '',
-      active: row.active !== false && row.status !== 'inactive',
-      show_to_tenant: isShownToTenant(row),
+      venue_ids: Array.isArray(row.venue_ids) ? row.venue_ids.map(String) : [],
+      tags: Array.isArray(row.tags) ? row.tags.join(', ') : '',
+      duration_mins: String(row.duration_mins ?? 45),
     })
     setModalOpen(true)
   }
 
   const handleSave = async (e) => {
     e.preventDefault()
-    if (!form.name.trim()) {
-      setStatus({ type: 'error', message: 'Service name is required.' })
-      return
-    }
-    if (!form.contact.trim()) {
-      setStatus({ type: 'error', message: 'Contact number is required.' })
-      return
-    }
-    if (!form.address.trim() || !form.city.trim()) {
-      setStatus({ type: 'error', message: 'Address and city are required.' })
-      return
-    }
-    const tags = parseTags(form.tags)
-    if (!tags.length) {
-      setStatus({ type: 'error', message: 'Add at least one tag (comma separated).' })
-      return
+    if (!tenantSlug) return
+    const required = [
+      ['name', 'Service name'],
+      ['contact', 'Contact number'],
+      ['address', 'Address'],
+      ['city', 'City'],
+    ]
+    for (const [key, label] of required) {
+      if (!String(form[key] ?? '').trim()) {
+        setStatus({ type: 'error', message: `${label} is required.` })
+        return
+      }
     }
 
     setSaving(true)
     try {
-      save({
-        id: editing?.id,
-        tenantId,
-        name: form.name.trim(),
-        contact: form.contact.trim(),
-        email: form.email.trim(),
-        address: form.address.trim(),
-        city: form.city.trim(),
-        service_type: form.service_type,
-        category: form.service_type || 'Other',
-        venue_ids: form.venue_ids,
-        photos: form.photos,
-        logo_url: form.logo_url,
-        website: form.website.trim(),
-        description: form.description.trim(),
-        tags,
-        active: Boolean(form.active),
-        status: form.active ? 'active' : 'inactive',
-        show_to_tenant: isSuperAdmin ? Boolean(form.show_to_tenant) : isShownToTenant(editing || {}),
-      })
-      setStatus({
-        type: 'success',
-        message: editing ? 'Service updated.' : 'Service created.',
-      })
-      setModalOpen(false)
+      if (editing) {
+        await updateService(tenantSlug, editing.id, form)
+        setStatus({ type: 'success', message: 'Service updated.' })
+        setModalOpen(false)
+      } else {
+        const created = await createService(tenantSlug, form)
+        setStatus({ type: 'success', message: 'Service created. Add photos next.' })
+        setModalOpen(false)
+        if (created?.id) {
+          setPhotoTarget({ id: created.id, name: created.name || form.name })
+        }
+      }
+      await load()
+    } catch (err) {
+      setStatus({ type: 'error', message: apiErrorMessage(err, 'Could not save service.') })
     } finally {
       setSaving(false)
     }
   }
 
-  const toggleActive = (row) => {
-    if (!canWrite) return
-    const next = !(row.active !== false && row.status !== 'inactive')
-    save({
-      ...row,
-      active: next,
-      status: next ? 'active' : 'inactive',
-    })
-  }
-
-  const toggleShowToTenant = (row) => {
-    if (!isSuperAdmin) return
-    const next = !isShownToTenant(row)
-    save({ ...row, show_to_tenant: next })
-    setStatus({
-      type: 'success',
-      message: next
-        ? `${row.name} is now visible to the tenant.`
-        : `${row.name} is hidden from the tenant.`,
-    })
+  const handleDelete = async () => {
+    const target = deleteTarget
+    if (!target || !tenantSlug) return
+    setDeleting(true)
+    try {
+      await deleteService(tenantSlug, target.id)
+      setStatus({ type: 'success', message: 'Service removed.' })
+      await load()
+    } catch (err) {
+      setStatus({ type: 'error', message: apiErrorMessage(err, 'Could not delete service.') })
+    } finally {
+      setDeleting(false)
+      setDeleteTarget(null)
+    }
   }
 
   return (
@@ -302,14 +259,19 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
         title="Services"
         description={
           isSuperAdmin
-            ? 'Choose which services this tenant can see using Show to tenant. You can still add and edit every service.'
+            ? 'Add and edit every service for the selected tenant.'
             : tenantRestricted
               ? 'Services assigned to your organization (Single venue mode applies).'
               : 'Care services available for your organization.'
         }
         actions={
           canWrite ? (
-            <button type="button" className={btnPrimary} onClick={openCreate}>
+            <button
+              type="button"
+              className={btnPrimary}
+              onClick={openCreate}
+              disabled={!tenantSlug}
+            >
               <FiPlus className="h-4 w-4" aria-hidden />
               Add service
             </button>
@@ -321,10 +283,28 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
         }
       />
 
+      {tenantSlug ? (
+        <StatusBanner type="info" message={`X-Tenant: ${tenantSlug}`} />
+      ) : (
+        <StatusBanner
+          type="warning"
+          message="Select or activate a tenant first so X-Tenant can be sent."
+        />
+      )}
       <StatusBanner type={status.type} message={status.message} />
 
       <div className={tableWrapClass}>
-        {rows.length === 0 ? (
+        {!tenantSlug ? (
+          <EmptyState
+            bare
+            title="No tenant selected"
+            hint="Services load once a tenant is selected."
+          />
+        ) : loading ? (
+          <LoadingState label="Loading services…" />
+        ) : loadError ? (
+          <ErrorState bare message={loadError} onRetry={load} />
+        ) : rows.length === 0 ? (
           <EmptyState
             bare
             title="No services yet"
@@ -335,12 +315,8 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
         ) : visibleServices.length === 0 ? (
           <EmptyState
             bare
-            title={isSuperAdmin ? 'No services match' : 'No services available'}
-            hint={
-              isSuperAdmin
-                ? 'Add a service or adjust filters.'
-                : 'Super Admin has not shared any services with your organization yet.'
-            }
+            title="No services available"
+            hint="No services are linked to the selected venue."
           />
         ) : (
           <div className="overflow-x-auto">
@@ -348,38 +324,25 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
               <thead className={tableHeadClass}>
                 <tr>
                   <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Location</th>
                   <th className="px-4 py-3">Contact</th>
                   <th className="px-4 py-3">Website</th>
                   <th className="px-4 py-3">Tags</th>
-                  <th className="px-4 py-3">Active</th>
-                  {isSuperAdmin ? <th className="px-4 py-3">Show to tenant</th> : null}
+                  <th className="px-4 py-3">Duration</th>
                   {canWrite ? <th className="px-4 py-3 text-right">Actions</th> : null}
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
                 {visibleServices.map((row) => {
-                  const active = row.active !== false && row.status !== 'inactive'
-                  const shown = isShownToTenant(row)
-                  const tags = Array.isArray(row.tags)
-                    ? row.tags
-                    : parseTags(row.tags || row.service_type || row.category)
+                  const tags = Array.isArray(row.tags) ? row.tags : []
                   return (
-                    <tr
-                      key={row.id}
-                      className={`hover:bg-stone-50 ${isSuperAdmin && !shown ? 'opacity-70' : ''}`}
-                    >
+                    <tr key={row.id} className="hover:bg-stone-50">
+                      <td className="px-4 py-3 font-semibold text-stone-900">{row.name}</td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          {row.logo_url ? (
-                            <img
-                              src={row.logo_url}
-                              alt=""
-                              className="h-8 w-8 rounded-lg object-cover"
-                            />
-                          ) : null}
-                          <span className="font-semibold text-stone-900">{row.name}</span>
-                        </div>
+                        <span className="inline-flex rounded-full bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-800">
+                          {row.service_type || '—'}
+                        </span>
                       </td>
                       <td className="px-4 py-3">
                         <LocationCell locations={resolveLocations(row)} />
@@ -411,59 +374,22 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
-                          {tags.length ? (
-                            tags.slice(0, 3).map((tag) => (
-                              <span
-                                key={tag}
-                                className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700"
-                              >
-                                <FiBriefcase className="h-3 w-3 text-slate-400" aria-hidden />
-                                {tag}
-                              </span>
-                            ))
-                          ) : (
-                            '—'
-                          )}
+                          {tags.length
+                            ? tags.slice(0, 3).map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700"
+                                >
+                                  <FiBriefcase className="h-3 w-3 text-slate-400" aria-hidden />
+                                  {tag}
+                                </span>
+                              ))
+                            : '—'}
                         </div>
                       </td>
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={active}
-                          disabled={!canWrite}
-                          onClick={() => toggleActive(row)}
-                          className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-not-allowed ${
-                            active ? 'bg-emerald-500' : 'bg-stone-300'
-                          }`}
-                        >
-                          <span
-                            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                              active ? 'left-5' : 'left-0.5'
-                            }`}
-                          />
-                        </button>
+                      <td className="px-4 py-3 text-slate-600">
+                        {row.duration_mins ? `${row.duration_mins} min` : '—'}
                       </td>
-                      {isSuperAdmin ? (
-                        <td className="px-4 py-3">
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={shown}
-                            aria-label={`Show ${row.name} to tenant`}
-                            onClick={() => toggleShowToTenant(row)}
-                            className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 ${
-                              shown ? 'bg-brand-600' : 'bg-stone-300'
-                            }`}
-                          >
-                            <span
-                              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                                shown ? 'left-5' : 'left-0.5'
-                              }`}
-                            />
-                          </button>
-                        </td>
-                      ) : null}
                       {canWrite ? (
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-1">
@@ -474,6 +400,14 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                               aria-label={`Edit ${row.name}`}
                             >
                               <FiEdit2 className="h-3.5 w-3.5" aria-hidden />
+                            </button>
+                            <button
+                              type="button"
+                              className={btnGhost}
+                              onClick={() => setPhotoTarget({ id: row.id, name: row.name })}
+                              aria-label={`Photos for ${row.name}`}
+                            >
+                              <FiImage className="h-3.5 w-3.5" aria-hidden />
                             </button>
                             <button
                               type="button"
@@ -527,6 +461,26 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
               />
             </div>
             <div>
+              <label className={labelClass} htmlFor="svc-type">
+                Service Type
+              </label>
+              <select
+                id="svc-type"
+                className={fieldClass}
+                value={form.service_type}
+                onChange={(e) => set('service_type', e.target.value)}
+              >
+                {(SERVICE_TYPES.includes(form.service_type)
+                  ? SERVICE_TYPES
+                  : [form.service_type, ...SERVICE_TYPES]
+                ).map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className={labelClass} htmlFor="svc-contact">
                 Contact Number <span className="text-rose-600">*</span>
               </label>
@@ -540,35 +494,17 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
               />
             </div>
             <div>
-              <label className={labelClass} htmlFor="svc-email">
-                Email
+              <label className={labelClass} htmlFor="svc-duration">
+                Duration (mins)
               </label>
               <input
-                id="svc-email"
-                type="email"
+                id="svc-duration"
+                type="number"
+                min="1"
                 className={fieldClass}
-                placeholder="example@email.com"
-                value={form.email}
-                onChange={(e) => set('email', e.target.value)}
+                value={form.duration_mins}
+                onChange={(e) => set('duration_mins', e.target.value)}
               />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="svc-type">
-                Service Type
-              </label>
-              <select
-                id="svc-type"
-                className={fieldClass}
-                value={form.service_type}
-                onChange={(e) => set('service_type', e.target.value)}
-              >
-                <option value="">Select Service Type</option>
-                {SERVICE_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
             </div>
             <div>
               <label className={labelClass} htmlFor="svc-address">
@@ -590,7 +526,7 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
               <input
                 id="svc-city"
                 className={fieldClass}
-                placeholder="City, State"
+                placeholder="City"
                 value={form.city}
                 onChange={(e) => set('city', e.target.value)}
                 required
@@ -612,7 +548,8 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
               <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-stone-200 p-2">
                 {displayVenues.map((v) => {
                   const checked = form.venue_ids.map(String).includes(String(v.id))
-                  const label = v.area || v.city ? `${v.name} (${v.area || v.city})` : v.name
+                  const area = v.locality || v.city
+                  const label = area ? `${v.name} (${area})` : v.name
                   return (
                     <label
                       key={v.id}
@@ -636,53 +573,6 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                 ? 'Your org is limited to the Super Admin–selected venue.'
                 : 'If multiple venues are selected, the table shows them in a location dropdown.'}
             </p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className={labelClass} htmlFor="svc-photos">
-                Photos (Multiple)
-              </label>
-              <input
-                ref={photoRef}
-                id="svc-photos"
-                type="file"
-                accept="image/*"
-                multiple
-                className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-brand-800"
-                onChange={async (e) => {
-                  const urls = await readFilesAsDataUrls(e.target.files, 6)
-                  set('photos', urls)
-                }}
-              />
-              <p className="mt-1 text-xs text-slate-500">You can select multiple photos at once.</p>
-              {form.photos.length ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {form.photos.map((src) => (
-                    <img key={src.slice(0, 32)} src={src} alt="" className="h-12 w-12 rounded object-cover" />
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="svc-logo">
-                Logo
-              </label>
-              <input
-                ref={logoRef}
-                id="svc-logo"
-                type="file"
-                accept="image/*"
-                className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-brand-800"
-                onChange={async (e) => {
-                  const urls = await readFilesAsDataUrls(e.target.files, 1)
-                  set('logo_url', urls[0] || '')
-                }}
-              />
-              {form.logo_url ? (
-                <img src={form.logo_url} alt="" className="mt-2 h-12 w-12 rounded object-cover" />
-              ) : null}
-            </div>
           </div>
 
           <div>
@@ -714,40 +604,16 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
 
           <div>
             <label className={labelClass} htmlFor="svc-tags">
-              Services / Tags <span className="text-rose-600">*</span>
+              Tags
             </label>
             <input
               id="svc-tags"
               className={fieldClass}
-              placeholder="Home Care, Nursing Care, Physiotherapy, Medical Equipment (comma separated)"
+              placeholder="Home Care, Nursing Care, Physiotherapy (comma separated)"
               value={form.tags}
               onChange={(e) => set('tags', e.target.value)}
-              required
             />
-            <p className="mt-1 text-xs text-slate-500">Separate multiple services with commas.</p>
-          </div>
-
-          <div className="flex flex-wrap gap-4">
-            <label className="flex items-center gap-2 text-sm text-stone-700">
-              <input
-                type="checkbox"
-                className="rounded border-stone-300 text-brand-600 focus:ring-brand-500"
-                checked={form.active}
-                onChange={(e) => set('active', e.target.checked)}
-              />
-              Active
-            </label>
-            {isSuperAdmin ? (
-              <label className="flex items-center gap-2 text-sm text-stone-700">
-                <input
-                  type="checkbox"
-                  className="rounded border-stone-300 text-brand-600 focus:ring-brand-500"
-                  checked={Boolean(form.show_to_tenant)}
-                  onChange={(e) => set('show_to_tenant', e.target.checked)}
-                />
-                Show to tenant
-              </label>
-            ) : null}
+            <p className="mt-1 text-xs text-slate-500">Separate multiple tags with commas.</p>
           </div>
         </form>
       </Modal>
@@ -755,14 +621,25 @@ const ServicesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="Delete service?"
-        message="This removes the service from demo data for this tenant."
+        message="This permanently removes the service for this tenant."
         confirmLabel="Delete"
-        onConfirm={() => {
-          remove(deleteTarget.id)
-          setStatus({ type: 'success', message: 'Service removed.' })
-          setDeleteTarget(null)
-        }}
+        loading={deleting}
+        onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}
+      />
+
+      <CatalogPhotosModal
+        open={Boolean(photoTarget?.id)}
+        onClose={() => setPhotoTarget(null)}
+        tenantSlug={tenantSlug}
+        entityType="service"
+        objectId={photoTarget?.id}
+        title={
+          photoTarget?.name
+            ? `Photos · ${photoTarget.name}`
+            : `Photos · service #${photoTarget?.id || ''}`
+        }
+        canWrite={canWrite}
       />
     </div>
   )

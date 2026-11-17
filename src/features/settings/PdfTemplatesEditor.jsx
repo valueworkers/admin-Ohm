@@ -171,7 +171,9 @@ const PdfPagePreview = ({ template, style, org }) => {
             {template.docType !== 'report' ? (
               <div className="mb-4 grid grid-cols-2 gap-4" style={{ fontSize: 10 }}>
                 <div>
-                  <p style={{ margin: 0, fontWeight: 700, color: style.accentColor }}>Bill to</p>
+                  <p style={{ margin: 0, fontWeight: 700, color: style.accentColor }}>
+                    {template.docType === 'quotation' ? 'Quoted to' : 'Billed to'}
+                  </p>
                   <p style={{ margin: '4px 0 0' }}>Vaishnavi Test Care</p>
                   <p style={{ margin: '2px 0 0', opacity: 0.75 }}>health@yopmail.com</p>
                   <p style={{ margin: '2px 0 0', opacity: 0.75 }}>Malleshwaram, Bengaluru</p>

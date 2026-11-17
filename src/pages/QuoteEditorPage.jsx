@@ -1207,35 +1207,35 @@ const QuoteEditorPage = () => {
           </div>
         </div>
 
-        <div className="space-y-1 border-t border-stone-100 pt-3 text-[10px] text-stone-500">
-          <p className="font-semibold text-stone-700">Terms</p>
-          <ol className="list-decimal space-y-0.5 pl-4">
-            <li>
-              Validity {validityDays} day{validityDays === 1 ? '' : 's'} from quote date (until{' '}
-              {fmtDate(validUntil)}) unless stated otherwise.
-            </li>
-            {String(form.terms || '')
-              .split('\n')
-              .map((line) => line.trim())
-              .filter(Boolean)
-              .map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-          </ol>
-        </div>
-
-        <div className="flex flex-wrap items-end justify-between gap-3 border-t border-stone-100 pt-3">
-          <div>
-            <p className="font-bold text-stone-800">Accept this quote</p>
-            <button type="button" className={`${btnPrimary} mt-2`} disabled>
-              Accept quote online →
-            </button>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-t border-stone-100 pt-3 text-[10px]">
+          <div className="min-w-0 flex-1 space-y-1 text-stone-500">
+            <p className="font-semibold text-stone-700">Terms</p>
+            <ol className="list-decimal space-y-0.5 pl-4">
+              <li>
+                Validity {validityDays} day{validityDays === 1 ? '' : 's'} from quote date (until{' '}
+                {fmtDate(validUntil)}) unless stated otherwise.
+              </li>
+              {String(form.terms || '')
+                .split('\n')
+                .map((line) => line.trim())
+                .filter(Boolean)
+                .map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+            </ol>
           </div>
-          <p className="text-right text-stone-500">
+          <p className="shrink-0 pt-0.5 text-right text-stone-500">
             For {headerName}
             <br />
             Authorized signatory
           </p>
+        </div>
+
+        <div className="border-t border-stone-100 pt-3">
+          <p className="font-bold text-stone-800">Accept this quote</p>
+          <button type="button" className={`${btnPrimary} mt-2`} disabled>
+            Accept quote online →
+          </button>
         </div>
       </div>
     </div>

@@ -131,7 +131,7 @@ const renderInvoiceCell = (colId, inv) => {
 const statusChip = (status) => {
   const s = String(status || '').toUpperCase()
   if (s === 'PAID') return 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100'
-  if (s === 'PARTIAL' || s === 'SENT') {
+  if (s === 'PARTIAL' || s === 'SENT' || s === 'ISSUED') {
     return 'border border-stone-300 bg-white text-stone-800'
   }
   if (s === 'OVERDUE') return 'bg-rose-50 text-rose-800 ring-1 ring-rose-100'

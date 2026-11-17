@@ -1,13 +1,16 @@
-import { useRef, useState } from 'react'
-import { FiCheck, FiEdit2, FiMapPin, FiPlus, FiTrash2 } from 'react-icons/fi'
+import { useCallback, useEffect, useState } from 'react'
+import { FiCheck, FiEdit2, FiImage, FiMapPin, FiPlus, FiTrash2 } from 'react-icons/fi'
+import { createVenue, deleteVenue, fetchVenues, updateVenue } from '../api/catalog'
+import CatalogPhotosModal from '../components/CatalogPhotosModal'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import Modal from '../components/ui/Modal'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
-import { EmptyState } from '../components/ui/PageState'
+import { EmptyState, ErrorState, LoadingState } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
-import { usePlatformCollection } from '../hooks/usePlatformCollection'
 import { useVenueScope } from '../hooks/useVenueScope'
+import { apiErrorMessage } from '../utils/errors'
+import { resolveCatalogTenantSlug } from '../utils/tenantHeader'
 import {
   btnGhost,
   btnPrimary,
@@ -18,64 +21,78 @@ import {
   tableWrapClass,
 } from '../utils/ui'
 
-const LOCALITY_TYPES = ['Area', 'Colony', 'Layout', 'Village', 'Town', 'Ward', 'Other']
-
-const EMPTY_HALL = { name: '', capacity: '' }
+const LOCATION_TYPES = ['OPD', 'IN_HOUSE', 'CLIENT_SIDE']
 
 const EMPTY = {
   name: '',
   description: '',
+  contact: '',
+  website: '',
+  instagram: '',
   capacity: '',
+  price_per_event: '',
+  rooms: '',
+  floors: '',
+  bike_parking: '',
+  car_parking: '',
+  amenities: '',
+  seating_arrangement: '',
+  location_type: 'OPD',
   building_name: '',
   address_line1: '',
   address_line2: '',
   locality: '',
-  locality_type: '',
   city: '',
   state: '',
   postal_code: '',
-  country: 'India',
-  rooms: '',
-  floors: '',
-  car_parking: '',
-  bike_parking: '',
-  halls: [],
-  photos: [],
-  active: true,
 }
 
-const readFilesAsDataUrls = (files, max = 8) =>
-  Promise.all(
-    Array.from(files || [])
-      .slice(0, max)
-      .filter((f) => f.type.startsWith('image/'))
-      .map(
-        (file) =>
-          new Promise((resolve) => {
-            const reader = new FileReader()
-            reader.onload = () => resolve(String(reader.result || ''))
-            reader.onerror = () => resolve('')
-            reader.readAsDataURL(file)
-          })
-      )
-  ).then((urls) => urls.filter(Boolean))
+const REQUIRED = [
+  ['name', 'Venue name'],
+  ['contact', 'Contact'],
+  ['capacity', 'Capacity'],
+  ['building_name', 'Building name'],
+  ['address_line1', 'Address line 1'],
+  ['address_line2', 'Address line 2'],
+  ['locality', 'Locality'],
+  ['city', 'City'],
+  ['state', 'State'],
+  ['postal_code', 'Postal code'],
+]
 
 const formatAddress = (row) => {
-  const parts = [
-    row.address_line1,
-    row.locality,
-    row.city,
-    row.state,
-    row.postal_code,
-  ].filter(Boolean)
-  return parts.join(', ') || row.address || '—'
+  const parts = [row.address_line1, row.address_line2, row.locality, row.city, row.state, row.postal_code].filter(
+    Boolean
+  )
+  return parts.join(', ') || '—'
 }
+
+const TextField = ({ id, label, required, form, set, name, type = 'text', ...rest }) => (
+  <div>
+    <label className={labelClass} htmlFor={id}>
+      {label} {required ? <span className="text-rose-600">*</span> : null}
+    </label>
+    <input
+      id={id}
+      type={type}
+      className={fieldClass}
+      value={form[name]}
+      onChange={(e) => set(name, e.target.value)}
+      required={required}
+      {...rest}
+    />
+  </div>
+)
 
 const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } = {}) => {
   const access = useAccess()
   const tenantId = tenantIdProp || access.tenantId
   const canWrite = canWriteProp ?? access.canWrite
-  const { rows, save, remove } = usePlatformCollection('venues', tenantId)
+  const tenantSlug = resolveCatalogTenantSlug(access.tenant)
+
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const {
     mode,
     selectedId,
@@ -94,9 +111,33 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
-  const photoRef = useRef(null)
+  const [deleting, setDeleting] = useState(false)
+  const [photoTarget, setPhotoTarget] = useState(null)
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
+
+  const load = useCallback(async () => {
+    if (!tenantSlug) {
+      setRows([])
+      setLoadError('')
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setLoadError('')
+    try {
+      setRows(await fetchVenues(tenantSlug))
+    } catch (err) {
+      setRows([])
+      setLoadError(apiErrorMessage(err, 'Could not load venues.'))
+    } finally {
+      setLoading(false)
+    }
+  }, [tenantSlug])
+
+  useEffect(() => {
+    load()
+  }, [load])
 
   const openCreate = () => {
     setEditing(null)
@@ -109,56 +150,35 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
     setForm({
       name: row.name || '',
       description: row.description || '',
+      contact: row.contact || '',
+      website: row.website || '',
+      instagram: row.instagram || '',
       capacity: row.capacity ?? '',
+      price_per_event: row.price_per_event ?? '',
+      rooms: row.rooms ?? '',
+      floors: row.floors ?? '',
+      bike_parking: row.bike_parking ?? '',
+      car_parking: row.car_parking ?? '',
+      amenities: Array.isArray(row.amenities) ? row.amenities.join(', ') : '',
+      seating_arrangement: Array.isArray(row.seating_arrangement)
+        ? row.seating_arrangement.join(', ')
+        : '',
+      location_type: row.location_type || 'OPD',
       building_name: row.building_name || '',
-      address_line1: row.address_line1 || row.address || '',
+      address_line1: row.address_line1 || '',
       address_line2: row.address_line2 || '',
-      locality: row.locality || row.area || '',
-      locality_type: row.locality_type || '',
+      locality: row.locality || '',
       city: row.city || '',
       state: row.state || '',
       postal_code: row.postal_code || '',
-      country: row.country || 'India',
-      rooms: row.rooms ?? '',
-      floors: row.floors ?? '',
-      car_parking: row.car_parking ?? '',
-      bike_parking: row.bike_parking ?? '',
-      halls: Array.isArray(row.halls) ? row.halls.map((h) => ({ ...h })) : [],
-      photos: Array.isArray(row.photos) ? [...row.photos] : [],
-      active: row.active !== false && row.status !== 'inactive',
     })
     setModalOpen(true)
   }
 
-  const addHall = () => setForm((f) => ({ ...f, halls: [...f.halls, { ...EMPTY_HALL }] }))
-
-  const updateHall = (index, key, value) => {
-    setForm((f) => ({
-      ...f,
-      halls: f.halls.map((h, i) => (i === index ? { ...h, [key]: value } : h)),
-    }))
-  }
-
-  const removeHall = (index) => {
-    setForm((f) => ({ ...f, halls: f.halls.filter((_, i) => i !== index) }))
-  }
-
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault()
-    const required = [
-      ['name', 'Venue name'],
-      ['capacity', 'Capacity'],
-      ['building_name', 'Building name'],
-      ['address_line1', 'Address line 1'],
-      ['address_line2', 'Address line 2'],
-      ['locality', 'Locality'],
-      ['locality_type', 'Locality type'],
-      ['city', 'City'],
-      ['state', 'State'],
-      ['postal_code', 'Postal code'],
-      ['country', 'Country'],
-    ]
-    for (const [key, label] of required) {
+    if (!tenantSlug) return
+    for (const [key, label] of REQUIRED) {
       if (!String(form[key] ?? '').trim()) {
         setStatus({ type: 'error', message: `${label} is required.` })
         return
@@ -167,49 +187,45 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
 
     setSaving(true)
     try {
-      const area = form.locality.trim()
-      save({
-        id: editing?.id,
-        tenantId,
-        name: form.name.trim(),
-        description: form.description.trim(),
-        capacity: Number(form.capacity) || 0,
-        building_name: form.building_name.trim(),
-        address_line1: form.address_line1.trim(),
-        address_line2: form.address_line2.trim(),
-        locality: area,
-        locality_type: form.locality_type,
-        area,
-        city: form.city.trim(),
-        state: form.state.trim(),
-        postal_code: form.postal_code.trim(),
-        country: form.country.trim() || 'India',
-        address: [form.address_line1, form.address_line2, area, form.city]
-          .filter(Boolean)
-          .join(', '),
-        rooms: form.rooms === '' ? '' : Number(form.rooms),
-        floors: form.floors === '' ? '' : Number(form.floors),
-        car_parking: form.car_parking === '' ? '' : Number(form.car_parking),
-        bike_parking: form.bike_parking === '' ? '' : Number(form.bike_parking),
-        halls: form.halls
-          .filter((h) => h.name?.trim())
-          .map((h) => ({
-            name: h.name.trim(),
-            capacity: h.capacity === '' ? '' : Number(h.capacity),
-          })),
-        photos: form.photos,
-        active: Boolean(form.active),
-        status: form.active ? 'active' : 'inactive',
-      })
-      setStatus({
-        type: 'success',
-        message: editing ? 'Venue updated.' : 'Venue created.',
-      })
-      setModalOpen(false)
+      if (editing) {
+        await updateVenue(tenantSlug, editing.id, form)
+        setStatus({ type: 'success', message: 'Venue updated.' })
+        setModalOpen(false)
+      } else {
+        const created = await createVenue(tenantSlug, form)
+        setStatus({ type: 'success', message: 'Venue created. Add photos next.' })
+        setModalOpen(false)
+        if (created?.id) {
+          setPhotoTarget({ id: created.id, name: created.name || form.name })
+        }
+      }
+      await load()
+    } catch (err) {
+      setStatus({ type: 'error', message: apiErrorMessage(err, 'Could not save venue.') })
     } finally {
       setSaving(false)
     }
   }
+
+  const handleDelete = async () => {
+    const target = deleteTarget
+    if (!target || !tenantSlug) return
+    setDeleting(true)
+    try {
+      await deleteVenue(tenantSlug, target.id)
+      setStatus({ type: 'success', message: 'Venue removed.' })
+      await load()
+    } catch (err) {
+      setStatus({ type: 'error', message: apiErrorMessage(err, 'Could not delete venue.') })
+    } finally {
+      setDeleting(false)
+      setDeleteTarget(null)
+    }
+  }
+
+  const locationOptions = LOCATION_TYPES.includes(form.location_type)
+    ? LOCATION_TYPES
+    : [form.location_type, ...LOCATION_TYPES]
 
   return (
     <div className="space-y-4">
@@ -264,7 +280,12 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
               </>
             ) : null}
             {canWrite ? (
-              <button type="button" className={btnPrimary} onClick={openCreate}>
+              <button
+                type="button"
+                className={btnPrimary}
+                onClick={openCreate}
+                disabled={!tenantSlug}
+              >
                 <FiPlus className="h-4 w-4" aria-hidden />
                 Add venue
               </button>
@@ -277,10 +298,28 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
         }
       />
 
+      {tenantSlug ? (
+        <StatusBanner type="info" message={`X-Tenant: ${tenantSlug}`} />
+      ) : (
+        <StatusBanner
+          type="warning"
+          message="Select or activate a tenant first so X-Tenant can be sent."
+        />
+      )}
       <StatusBanner type={status.type} message={status.message} />
 
       <div className={tableWrapClass}>
-        {allVenues.length === 0 ? (
+        {!tenantSlug ? (
+          <EmptyState
+            bare
+            title="No tenant selected"
+            hint="Venues load once a tenant is selected."
+          />
+        ) : loading ? (
+          <LoadingState label="Loading venues…" />
+        ) : loadError ? (
+          <ErrorState bare message={loadError} onRetry={load} />
+        ) : allVenues.length === 0 ? (
           <EmptyState
             bare
             title="No venues yet"
@@ -299,41 +338,87 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
             <table className="min-w-full text-left text-sm">
               <thead className={tableHeadClass}>
                 <tr>
-                  <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Venue</th>
                   <th className="px-4 py-3">Location</th>
-                  <th className="px-4 py-3">Building</th>
                   <th className="px-4 py-3">Capacity</th>
-                  <th className="px-4 py-3">Halls</th>
+                  <th className="px-4 py-3">Rooms / Floors</th>
+                  <th className="px-4 py-3">Parking</th>
+                  <th className="px-4 py-3 text-right">Price / event</th>
+                  <th className="px-4 py-3">Contact</th>
                   <th className="px-4 py-3">Active</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
                 {displayVenues.map((row) => {
-                  const active = row.active !== false && row.status !== 'inactive'
-                  const hallCount = Array.isArray(row.halls) ? row.halls.length : 0
+                  const active = row.active !== false
                   const isSelected = String(row.id) === String(selectedId)
                   return (
                     <tr key={row.id} className="hover:bg-stone-50">
-                      <td className="px-4 py-3 font-semibold text-stone-900">
-                        <span className="inline-flex items-center gap-2">
-                          {row.name}
-                          {isSelected ? (
-                            <span className="rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-800">
-                              Selected
+                      <td className="px-4 py-3">
+                        <div className="flex min-w-[220px] items-center gap-3">
+                          {row.photo_url ? (
+                            <img
+                              src={row.photo_url}
+                              alt={row.name}
+                              loading="lazy"
+                              width={48}
+                              height={48}
+                              className="h-12 w-12 shrink-0 rounded-lg border border-stone-200 object-cover"
+                            />
+                          ) : (
+                            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-stone-300 bg-stone-50 text-stone-400">
+                              <FiImage className="h-4 w-4" aria-hidden />
                             </span>
-                          ) : null}
-                        </span>
+                          )}
+                          <div className="min-w-0">
+                            <p className="flex items-center gap-2 font-semibold text-stone-900">
+                              {row.name}
+                              {isSelected ? (
+                                <span className="rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-800">
+                                  Selected
+                                </span>
+                              ) : null}
+                            </p>
+                            {row.description ? (
+                              <p className="line-clamp-1 text-xs text-stone-500">{row.description}</p>
+                            ) : null}
+                            {row.photos.length > 1 ? (
+                              <p className="text-xs text-stone-400">{row.photos.length} photos</p>
+                            ) : null}
+                          </div>
+                        </div>
                       </td>
                       <td className="px-4 py-3">
-                        <span className="inline-flex max-w-[260px] items-start gap-1.5 text-slate-700">
-                          <FiMapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                          <span className="line-clamp-2">{formatAddress(row)}</span>
-                        </span>
+                        <div className="max-w-[260px] text-slate-700">
+                          <p className="flex items-center gap-1.5 font-medium text-stone-800">
+                            <FiMapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                            {row.building_name || '—'}
+                            <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800">
+                              {row.location_type.replace(/_/g, ' ')}
+                            </span>
+                          </p>
+                          <p className="line-clamp-2 text-xs text-stone-500">{formatAddress(row)}</p>
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{row.building_name || '—'}</td>
                       <td className="px-4 py-3 text-slate-600">{row.capacity ?? '—'}</td>
-                      <td className="px-4 py-3 text-slate-600">{hallCount || '—'}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {row.rooms} / {row.floors}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-600">
+                        2W {row.bike_parking} · 4W {row.car_parking}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        ₹{Number(row.price_per_event || 0).toLocaleString('en-IN')}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        <p>{row.contact || '—'}</p>
+                        {row.website ? (
+                          <a href={row.website} target="_blank" rel="noreferrer" className="text-xs text-brand-700 hover:underline">
+                            Website
+                          </a>
+                        ) : null}
+                      </td>
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -346,40 +431,50 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                          <div className="flex justify-end gap-1">
-                            {canConfigureMode && !isSelected ? (
-                              <button
-                                type="button"
-                                className={btnGhost}
-                                onClick={() => selectVenue(row.id)}
-                                aria-label={`Set ${row.name} as tenant selected venue`}
-                              >
-                                <FiCheck className="h-3.5 w-3.5" aria-hidden />
-                                Use
-                              </button>
-                            ) : null}
-                            {canWrite ? (
-                              <>
+                        <div className="flex justify-end gap-1">
+                          {canConfigureMode && !isSelected ? (
                             <button
                               type="button"
                               className={btnGhost}
-                              onClick={() => openEdit(row)}
-                              aria-label={`Edit ${row.name}`}
+                              onClick={() => selectVenue(row.id)}
+                              aria-label={`Set ${row.name} as tenant selected venue`}
                             >
-                              <FiEdit2 className="h-3.5 w-3.5" aria-hidden />
+                              <FiCheck className="h-3.5 w-3.5" aria-hidden />
+                              Use
                             </button>
-                            <button
-                              type="button"
-                              className={`${btnGhost} text-rose-600 hover:bg-rose-50`}
-                              onClick={() => setDeleteTarget(row)}
-                              aria-label={`Delete ${row.name}`}
-                            >
-                              <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
-                            </button>
+                          ) : null}
+                            {canWrite ? (
+                              <>
+                              <button
+                                type="button"
+                                className={btnGhost}
+                                onClick={() => openEdit(row)}
+                                aria-label={`Edit ${row.name}`}
+                              >
+                                <FiEdit2 className="h-3.5 w-3.5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                className={btnGhost}
+                                onClick={() =>
+                                  setPhotoTarget({ id: row.id, name: row.name, photos: row.photos })
+                                }
+                                aria-label={`Photos for ${row.name}`}
+                              >
+                                <FiImage className="h-3.5 w-3.5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                className={`${btnGhost} text-rose-600 hover:bg-rose-50`}
+                                onClick={() => setDeleteTarget(row)}
+                                aria-label={`Delete ${row.name}`}
+                              >
+                                <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
+                              </button>
                               </>
                             ) : null}
-                          </div>
-                        </td>
+                        </div>
+                      </td>
                     </tr>
                   )
                 })}
@@ -406,19 +501,15 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
         }
       >
         <form id="venue-form" className="space-y-3" onSubmit={handleSave}>
-          <div>
-            <label className={labelClass} htmlFor="ven-name">
-              Venue Name <span className="text-rose-600">*</span>
-            </label>
-            <input
-              id="ven-name"
-              className={fieldClass}
-              placeholder="Enter venue name"
-              value={form.name}
-              onChange={(e) => set('name', e.target.value)}
-              required
-            />
-          </div>
+          <TextField
+            id="ven-name"
+            label="Venue Name"
+            required
+            form={form}
+            set={set}
+            name="name"
+            placeholder="Enter venue name"
+          />
           <div>
             <label className={labelClass} htmlFor="ven-desc">
               Description
@@ -432,300 +523,238 @@ const VenuesPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow } 
               onChange={(e) => set('description', e.target.value)}
             />
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className={labelClass} htmlFor="ven-cap">
-                Capacity <span className="text-rose-600">*</span>
-              </label>
-              <input
-                id="ven-cap"
-                type="number"
-                min="0"
-                className={fieldClass}
-                placeholder="Enter capacity"
-                value={form.capacity}
-                onChange={(e) => set('capacity', e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="ven-building">
-                Building Name <span className="text-rose-600">*</span>
-              </label>
-              <input
-                id="ven-building"
-                className={fieldClass}
-                placeholder="Enter building name"
-                value={form.building_name}
-                onChange={(e) => set('building_name', e.target.value)}
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className={labelClass} htmlFor="ven-a1">
-              Address Line 1 <span className="text-rose-600">*</span>
-            </label>
-            <input
-              id="ven-a1"
-              className={fieldClass}
-              placeholder="Enter address line 1"
-              value={form.address_line1}
-              onChange={(e) => set('address_line1', e.target.value)}
-              required
-            />
-          </div>
-          <div>
-            <label className={labelClass} htmlFor="ven-a2">
-              Address Line 2 <span className="text-rose-600">*</span>
-            </label>
-            <input
-              id="ven-a2"
-              className={fieldClass}
-              placeholder="Enter address line 2"
-              value={form.address_line2}
-              onChange={(e) => set('address_line2', e.target.value)}
-              required
-            />
-          </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className={labelClass} htmlFor="ven-locality">
-                Locality <span className="text-rose-600">*</span>
-              </label>
-              <input
-                id="ven-locality"
-                className={fieldClass}
-                placeholder="Enter locality"
-                value={form.locality}
-                onChange={(e) => set('locality', e.target.value)}
-                required
-              />
-            </div>
+            <TextField
+              id="ven-contact"
+              label="Contact"
+              required
+              form={form}
+              set={set}
+              name="contact"
+              placeholder="+91 98765 43210"
+            />
+            <TextField
+              id="ven-web"
+              label="Website"
+              form={form}
+              set={set}
+              name="website"
+              placeholder="https://example.com"
+            />
+            <TextField
+              id="ven-insta"
+              label="Instagram"
+              form={form}
+              set={set}
+              name="instagram"
+              placeholder="https://instagram.com/venue"
+            />
             <div>
               <label className={labelClass} htmlFor="ven-loc-type">
-                Locality Type <span className="text-rose-600">*</span>
+                Location Type
               </label>
               <select
                 id="ven-loc-type"
                 className={fieldClass}
-                value={form.locality_type}
-                onChange={(e) => set('locality_type', e.target.value)}
-                required
+                value={form.location_type}
+                onChange={(e) => set('location_type', e.target.value)}
               >
-                <option value="">Select locality type</option>
-                {LOCALITY_TYPES.map((t) => (
+                {locationOptions.map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>
                 ))}
               </select>
             </div>
-            <div>
-              <label className={labelClass} htmlFor="ven-city">
-                City <span className="text-rose-600">*</span>
-              </label>
-              <input
-                id="ven-city"
-                className={fieldClass}
-                placeholder="Enter city"
-                value={form.city}
-                onChange={(e) => set('city', e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="ven-state">
-                State <span className="text-rose-600">*</span>
-              </label>
-              <input
-                id="ven-state"
-                className={fieldClass}
-                placeholder="Enter state"
-                value={form.state}
-                onChange={(e) => set('state', e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="ven-pin">
-                Postal Code <span className="text-rose-600">*</span>
-              </label>
-              <input
-                id="ven-pin"
-                className={fieldClass}
-                placeholder="Enter postal code"
-                value={form.postal_code}
-                onChange={(e) => set('postal_code', e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="ven-country">
-                Country <span className="text-rose-600">*</span>
-              </label>
-              <input
-                id="ven-country"
-                className={fieldClass}
-                value={form.country}
-                onChange={(e) => set('country', e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="ven-rooms">
-                Rooms
-              </label>
-              <input
-                id="ven-rooms"
-                type="number"
-                min="0"
-                className={fieldClass}
-                placeholder="Rooms"
-                value={form.rooms}
-                onChange={(e) => set('rooms', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="ven-floors">
-                Floors
-              </label>
-              <input
-                id="ven-floors"
-                type="number"
-                min="0"
-                className={fieldClass}
-                placeholder="Floors"
-                value={form.floors}
-                onChange={(e) => set('floors', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="ven-car">
-                Car Parking
-              </label>
-              <input
-                id="ven-car"
-                type="number"
-                min="0"
-                className={fieldClass}
-                placeholder="Car spaces"
-                value={form.car_parking}
-                onChange={(e) => set('car_parking', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="ven-bike">
-                Bike Parking
-              </label>
-              <input
-                id="ven-bike"
-                type="number"
-                min="0"
-                className={fieldClass}
-                placeholder="Bike spaces"
-                value={form.bike_parking}
-                onChange={(e) => set('bike_parking', e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">Halls (optional)</p>
-                <p className="text-xs text-slate-500">Add named halls with optional capacity.</p>
-              </div>
-              <button type="button" className={btnSecondary} onClick={addHall}>
-                <FiPlus className="h-3.5 w-3.5" aria-hidden />
-                Add Hall
-              </button>
-            </div>
-            {form.halls.length === 0 ? (
-              <p className="mt-3 text-sm text-slate-500">No halls added.</p>
-            ) : (
-              <div className="mt-3 space-y-2">
-                {form.halls.map((hall, index) => (
-                  <div key={`hall-${index}`} className="grid gap-2 sm:grid-cols-[1fr_120px_auto]">
-                    <input
-                      className={fieldClass}
-                      placeholder="Hall name"
-                      value={hall.name}
-                      onChange={(e) => updateHall(index, 'name', e.target.value)}
-                    />
-                    <input
-                      type="number"
-                      min="0"
-                      className={fieldClass}
-                      placeholder="Capacity"
-                      value={hall.capacity}
-                      onChange={(e) => updateHall(index, 'capacity', e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className={`${btnGhost} text-rose-600`}
-                      onClick={() => removeHall(index)}
-                      aria-label="Remove hall"
-                    >
-                      <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <label className={labelClass} htmlFor="ven-photos">
-              Venue Photos
-            </label>
-            <input
-              ref={photoRef}
-              id="ven-photos"
-              type="file"
-              accept="image/*"
-              multiple
-              className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-brand-800"
-              onChange={async (e) => {
-                const urls = await readFilesAsDataUrls(e.target.files, 8)
-                set('photos', urls)
-              }}
+            <TextField
+              id="ven-cap"
+              label="Capacity"
+              required
+              form={form}
+              set={set}
+              name="capacity"
+              type="number"
+              min="0"
+              placeholder="Enter capacity"
             />
-            <p className="mt-1 text-xs text-slate-500">You can select multiple photos at once.</p>
-            {form.photos.length ? (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {form.photos.map((src) => (
-                  <img key={src.slice(0, 40)} src={src} alt="" className="h-12 w-12 rounded object-cover" />
-                ))}
-              </div>
-            ) : null}
+            <TextField
+              id="ven-price"
+              label="Price per Event"
+              form={form}
+              set={set}
+              name="price_per_event"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0.00"
+            />
+            <TextField
+              id="ven-rooms"
+              label="Rooms"
+              form={form}
+              set={set}
+              name="rooms"
+              type="number"
+              min="0"
+              placeholder="Rooms"
+            />
+            <TextField
+              id="ven-floors"
+              label="Floors"
+              form={form}
+              set={set}
+              name="floors"
+              type="number"
+              min="0"
+              placeholder="Floors"
+            />
+            <TextField
+              id="ven-bike"
+              label="Bike Parking"
+              form={form}
+              set={set}
+              name="bike_parking"
+              type="number"
+              min="0"
+              placeholder="Bike spaces"
+            />
+            <TextField
+              id="ven-car"
+              label="Car Parking"
+              form={form}
+              set={set}
+              name="car_parking"
+              type="number"
+              min="0"
+              placeholder="Car spaces"
+            />
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-              checked={form.active}
-              onChange={(e) => set('active', e.target.checked)}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className={labelClass} htmlFor="ven-amenities">
+                Amenities
+              </label>
+              <input
+                id="ven-amenities"
+                className={fieldClass}
+                placeholder="WiFi, AC, Wheelchair access"
+                value={form.amenities}
+                onChange={(e) => set('amenities', e.target.value)}
+              />
+              <p className="mt-1 text-xs text-slate-500">Comma separated.</p>
+            </div>
+            <div>
+              <label className={labelClass} htmlFor="ven-seating">
+                Seating Arrangement
+              </label>
+              <input
+                id="ven-seating"
+                className={fieldClass}
+                placeholder="Theatre, Classroom, Round tables"
+                value={form.seating_arrangement}
+                onChange={(e) => set('seating_arrangement', e.target.value)}
+              />
+              <p className="mt-1 text-xs text-slate-500">Comma separated.</p>
+            </div>
+          </div>
+
+          <TextField
+            id="ven-building"
+            label="Building Name"
+            required
+            form={form}
+            set={set}
+            name="building_name"
+            placeholder="Enter building name"
+          />
+          <TextField
+            id="ven-a1"
+            label="Address Line 1"
+            required
+            form={form}
+            set={set}
+            name="address_line1"
+            placeholder="Enter address line 1"
+          />
+          <TextField
+            id="ven-a2"
+            label="Address Line 2"
+            required
+            form={form}
+            set={set}
+            name="address_line2"
+            placeholder="Enter address line 2"
+          />
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextField
+              id="ven-locality"
+              label="Locality"
+              required
+              form={form}
+              set={set}
+              name="locality"
+              placeholder="Enter locality"
             />
-            Active
-          </label>
+            <TextField
+              id="ven-city"
+              label="City"
+              required
+              form={form}
+              set={set}
+              name="city"
+              placeholder="Enter city"
+            />
+            <TextField
+              id="ven-state"
+              label="State"
+              required
+              form={form}
+              set={set}
+              name="state"
+              placeholder="Enter state"
+            />
+            <TextField
+              id="ven-pin"
+              label="Postal Code"
+              required
+              form={form}
+              set={set}
+              name="postal_code"
+              placeholder="Enter postal code"
+            />
+          </div>
         </form>
       </Modal>
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="Delete venue?"
-        message="Services linked to this venue will keep the id until you edit them."
+        message="Services linked to this venue may be affected."
         confirmLabel="Delete"
-        onConfirm={() => {
-          remove(deleteTarget.id)
-          setStatus({ type: 'success', message: 'Venue removed.' })
-          setDeleteTarget(null)
-        }}
+        loading={deleting}
+        onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}
+      />
+
+      <CatalogPhotosModal
+        open={Boolean(photoTarget?.id)}
+        onClose={() => {
+          setPhotoTarget(null)
+          load()
+        }}
+        tenantSlug={tenantSlug}
+        entityType="venue"
+        initialPhotos={photoTarget?.photos}
+        objectId={photoTarget?.id}
+        title={
+          photoTarget?.name
+            ? `Photos · ${photoTarget.name}`
+            : `Photos · venue #${photoTarget?.id || ''}`
+        }
+        canWrite={canWrite}
       />
     </div>
   )

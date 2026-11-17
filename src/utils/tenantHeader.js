@@ -17,6 +17,15 @@ export const slugFromTenantRow = (row) => {
   return String(row.schema_name || row.slug || row.schema || row.tenant_slug || '').trim()
 }
 
+export const SUPER_ADMIN_ROLE_KEYS = new Set([
+  'SUPER_ADMIN',
+  'SUPERADMIN',
+  'SUPER_USER',
+  'SUPERUSER',
+  'MASTER_ADMIN',
+  'ADMIN',
+])
+
 export const isSuperAdminSession = () => {
   try {
     const userType = String(localStorage.getItem('user_type') || '')
@@ -29,13 +38,7 @@ export const isSuperAdminSession = () => {
       .trim()
       .toUpperCase()
       .replace(/[\s-]+/g, '_')
-    return (
-      userType === 'SUPER_ADMIN' ||
-      userType === 'MASTER_ADMIN' ||
-      roleKey === 'SUPER_ADMIN' ||
-      roleKey === 'MASTER_ADMIN' ||
-      roleKey === 'ADMIN'
-    )
+    return SUPER_ADMIN_ROLE_KEYS.has(userType) || SUPER_ADMIN_ROLE_KEYS.has(roleKey)
   } catch {
     return false
   }
@@ -85,4 +88,33 @@ export const resolveSettingsTenantSlug = (tenant) => {
   if (fromRow && fromRow !== 'public') return fromRow
   if (isSuperAdminSession()) return ''
   return resolveRolesTenantSlug()
+}
+
+/**
+ * Tenant slug for catalog APIs (venues/services) — always requires X-Tenant.
+ * Super Admin → selected tenant schema/slug. Tenant Admin → JWT / stored slug.
+ */
+export const resolveCatalogTenantSlug = (tenant) => {
+  const fromRow = slugFromTenantRow(tenant)
+  if (fromRow && fromRow !== 'public') return fromRow
+
+  try {
+    const selectedId = localStorage.getItem('admin_selected_tenant_id') || ''
+    const rawTenants = localStorage.getItem('admin_tenants')
+    const tenants = rawTenants ? JSON.parse(rawTenants) : []
+    if (selectedId && Array.isArray(tenants)) {
+      const row = tenants.find((t) => String(t.id) === String(selectedId))
+      const slug = slugFromTenantRow(row)
+      if (slug && slug !== 'public') return slug
+    }
+  } catch {
+    // ignore
+  }
+
+  if (!isSuperAdminSession()) {
+    const slug = resolveRolesTenantSlug()
+    if (slug && slug !== 'public') return slug
+  }
+
+  return ''
 }

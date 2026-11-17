@@ -783,16 +783,20 @@ const InvoiceDetailPage = () => {
           ) : null}
           {canWrite !== false && isSuperAdmin ? (
             <>
-              <Link to={`/ops/invoices/${record.id}/edit`} className={btnSecondary}>
-                Make Revision
-              </Link>
-              <button
-                type="button"
-                className={btnDanger}
-                onClick={() => setConfirmDelete(true)}
-              >
-                Delete
-              </button>
+              {String(record.status || '').toUpperCase() === 'DRAFT' ? (
+                <Link to={`/ops/invoices/${record.id}/edit`} className={btnSecondary}>
+                  Edit draft
+                </Link>
+              ) : null}
+              {String(record.status || '').toUpperCase() === 'DRAFT' ? (
+                <button
+                  type="button"
+                  className={btnDanger}
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  Delete draft
+                </button>
+              ) : null}
             </>
           ) : null}
           <Link to="/ops/invoices" className={btnSecondary}>
@@ -863,38 +867,42 @@ const InvoiceDetailPage = () => {
                 <FiDownload className="h-4 w-4" aria-hidden />
                 {pdfBusy ? 'Downloading…' : 'Download PDF'}
               </button>
-              {canWrite !== false && isSuperAdmin ? (
+              {canWrite !== false &&
+              isSuperAdmin &&
+              String(record.status || '').toUpperCase() === 'DRAFT' ? (
                 <Link to={`/ops/invoices/${record.id}/edit`} className={btnSecondary}>
-                  Make Revision
+                  Edit draft
                 </Link>
               ) : null}
             </div>
-            <div className="border-t border-stone-100 pt-3">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-stone-400">
-                Raise invoice
-              </p>
-              <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
-                <input
-                  type="email"
-                  className={fieldClass}
-                  value={testEmail}
-                  onChange={(e) => setTestEmail(e.target.value)}
-                  aria-label="Recipient email"
-                  disabled={raiseBusy}
-                />
-                <button
-                  type="button"
-                  className={btnGhost}
-                  disabled={raiseBusy || canWrite === false}
-                  onClick={handleSend}
-                >
-                  {raiseBusy ? 'Raising…' : 'Send'}
-                </button>
+            {String(record.status || '').toUpperCase() === 'DRAFT' ? (
+              <div className="border-t border-stone-100 pt-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-stone-400">
+                  Raise invoice
+                </p>
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <input
+                    type="email"
+                    className={fieldClass}
+                    value={testEmail}
+                    onChange={(e) => setTestEmail(e.target.value)}
+                    aria-label="Recipient email"
+                    disabled={raiseBusy}
+                  />
+                  <button
+                    type="button"
+                    className={btnGhost}
+                    disabled={raiseBusy || canWrite === false}
+                    onClick={handleSend}
+                  >
+                    {raiseBusy ? 'Raising…' : 'Raise'}
+                  </button>
+                </div>
+                <p className="mt-1.5 text-[11px] text-stone-500">
+                  Issues this draft and assigns the permanent invoice number.
+                </p>
               </div>
-              <p className="mt-1.5 text-[11px] text-stone-500">
-                Send raises this invoice via the platform API.
-              </p>
-            </div>
+            ) : null}
           </section>
 
           <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
@@ -996,6 +1004,12 @@ const InvoiceDetailPage = () => {
             sellerEmail={record.contactEmail || 'support@o-hm.com'}
             contactName={record.contactName || ''}
             contactPhone={record.contactPhone || ''}
+            showSecondaryContact={Boolean(record.showSecondaryContact)}
+            secondaryContactPhone={record.secondaryContactPhone || ''}
+            secondaryContactEmail={record.secondaryContactEmail || ''}
+            showTertiaryContact={Boolean(record.showTertiaryContact)}
+            tertiaryContactPhone={record.tertiaryContactPhone || ''}
+            tertiaryContactEmail={record.tertiaryContactEmail || ''}
             number={record.number}
             date={record.issueDate || record.date}
             dueDate={record.dueDate}
@@ -1005,6 +1019,7 @@ const InvoiceDetailPage = () => {
             billToAddress={record.address || ''}
             billToGstin={record.gstin || ''}
             billToEmail={record.buyerEmail || record.email || ''}
+            billToState={record.state || ''}
             yourRef={record.yourRef || record.bookingRef}
             notes={record.note}
             lines={lines}

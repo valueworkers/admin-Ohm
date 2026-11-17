@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   FiArrowDown,
@@ -17,6 +17,7 @@ import {
   isValidGstinFormat,
   lookupGstin,
 } from '../api/gstin'
+import { fetchTenants } from '../api/tenants'
 import {
   CGST_SGST_RATE_OPTIONS,
   DEFAULT_TERMS,
@@ -49,7 +50,6 @@ import {
 } from '../features/quotes/states'
 import { isValidEmail, loadSettingsForMode } from '../features/settings/store'
 import { useAccess } from '../hooks/useAccess'
-import { listTenantsByStatus } from '../store/platformStore'
 import { apiErrorMessage } from '../utils/errors'
 import {
   btnGhost,
@@ -98,6 +98,8 @@ const readPlatformSeller = () => {
       sellerAddress,
       sellerPhone: String(manualPay.phone || billing.phone || PLATFORM.phone || '').trim(),
       sellerGstin: billing.gstin || '',
+      sellerUdyam: billing.udyam || org.udyam || '',
+      sellerDuns: billing.duns || org.duns || '',
       logoUrl: String(org.logoUrl || '').trim(),
       contactName: PLATFORM.name,
       contactEmail: PLATFORM.email,
@@ -110,6 +112,8 @@ const readPlatformSeller = () => {
       sellerAddress: PLATFORM.address,
       sellerPhone: '',
       sellerGstin: '',
+      sellerUdyam: '',
+      sellerDuns: '',
       logoUrl: '',
       contactName: PLATFORM.name,
       contactEmail: PLATFORM.email,
@@ -200,6 +204,12 @@ const applyInvoiceToForm = (row, sellerDefaults) => {
     contactName: row.contactName || sellerDefaults.contactName,
     contactPhone: row.contactPhone || sellerDefaults.contactPhone,
     contactEmail: row.contactEmail || sellerDefaults.contactEmail,
+    showSecondaryContact: Boolean(row.showSecondaryContact),
+    secondaryContactPhone: row.secondaryContactPhone || '',
+    secondaryContactEmail: row.secondaryContactEmail || '',
+    showTertiaryContact: Boolean(row.showTertiaryContact),
+    tertiaryContactPhone: row.tertiaryContactPhone || '',
+    tertiaryContactEmail: row.tertiaryContactEmail || '',
     lines: hydrateLines(row),
   }
 }
@@ -209,11 +219,8 @@ const InvoiceCreatePage = () => {
   const { invoiceId } = useParams()
   const isEdit = Boolean(invoiceId)
   const { canWrite, isSuperAdmin } = useAccess()
-  const tenants = useMemo(
-    () => listTenantsByStatus('active').filter((t) => t?.id && t?.name),
-    [],
-  )
   const seller = useMemo(() => readPlatformSeller(), [])
+  const [tenants, setTenants] = useState([])
 
   const [existing, setExisting] = useState(null)
   const [loadingInvoice, setLoadingInvoice] = useState(isEdit)
@@ -247,7 +254,27 @@ const InvoiceCreatePage = () => {
   const [contactName, setContactName] = useState(() => seller.contactName)
   const [contactPhone, setContactPhone] = useState(() => seller.contactPhone)
   const [contactEmail, setContactEmail] = useState(() => seller.contactEmail)
+  const [showSecondaryContact, setShowSecondaryContact] = useState(false)
+  const [secondaryContactPhone, setSecondaryContactPhone] = useState('')
+  const [secondaryContactEmail, setSecondaryContactEmail] = useState('')
+  const [showTertiaryContact, setShowTertiaryContact] = useState(false)
+  const [tertiaryContactPhone, setTertiaryContactPhone] = useState('')
+  const [tertiaryContactEmail, setTertiaryContactEmail] = useState('')
   const [lines, setLines] = useState(() => hydrateLines(null))
+
+  const loadTenants = useCallback(async () => {
+    if (!isSuperAdmin) return
+    try {
+      const rows = await fetchTenants()
+      setTenants((Array.isArray(rows) ? rows : []).filter((t) => t?.id && t?.name))
+    } catch {
+      setTenants([])
+    }
+  }, [isSuperAdmin])
+
+  useEffect(() => {
+    loadTenants()
+  }, [loadTenants])
 
   const [gstLookupBusy, setGstLookupBusy] = useState(false)
   const [gstLookupNote, setGstLookupNote] = useState('')
@@ -300,6 +327,12 @@ const InvoiceCreatePage = () => {
           setContactName(form.contactName)
           setContactPhone(form.contactPhone)
           setContactEmail(form.contactEmail)
+          setShowSecondaryContact(form.showSecondaryContact)
+          setSecondaryContactPhone(form.secondaryContactPhone)
+          setSecondaryContactEmail(form.secondaryContactEmail)
+          setShowTertiaryContact(form.showTertiaryContact)
+          setTertiaryContactPhone(form.tertiaryContactPhone)
+          setTertiaryContactEmail(form.tertiaryContactEmail)
           setLines(form.lines)
         }
       } catch (err) {
@@ -483,13 +516,13 @@ const InvoiceCreatePage = () => {
   const total = subtotal + gstAmount
   const blockers = useMemo(() => {
     const list = []
+    if (!String(tenantId).trim()) list.push('Select a tenant.')
     if (!String(company).trim()) list.push('Add the customer name.')
     if (!String(gstin).trim() && !stateCode) {
       list.push(
         "Add the buyer's GSTIN or state, so GST can be split (CGST + SGST in Karnataka, IGST outside).",
       )
     }
-    if (!String(number).trim()) list.push('Add an invoice number.')
     lines.forEach((ln, i) => {
       if (!String(ln.item).trim()) list.push(`Line ${i + 1} needs an item name.`)
       if (!String(ln.hsn || '').trim()) list.push(`Line ${i + 1} needs HSN/SAC.`)
@@ -501,9 +534,10 @@ const InvoiceCreatePage = () => {
       list.push("Buyer's email looks invalid.")
     }
     return list
-  }, [company, gstin, stateCode, number, lines, buyerEmail])
+  }, [tenantId, company, gstin, stateCode, lines, buyerEmail])
 
   const invoiceForm = {
+    tenantId,
     company,
     attention,
     address,
@@ -517,6 +551,15 @@ const InvoiceCreatePage = () => {
     shipTo,
     ccEmails,
     bccEmails,
+    contactName,
+    contactPhone,
+    contactEmail,
+    showSecondaryContact,
+    secondaryContactPhone,
+    secondaryContactEmail,
+    showTertiaryContact,
+    tertiaryContactPhone,
+    tertiaryContactEmail,
     lines,
   }
 
@@ -636,13 +679,16 @@ const InvoiceCreatePage = () => {
           <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
             <h2 className={sectionLabel}>Billed to</h2>
             <label className="block">
-              <span className={labelClass}>Link tenant (optional)</span>
+              <span className={labelClass}>
+                Tenant <span className="text-rose-600">*</span>
+              </span>
               <select
                 className={fieldClass}
                 value={tenantId}
                 onChange={(e) => applyTenant(e.target.value)}
+                required
               >
-                <option value="">No tenant link</option>
+                <option value="">Select tenant</option>
                 {tenants.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
@@ -1333,34 +1379,150 @@ const InvoiceCreatePage = () => {
           </section>
 
           <section className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
-            <h2 className={sectionLabel}>Your contact</h2>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <label className="block">
-                <span className={labelClass}>Name</span>
-                <input
-                  className={fieldClass}
-                  value={contactName}
-                  onChange={(e) => setContactName(e.target.value)}
-                />
-              </label>
-              <label className="block">
-                <span className={labelClass}>Phone</span>
-                <input
-                  className={fieldClass}
-                  value={contactPhone}
-                  onChange={(e) => setContactPhone(e.target.value)}
-                />
-              </label>
-              <label className="block">
-                <span className={labelClass}>Email</span>
-                <input
-                  type="email"
-                  className={fieldClass}
-                  value={contactEmail}
-                  onChange={(e) => setContactEmail(e.target.value)}
-                />
-              </label>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className={sectionLabel}>Your contact</h2>
+                <p className="mt-1 text-xs text-stone-500">
+                  Primary contact is required on the invoice. Add secondary or tertiary with +.
+                </p>
+              </div>
+              {!showSecondaryContact || !showTertiaryContact ? (
+                <button
+                  type="button"
+                  className={btnGhost}
+                  onClick={() => {
+                    if (!showSecondaryContact) {
+                      setShowSecondaryContact(true)
+                      return
+                    }
+                    setShowTertiaryContact(true)
+                  }}
+                >
+                  <FiPlus className="h-3.5 w-3.5" aria-hidden />
+                  {!showSecondaryContact ? 'Secondary contact' : 'Tertiary contact'}
+                </button>
+              ) : null}
             </div>
+
+            <div className="space-y-3 rounded-xl border border-stone-200 bg-stone-50/60 p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-400">
+                Primary contact
+              </p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="block">
+                  <span className={labelClass}>Name</span>
+                  <input
+                    className={fieldClass}
+                    value={contactName}
+                    onChange={(e) => setContactName(e.target.value)}
+                  />
+                </label>
+                <label className="block">
+                  <span className={labelClass}>Phone</span>
+                  <input
+                    className={fieldClass}
+                    value={contactPhone}
+                    onChange={(e) => setContactPhone(e.target.value)}
+                  />
+                </label>
+                <label className="block">
+                  <span className={labelClass}>Email</span>
+                  <input
+                    type="email"
+                    className={fieldClass}
+                    value={contactEmail}
+                    onChange={(e) => setContactEmail(e.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {showSecondaryContact ? (
+              <div className="space-y-3 rounded-xl border border-stone-200 bg-stone-50/60 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-400">
+                    Secondary contact
+                  </p>
+                  <button
+                    type="button"
+                    className={btnGhost}
+                    onClick={() => {
+                      setShowSecondaryContact(false)
+                      setShowTertiaryContact(false)
+                      setSecondaryContactPhone('')
+                      setSecondaryContactEmail('')
+                      setTertiaryContactPhone('')
+                      setTertiaryContactEmail('')
+                    }}
+                    aria-label="Remove secondary contact"
+                  >
+                    <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
+                    Remove
+                  </button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className={labelClass}>Phone</span>
+                    <input
+                      className={fieldClass}
+                      value={secondaryContactPhone}
+                      onChange={(e) => setSecondaryContactPhone(e.target.value)}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={labelClass}>Email</span>
+                    <input
+                      type="email"
+                      className={fieldClass}
+                      value={secondaryContactEmail}
+                      onChange={(e) => setSecondaryContactEmail(e.target.value)}
+                    />
+                  </label>
+                </div>
+              </div>
+            ) : null}
+
+            {showTertiaryContact ? (
+              <div className="space-y-3 rounded-xl border border-stone-200 bg-stone-50/60 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-400">
+                    Tertiary contact
+                  </p>
+                  <button
+                    type="button"
+                    className={btnGhost}
+                    onClick={() => {
+                      setShowTertiaryContact(false)
+                      setTertiaryContactPhone('')
+                      setTertiaryContactEmail('')
+                    }}
+                    aria-label="Remove tertiary contact"
+                  >
+                    <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
+                    Remove
+                  </button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className={labelClass}>Phone</span>
+                    <input
+                      className={fieldClass}
+                      value={tertiaryContactPhone}
+                      onChange={(e) => setTertiaryContactPhone(e.target.value)}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={labelClass}>Email</span>
+                    <input
+                      type="email"
+                      className={fieldClass}
+                      value={tertiaryContactEmail}
+                      onChange={(e) => setTertiaryContactEmail(e.target.value)}
+                    />
+                  </label>
+                </div>
+              </div>
+            ) : null}
           </section>
         </div>
 
@@ -1370,19 +1532,29 @@ const InvoiceCreatePage = () => {
             sellerAddress={sellerAddress}
             sellerPhone={sellerPhone}
             sellerGstin={sellerGstin}
+            sellerUdyam={seller.sellerUdyam || ''}
+            sellerDuns={seller.sellerDuns || ''}
             logoUrl={logoUrl}
             sellerEmail={contactEmail}
             contactName={contactName}
             contactPhone={contactPhone}
+            showSecondaryContact={showSecondaryContact}
+            secondaryContactPhone={secondaryContactPhone}
+            secondaryContactEmail={secondaryContactEmail}
+            showTertiaryContact={showTertiaryContact}
+            tertiaryContactPhone={tertiaryContactPhone}
+            tertiaryContactEmail={tertiaryContactEmail}
             number={number}
             date={date}
             dueDate={dueDate}
             terms={terms}
             billToName={company || '—'}
+            billToLegalName={legalName}
             billToAttention={attention}
             billToAddress={address}
             billToGstin={gstin}
             billToEmail={buyerEmail}
+            billToState={buyerState?.name || ''}
             yourRef={yourRef}
             notes={notes}
             lines={linesComputed}
@@ -1394,7 +1566,7 @@ const InvoiceCreatePage = () => {
             total={total}
             received={Number(received) || 0}
             intraState={intraState}
-            statusLabel={isEdit ? existing?.status || 'Edit' : 'Preview'}
+            statusLabel={isEdit ? existing?.status || 'Edit' : 'Draft preview'}
           />
         </aside>
       </div>

@@ -214,8 +214,12 @@ export const fmtMoney = (n) => {
 
 export const paymentStatusClass = (status) => {
   const s = String(status || '').toUpperCase()
-  if (s === 'SUCCESS') return 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100'
+  if (s === 'SUCCESS' || s === 'SUCCEEDED' || s === 'PAID') {
+    return 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100'
+  }
   if (s === 'FAILED') return 'bg-rose-50 text-rose-800 ring-1 ring-rose-100'
-  if (s === 'PENDING') return 'bg-amber-50 text-amber-900 ring-1 ring-amber-100'
+  if (s === 'PENDING' || s === 'PROCESSING') {
+    return 'bg-amber-50 text-amber-900 ring-1 ring-amber-100'
+  }
   return 'bg-stone-100 text-stone-700'
 }

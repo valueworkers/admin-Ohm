@@ -109,7 +109,9 @@ const isSessionSafeUrl = (url) => {
   return (
     u.includes('api/roles') ||
     u.includes('api/role-assignments') ||
-    u.includes('api/settings/')
+    u.includes('api/settings/') ||
+    u.includes('api/catalog/') ||
+    u.includes('api/billing/')
   )
 }
 

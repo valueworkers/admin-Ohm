@@ -22,11 +22,11 @@ export const FEATURE_CATALOG = [
   },
   {
     key: 'packages',
-    label: 'Location & Package',
-    description: 'Packages for the selected venue.',
+    label: 'Locations & Packages',
+    description: 'Billing locations and pricing packages.',
     group: 'Catalog',
     core: true,
-    route: '/ops/location-packages',
+    route: '/ops/packages',
   },
   {
     key: 'resources',

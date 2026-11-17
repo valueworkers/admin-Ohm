@@ -8,9 +8,11 @@ import RequireSuperAdmin from './components/RequireSuperAdmin'
 import RequireTenantOwner from './components/RequireTenantOwner'
 import AttendancePage from './pages/AttendancePage'
 import BookingsPage from './pages/BookingsPage'
+import PlatformBookingsPage from './pages/PlatformBookingsPage'
 import Dashboard from './pages/Dashboard'
 import EmployeesPage from './pages/EmployeesPage'
-import LocationPackagesPage from './pages/LocationPackagesPage'
+import LocationsPage from './pages/LocationsPage'
+import PackagesPage from './pages/PackagesPage'
 import LeadsPage from './pages/LeadsPage'
 import Lobby from './pages/Lobby'
 import Login from './pages/Login'
@@ -37,6 +39,15 @@ import { PlatformAnalytics, PlatformOffboarded } from './pages/platform/Platform
 import PlatformPermissions from './pages/platform/PlatformPermissions'
 import SubscriptionPlans from './pages/platform/SubscriptionPlans'
 import TenantSubscriptions from './pages/platform/TenantSubscriptions'
+import TenantInvoicesPage from './pages/tenant/TenantInvoicesPage'
+import TenantPaymentsPage from './pages/tenant/TenantPaymentsPage'
+import TenantQuotesPage from './pages/tenant/TenantQuotesPage'
+import { useAccess } from './hooks/useAccess'
+
+const ByRole = ({ sa, tenant }) => (useAccess().isSuperAdmin ? sa : tenant)
+
+const SuperOnly = ({ to, children }) =>
+  useAccess().isSuperAdmin ? children : <Navigate to={to} replace />
 
 const App = () => (
   <BrowserRouter>
@@ -68,16 +79,16 @@ const App = () => (
 
           <Route element={<RequireOpsAccess />}>
             <Route path="ops/leads" element={<LeadsPage />} />
-            <Route path="ops/quotations/new" element={<QuoteEditorPage />} />
-            <Route path="ops/quotations/:quoteId" element={<QuoteEditorPage />} />
-            <Route path="ops/quotations" element={<QuotationsPage />} />
-            <Route path="ops/booking" element={<BookingsPage eyebrow="Operations" />} />
-            <Route path="ops/invoices/new" element={<InvoiceCreatePage />} />
-            <Route path="ops/invoices/:invoiceId/edit" element={<InvoiceCreatePage />} />
-            <Route path="ops/invoices/:invoiceId" element={<InvoiceDetailPage />} />
-            <Route path="ops/invoices" element={<InvoicesPage />} />
-            <Route path="ops/payments/:paymentId" element={<PaymentDetailPage />} />
-            <Route path="ops/payments" element={<PaymentsPage />} />
+            <Route path="ops/quotations/new" element={<SuperOnly to="/ops/quotations"><QuoteEditorPage /></SuperOnly>} />
+            <Route path="ops/quotations/:quoteId" element={<SuperOnly to="/ops/quotations"><QuoteEditorPage /></SuperOnly>} />
+            <Route path="ops/quotations" element={<ByRole sa={<QuotationsPage />} tenant={<TenantQuotesPage />} />} />
+            <Route path="ops/booking" element={<PlatformBookingsPage />} />
+            <Route path="ops/invoices/new" element={<SuperOnly to="/ops/invoices"><InvoiceCreatePage /></SuperOnly>} />
+            <Route path="ops/invoices/:invoiceId/edit" element={<SuperOnly to="/ops/invoices"><InvoiceCreatePage /></SuperOnly>} />
+            <Route path="ops/invoices/:invoiceId" element={<SuperOnly to="/ops/invoices"><InvoiceDetailPage /></SuperOnly>} />
+            <Route path="ops/invoices" element={<ByRole sa={<InvoicesPage />} tenant={<TenantInvoicesPage />} />} />
+            <Route path="ops/payments/:paymentId" element={<SuperOnly to="/ops/payments"><PaymentDetailPage /></SuperOnly>} />
+            <Route path="ops/payments" element={<ByRole sa={<PaymentsPage />} tenant={<TenantPaymentsPage />} />} />
           </Route>
 
           <Route element={<RequireSelectedTenant />}>
@@ -101,7 +112,9 @@ const App = () => (
               <Route path="ops/customers" element={<PatientsPage />} />
               <Route path="ops/bookings" element={<BookingsPage />} />
               <Route path="ops/customer-lobby" element={<ModulePlaceholder />} />
-              <Route path="ops/location-packages" element={<LocationPackagesPage />} />
+              <Route path="ops/locations" element={<LocationsPage />} />
+              <Route path="ops/packages" element={<PackagesPage />} />
+              <Route path="ops/location-packages" element={<Navigate to="/ops/packages" replace />} />
               <Route path="ops/n8n-templates" element={<ModulePlaceholder />} />
             </Route>
           </Route>

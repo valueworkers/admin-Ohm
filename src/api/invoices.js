@@ -191,9 +191,32 @@ export const normalizeInvoice = (row = {}) => {
     sellerGstin: issuer.gstin || row.sellerGstin || '',
     sellerState: issuer.state || '',
     logoUrl: issuer.logo || row.logoUrl || '',
-    contactName: issuer.contact_name || row.contactName || '',
-    contactPhone: issuer.contact_phone || row.contactPhone || '',
-    contactEmail: issuer.contact_email || row.contactEmail || 'support@o-hm.com',
+    contactName: issuer.contact_name || row.contact_name || row.contactName || '',
+    contactPhone: issuer.contact_phone || row.contact_phone || row.contactPhone || '',
+    contactEmail:
+      issuer.contact_email || row.contact_email || row.contactEmail || 'support@o-hm.com',
+    secondaryContactPhone:
+      row.secondary_contact_phone || row.secondaryContactPhone || '',
+    secondaryContactEmail:
+      row.secondary_contact_email || row.secondaryContactEmail || '',
+    tertiaryContactPhone: row.tertiary_contact_phone || row.tertiaryContactPhone || '',
+    tertiaryContactEmail: row.tertiary_contact_email || row.tertiaryContactEmail || '',
+    showSecondaryContact: Boolean(
+      row.secondary_contact_phone ||
+        row.secondary_contact_email ||
+        row.secondaryContactPhone ||
+        row.secondaryContactEmail ||
+        row.show_secondary_contact ||
+        row.showSecondaryContact,
+    ),
+    showTertiaryContact: Boolean(
+      row.tertiary_contact_phone ||
+        row.tertiary_contact_email ||
+        row.tertiaryContactPhone ||
+        row.tertiaryContactEmail ||
+        row.show_tertiary_contact ||
+        row.showTertiaryContact,
+    ),
     status: String(row.status || 'draft').trim().toUpperCase() || 'DRAFT',
     kind: row.kind || 'invoice',
   }
@@ -254,6 +277,7 @@ export const buildPlatformInvoicePayload = (form = {}, { status } = {}) => {
   })
 
   const body = {
+    tenant: String(form.tenantId || form.tenant || '').trim(),
     customer_name: String(form.company || form.customer_name || '').trim(),
     attention: String(form.attention || '').trim(),
     address: String(form.address || '').trim(),
@@ -270,6 +294,21 @@ export const buildPlatformInvoicePayload = (form = {}, { status } = {}) => {
     terms: String(form.terms || '').trim(),
     items,
     notes: String(form.notes || '').trim(),
+    contact_name: String(form.contactName || '').trim(),
+    contact_phone: String(form.contactPhone || '').trim(),
+    contact_email: String(form.contactEmail || '').trim(),
+    secondary_contact_phone: form.showSecondaryContact
+      ? String(form.secondaryContactPhone || '').trim()
+      : '',
+    secondary_contact_email: form.showSecondaryContact
+      ? String(form.secondaryContactEmail || '').trim()
+      : '',
+    tertiary_contact_phone: form.showTertiaryContact
+      ? String(form.tertiaryContactPhone || '').trim()
+      : '',
+    tertiary_contact_email: form.showTertiaryContact
+      ? String(form.tertiaryContactEmail || '').trim()
+      : '',
   }
   const statusVal = String(status || form.status || '')
     .trim()
@@ -279,8 +318,24 @@ export const buildPlatformInvoicePayload = (form = {}, { status } = {}) => {
 }
 
 /** GET /api/platform/invoices/ — list platform invoices. */
-export const fetchInvoices = async () => {
-  const { data } = await api.get('api/platform/invoices/')
+export const fetchInvoices = async ({
+  status,
+  search,
+  ordering = '-issue_date',
+  page = 1,
+  pageSize = 100,
+  overdue,
+} = {}) => {
+  const params = {
+    page,
+    page_size: pageSize,
+  }
+  if (status) params.status = status
+  if (search) params.search = search
+  if (ordering) params.ordering = ordering
+  if (overdue != null && overdue !== '') params.overdue = String(overdue)
+
+  const { data } = await api.get('api/platform/invoices/', { params })
   return asList(data).map(normalizeInvoice)
 }
 

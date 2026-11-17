@@ -48,7 +48,7 @@ export const useAccess = () => {
       return
     }
     try {
-      const healed = { ...user, user_type: 'SUPER_ADMIN', tenant_id: null }
+      const healed = { ...user, user_type: 'SUPER_ADMIN', tenant_id: null, organization_name: '' }
       localStorage.setItem('authUser', JSON.stringify(healed))
       localStorage.setItem('user_type', 'SUPER_ADMIN')
       // Defer event so we don't re-enter effects in the same tick

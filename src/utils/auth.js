@@ -6,6 +6,7 @@ import {
   getTenant,
 } from '../store/platformStore'
 import { apiErrorMessage } from './errors'
+import { SUPER_ADMIN_ROLE_KEYS } from './tenantHeader'
 import { setSelectedTenantId } from './tenants'
 
 /** Demo OTP for sign-in / password reset (no SMS/email backend). */
@@ -49,13 +50,12 @@ export const getUserType = (userOrType) => {
 }
 
 export const isSuperAdmin = (userOrType) => {
-  const t = getUserType(userOrType)
-  if (t === USER_TYPES.SUPER_ADMIN || t === 'MASTER_ADMIN' || t === 'ADMIN') return true
+  if (SUPER_ADMIN_ROLE_KEYS.has(getUserType(userOrType))) return true
   if (userOrType && typeof userOrType === 'object') {
     const role = normalizeRoleKey(
       userOrType.primary_role || userOrType.role || userOrType.role_label
     )
-    return role === 'SUPER_ADMIN' || role === 'MASTER_ADMIN' || role === 'ADMIN'
+    return SUPER_ADMIN_ROLE_KEYS.has(role)
   }
   return false
 }
@@ -147,9 +147,7 @@ const normalizeApiUserType = (raw) => {
   if (raw == null || raw === '') return USER_TYPES.TENANT_OWNER
   const t = normalizeRoleKey(raw)
   if (!t || t === 'NULL' || t === 'NONE') return USER_TYPES.TENANT_OWNER
-  if (t === 'MASTER_ADMIN' || t === 'SUPER_ADMIN' || t === 'ADMIN') {
-    return USER_TYPES.SUPER_ADMIN
-  }
+  if (SUPER_ADMIN_ROLE_KEYS.has(t)) return USER_TYPES.SUPER_ADMIN
   if (
     t === 'VSRE_OWNER' ||
     t === 'TENANT_OWNER' ||

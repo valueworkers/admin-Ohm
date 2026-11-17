@@ -1,24 +1,27 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FiPlus } from 'react-icons/fi'
+import { FiPlus, FiRefreshCw, FiSend } from 'react-icons/fi'
+import { fetchInvoices } from '../api/invoices'
+import {
+  createPlatformPayment,
+  fetchPlatformPayments,
+} from '../api/platformPayments'
+import { fetchTenants } from '../api/tenants'
 import DraggableTh from '../components/ui/DraggableTh'
 import Modal from '../components/ui/Modal'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
 import TenantOpsPlaceholder from '../components/TenantOpsPlaceholder'
-import { EmptyState } from '../components/ui/PageState'
-import { loadInvoices } from '../features/invoices/store'
+import { EmptyState, ErrorState, LoadingState } from '../components/ui/PageState'
 import {
-  createPayment,
   fmtDate,
   fmtDateTime,
   fmtMoney,
-  loadPayments,
   paymentStatusClass,
 } from '../features/payments/store'
 import { useAccess } from '../hooks/useAccess'
 import { useColumnOrder } from '../hooks/useColumnOrder'
-import { listTenantsByStatus } from '../store/platformStore'
+import { apiErrorMessage } from '../utils/errors'
 import {
   btnPrimary,
   btnSecondary,
@@ -28,84 +31,116 @@ import {
   tableWrapClass,
 } from '../utils/ui'
 
-const VIEW_MODES = [
-  {
-    id: 'invoice',
-    label: 'Invoice view',
-    hint: 'Payments linked to an invoice',
-  },
-  {
-    id: 'payment',
-    label: 'Payment view',
-    hint: 'Payments with no invoice linked',
-  },
-]
-
 const STATUS_FILTERS = [
   { id: 'ALL', label: 'All' },
-  { id: 'SUCCESS', label: 'Success' },
+  { id: 'SUCCEEDED', label: 'Succeeded' },
   { id: 'PENDING', label: 'Pending' },
   { id: 'FAILED', label: 'Failed' },
 ]
 
-const PAYMENT_MODES = ['UPI', 'NEFT', 'IMPS', 'Card', 'Bank transfer', 'Cash', 'Cheque']
+const PAYMENT_METHODS = [
+  { value: 'bank_transfer', label: 'Bank transfer' },
+  { value: 'upi', label: 'UPI' },
+  { value: 'neft', label: 'NEFT' },
+  { value: 'imps', label: 'IMPS' },
+  { value: 'card', label: 'Card' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'cheque', label: 'Cheque' },
+]
 
 const PAYMENT_COLUMNS = [
   { id: 'payment', label: 'Payment' },
-  { id: 'customer', label: 'Customer' },
-  { id: 'invoice', label: 'Invoice', invoiceOnly: true },
-  { id: 'mode', label: 'Mode' },
+  { id: 'customer', label: 'Tenant' },
+  { id: 'invoice', label: 'Invoice' },
+  { id: 'mode', label: 'Method' },
   { id: 'status', label: 'Status' },
-  { id: 'date', label: 'Date' },
+  { id: 'date', label: 'Paid at' },
   { id: 'amount', label: 'Amount', align: 'right' },
 ]
 
 const PAYMENT_COLUMN_IDS = PAYMENT_COLUMNS.map((c) => c.id)
 
-const emptyForm = () => ({
-  tagType: 'tenant',
+const SOURCE_TABS = [
+  { id: 'platform', label: 'Platform' },
+  { id: 'razorpay', label: 'Razorpay' },
+]
+
+const RAZORPAY_COLUMNS = [
+  { id: 'rzpId', label: 'Razorpay ID' },
+  { id: 'customer', label: 'Customer' },
+  { id: 'email', label: 'Email' },
+  { id: 'method', label: 'Method' },
+  { id: 'status', label: 'Status' },
+  { id: 'created', label: 'Created' },
+  { id: 'amount', label: 'Amount', align: 'right' },
+]
+
+const emptyRazorpayRequest = () => ({
   tenantId: '',
-  invoiceId: '',
   amount: '',
-  status: 'SUCCESS',
-  mode: 'UPI',
-  modeDetail: '',
-  purpose: '',
-  paidAt: new Date().toISOString().slice(0, 16),
-  payerName: '',
-  payerEmail: '',
-  bankRef: '',
+  currency: 'INR',
+  customerName: '',
+  customerEmail: '',
+  customerPhone: '',
+  description: '',
   notes: '',
 })
 
-const hasInvoice = (p) => Boolean(p?.invoiceId || p?.invoiceNumber)
+const toLocalInput = (iso) => {
+  if (!iso) {
+    const d = new Date()
+    const pad = (n) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return String(iso).slice(0, 16)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+const fromLocalInput = (local) => {
+  if (!local) return ''
+  const d = new Date(local)
+  if (Number.isNaN(d.getTime())) return local
+  return d.toISOString()
+}
+
+const emptyForm = () => ({
+  tenantId: '',
+  invoiceId: '',
+  amount: '',
+  currency: 'INR',
+  status: 'SUCCEEDED',
+  method: 'bank_transfer',
+  reference: '',
+  paidAt: toLocalInput(),
+})
 
 const renderPaymentCell = (colId, p) => {
   switch (colId) {
     case 'payment':
       return (
         <td key={colId} className="px-4 py-3">
-          <p className="font-medium text-stone-900">{p.ref}</p>
-          <p className="text-xs text-stone-500">{p.purpose}</p>
+          <p className="font-medium text-stone-900">{p.ref || `PAY-${p.id}`}</p>
+          <p className="text-xs text-stone-500">#{p.id}</p>
         </td>
       )
     case 'customer':
       return (
         <td key={colId} className="px-4 py-3 font-medium text-stone-800">
-          {p.tenantName}
+          {p.tenantName || p.tenantId || '—'}
         </td>
       )
     case 'invoice':
       return (
         <td key={colId} className="px-4 py-3 text-stone-700">
-          {p.invoiceNumber || '—'}
+          {p.invoiceNumber || (p.invoiceId ? `#${p.invoiceId}` : '—')}
         </td>
       )
     case 'mode':
       return (
         <td key={colId} className="px-4 py-3 text-stone-700">
-          <p>{p.mode}</p>
-          {p.modeDetail ? <p className="text-xs text-stone-500">{p.modeDetail}</p> : null}
+          {p.mode || '—'}
         </td>
       )
     case 'status':
@@ -140,67 +175,104 @@ const renderPaymentCell = (colId, p) => {
 
 const PaymentsPage = () => {
   const navigate = useNavigate()
-  const { isSuperAdmin } = useAccess()
-  const [payments, setPayments] = useState(() => loadPayments())
-  const [viewMode, setViewMode] = useState('invoice')
+  const { isSuperAdmin, canWrite } = useAccess()
+  const [payments, setPayments] = useState([])
+  const [tenants, setTenants] = useState([])
+  const [invoices, setInvoices] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [tenantFilter, setTenantFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
+  const [sourceTab, setSourceTab] = useState('platform')
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState(emptyForm)
   const [formError, setFormError] = useState('')
   const [banner, setBanner] = useState({ type: '', message: '' })
   const [saving, setSaving] = useState(false)
+  const [razorpayRows] = useState([])
+  const [rzpModalOpen, setRzpModalOpen] = useState(false)
+  const [rzpForm, setRzpForm] = useState(emptyRazorpayRequest)
+  const [rzpFormError, setRzpFormError] = useState('')
   const { columnOrder, moveColumn } = useColumnOrder(
     'sc_ops_payments_col_order_v1',
     PAYMENT_COLUMN_IDS,
   )
 
-  const tenants = useMemo(() => listTenantsByStatus('active'), [])
-  const invoices = useMemo(() => loadInvoices(), [])
-
   const visibleColumns = useMemo(
-    () =>
-      columnOrder
-        .map((id) => PAYMENT_COLUMNS.find((c) => c.id === id))
-        .filter(Boolean)
-        .filter((c) => !(c.invoiceOnly && viewMode !== 'invoice')),
-    [columnOrder, viewMode],
+    () => columnOrder.map((id) => PAYMENT_COLUMNS.find((c) => c.id === id)).filter(Boolean),
+    [columnOrder],
   )
 
-  const byView = useMemo(() => {
-    if (viewMode === 'invoice') return payments.filter(hasInvoice)
-    return payments.filter((p) => !hasInvoice(p))
-  }, [payments, viewMode])
+  const loadTenants = useCallback(async () => {
+    if (!isSuperAdmin) return
+    try {
+      setTenants(await fetchTenants())
+    } catch {
+      setTenants([])
+    }
+  }, [isSuperAdmin])
 
-  const filtered = useMemo(() => {
-    if (statusFilter === 'ALL') return byView
-    return byView.filter((p) => String(p.status).toUpperCase() === statusFilter)
-  }, [byView, statusFilter])
+  const loadInvoicesList = useCallback(async () => {
+    if (!isSuperAdmin) return
+    try {
+      setInvoices(await fetchInvoices({ page: 1, pageSize: 100 }))
+    } catch {
+      setInvoices([])
+    }
+  }, [isSuperAdmin])
 
-  const invoiceCount = payments.filter(hasInvoice).length
-  const paymentOnlyCount = payments.length - invoiceCount
+  const load = useCallback(async () => {
+    if (!isSuperAdmin) {
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const { results } = await fetchPlatformPayments({
+        tenant: tenantFilter || undefined,
+        status: statusFilter === 'ALL' ? undefined : statusFilter,
+        page: 1,
+        pageSize: 100,
+      })
+      setPayments(results)
+    } catch (err) {
+      setPayments([])
+      setError(apiErrorMessage(err, 'Could not load platform payments.'))
+    } finally {
+      setLoading(false)
+    }
+  }, [isSuperAdmin, tenantFilter, statusFilter])
 
-  const successInView = byView.filter((p) => String(p.status).toUpperCase() === 'SUCCESS')
+  useEffect(() => {
+    loadTenants()
+    loadInvoicesList()
+  }, [loadTenants, loadInvoicesList])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  useEffect(() => {
+    if (!banner.message) return undefined
+    const t = window.setTimeout(() => setBanner({ type: '', message: '' }), 4000)
+    return () => window.clearTimeout(t)
+  }, [banner])
+
+  const filtered = payments
+
+  const successInView = filtered.filter((p) => {
+    const s = String(p.status).toUpperCase()
+    return s === 'SUCCEEDED' || s === 'SUCCESS'
+  })
   const successTotal = successInView.reduce((s, p) => s + (Number(p.amount) || 0), 0)
-
-  const selectedInvoice = useMemo(
-    () => invoices.find((inv) => String(inv.id) === String(form.invoiceId)) || null,
-    [invoices, form.invoiceId],
-  )
 
   const invoicesForTenant = useMemo(() => {
     if (!form.tenantId) return invoices
-    const tenant = tenants.find((t) => String(t.id) === String(form.tenantId))
-    const tenantName = String(tenant?.name || '').toLowerCase()
-    const matched = invoices.filter((inv) => {
-      if (inv.tenantId && String(inv.tenantId) === String(form.tenantId)) return true
-      const invName = String(inv.tenantName || '').toLowerCase()
-      if (tenantName && invName && (invName === tenantName || invName.includes(tenantName) || tenantName.includes(invName))) {
-        return true
-      }
-      return !inv.tenantId && !inv.tenantName
-    })
-    return matched.length ? matched : invoices
-  }, [invoices, form.tenantId, tenants])
+    return invoices.filter(
+      (inv) => !inv.tenantId || String(inv.tenantId) === String(form.tenantId),
+    )
+  }, [invoices, form.tenantId])
 
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -217,21 +289,10 @@ const PaymentsPage = () => {
     setFormError('')
   }
 
-  const onTagTypeChange = (tagType) => {
-    setForm((f) => ({
-      ...f,
-      tagType,
-      invoiceId: tagType === 'tenant' ? '' : f.invoiceId,
-    }))
-  }
-
   const onTenantChange = (tenantId) => {
-    const tenant = tenants.find((t) => String(t.id) === String(tenantId))
     setForm((f) => ({
       ...f,
       tenantId,
-      payerName: f.payerName || tenant?.owner_name || '',
-      payerEmail: f.payerEmail || tenant?.owner_email || tenant?.email || '',
       invoiceId:
         f.invoiceId &&
         invoices.some(
@@ -250,17 +311,10 @@ const PaymentsPage = () => {
       setField('invoiceId', '')
       return
     }
-    const matchedTenant =
-      tenants.find((t) => String(t.id) === String(inv.tenantId)) ||
-      tenants.find(
-        (t) =>
-          String(t.name || '').toLowerCase() === String(inv.tenantName || '').toLowerCase(),
-      )
     setForm((f) => ({
       ...f,
-      tagType: 'invoice',
       invoiceId,
-      tenantId: matchedTenant?.id || f.tenantId,
+      tenantId: inv.tenantId || f.tenantId,
       amount:
         f.amount ||
         (inv.owed != null && Number(inv.owed) > 0
@@ -268,71 +322,85 @@ const PaymentsPage = () => {
           : inv.amount != null
             ? String(inv.amount)
             : f.amount),
-      purpose: f.purpose || `Payment · invoice ${inv.number}`,
-      payerName: f.payerName || inv.payerName || matchedTenant?.owner_name || '',
-      payerEmail: f.payerEmail || inv.email || matchedTenant?.owner_email || '',
+      reference: f.reference || `INV-${inv.number || inv.id}`,
     }))
   }
 
   const validate = () => {
     if (!form.tenantId) return 'Select a tenant.'
-    if (form.tagType === 'invoice' && !form.invoiceId) return 'Select an invoice to tag.'
+    if (!form.invoiceId) return 'Select an invoice.'
     const amount = Number(form.amount)
     if (!form.amount || Number.isNaN(amount) || amount <= 0) return 'Enter a valid amount.'
-    if (!String(form.purpose || '').trim()) return 'Enter a purpose.'
+    if (!String(form.reference || '').trim()) return 'Enter a payment reference (UTR / txn id).'
+    if (!form.paidAt) return 'Paid at is required.'
+    if (!form.method) return 'Select a payment method.'
+    if (!form.status) return 'Select a status.'
     return ''
   }
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
     const message = validate()
     if (message) {
       setFormError(message)
       return
     }
-    const tenant = tenants.find((t) => String(t.id) === String(form.tenantId))
-    if (!tenant) {
-      setFormError('Select a valid tenant.')
-      return
-    }
 
     setSaving(true)
     setFormError('')
     try {
-      const inv = form.tagType === 'invoice' ? selectedInvoice : null
-      createPayment({
-        tenantId: tenant.id,
-        tenantName: tenant.name,
-        invoiceId: inv?.id || null,
-        invoiceNumber: inv?.number || null,
+      const row = await createPlatformPayment({
+        tenantId: form.tenantId,
+        invoiceId: form.invoiceId,
         amount: form.amount,
+        currency: form.currency,
+        method: form.method,
         status: form.status,
-        mode: form.mode,
-        modeDetail: form.modeDetail,
-        purpose: form.purpose,
-        paidAt: form.paidAt,
-        payerName: form.payerName,
-        payerEmail: form.payerEmail,
-        bankRef: form.bankRef,
-        notes: form.notes,
-        gateway: form.mode === 'UPI' || form.mode === 'Card' ? 'Razorpay' : 'Manual bank',
+        reference: form.reference,
+        paidAt: fromLocalInput(form.paidAt),
       })
-      setPayments(loadPayments())
-      setViewMode(inv ? 'invoice' : 'payment')
-      setStatusFilter('ALL')
       setModalOpen(false)
       setForm(emptyForm())
       setBanner({
         type: 'success',
-        message: inv
-          ? `Payment saved and tagged to invoice ${inv.number}.`
-          : `Payment saved and tagged to ${tenant.name}.`,
+        message: `Payment ${row.ref || row.id} recorded.`,
       })
+      await load()
     } catch (err) {
-      setFormError(err?.message || 'Could not save payment.')
+      setFormError(apiErrorMessage(err, 'Could not save payment.'))
     } finally {
       setSaving(false)
     }
+  }
+
+  const openRzpRequest = () => {
+    setRzpForm(emptyRazorpayRequest())
+    setRzpFormError('')
+    setRzpModalOpen(true)
+  }
+
+  const closeRzpRequest = () => {
+    if (saving) return
+    setRzpModalOpen(false)
+    setRzpFormError('')
+  }
+
+  const handleRzpRequest = (event) => {
+    event.preventDefault()
+    if (!String(rzpForm.amount || '').trim() || Number(rzpForm.amount) <= 0) {
+      setRzpFormError('Enter a valid amount.')
+      return
+    }
+    if (!String(rzpForm.customerEmail || '').trim() && !String(rzpForm.customerPhone || '').trim()) {
+      setRzpFormError('Add customer email or phone.')
+      return
+    }
+    setRzpFormError('')
+    setBanner({
+      type: 'info',
+      message: 'Razorpay is not connected yet. Add your Razorpay account ID to enable requests.',
+    })
+    setRzpModalOpen(false)
   }
 
   if (!isSuperAdmin) {
@@ -344,25 +412,45 @@ const PaymentsPage = () => {
     )
   }
 
+  const isRazorpay = sourceTab === 'razorpay'
+
   return (
     <div className="sc-page-enter space-y-4">
       <PageHeader
         eyebrow="Platform · Billing"
         title="Payments"
         description={
-          viewMode === 'invoice'
-            ? `${invoiceCount} payment${invoiceCount === 1 ? '' : 's'} linked to an invoice · ${fmtMoney(
-                successTotal,
-              )} successful in this view.`
-            : `${paymentOnlyCount} payment${
-                paymentOnlyCount === 1 ? '' : 's'
-              } with no invoice · ${fmtMoney(successTotal)} successful in this view.`
+          isRazorpay
+            ? 'Razorpay payments and payment requests. Connect your Razorpay account ID to sync live data.'
+            : `${filtered.length} platform payment${
+                filtered.length === 1 ? '' : 's'
+              } · ${fmtMoney(successTotal)} succeeded in this view.`
         }
         actions={
-          <button type="button" className={btnPrimary} onClick={openCreate}>
-            <FiPlus className="h-4 w-4" aria-hidden />
-            Add payment
-          </button>
+          canWrite !== false ? (
+            isRazorpay ? (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled
+                  title="Connect Razorpay account ID to refresh"
+                >
+                  <FiRefreshCw className="h-4 w-4" aria-hidden />
+                  Refresh
+                </button>
+                <button type="button" className={btnPrimary} onClick={openRzpRequest}>
+                  <FiSend className="h-4 w-4" aria-hidden />
+                  Request payment
+                </button>
+              </div>
+            ) : (
+              <button type="button" className={btnPrimary} onClick={openCreate}>
+                <FiPlus className="h-4 w-4" aria-hidden />
+                Add payment
+              </button>
+            )
+          ) : null
         }
       />
 
@@ -370,135 +458,216 @@ const PaymentsPage = () => {
 
       <div
         role="tablist"
-        aria-label="Payment list mode"
+        aria-label="Payment source"
         className="inline-flex flex-wrap gap-1 rounded-xl border border-stone-200 bg-stone-50 p-1"
       >
-        {VIEW_MODES.map((m) => {
-          const on = viewMode === m.id
-          const n = m.id === 'invoice' ? invoiceCount : paymentOnlyCount
+        {SOURCE_TABS.map((tab) => {
+          const on = sourceTab === tab.id
           return (
             <button
-              key={m.id}
+              key={tab.id}
               type="button"
               role="tab"
               aria-selected={on}
-              title={m.hint}
-              onClick={() => {
-                setViewMode(m.id)
-                setStatusFilter('ALL')
-              }}
+              onClick={() => setSourceTab(tab.id)}
               className={`rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${
                 on
                   ? 'bg-ink text-white shadow-sm'
                   : 'text-stone-500 hover:bg-white hover:text-stone-800'
               }`}
             >
-              {m.label} ({n})
+              {tab.label}
             </button>
           )
         })}
       </div>
 
-      <p className="text-xs text-stone-500">
-        {viewMode === 'invoice'
-          ? 'Invoice view — only receipts that reference a tax invoice.'
-          : 'Payment view — standalone receipts (onboarding, fees, etc.) with no invoice linked.'}{' '}
-        Drag column handles to reorder.
-      </p>
+      {isRazorpay ? (
+        <>
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900">
+            Razorpay account ID not configured yet. List and request actions will work once you add
+            it.
+          </p>
 
-      <div role="tablist" aria-label="Payment status" className="flex flex-wrap gap-1.5">
-        {STATUS_FILTERS.map((f) => {
-          const on = statusFilter === f.id
-          const n =
-            f.id === 'ALL'
-              ? byView.length
-              : byView.filter((p) => String(p.status).toUpperCase() === f.id).length
-          return (
-            <button
-              key={f.id}
-              type="button"
-              role="tab"
-              aria-selected={on}
-              onClick={() => setStatusFilter(f.id)}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${
-                on
-                  ? 'bg-ink text-white'
-                  : 'bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50'
-              }`}
-            >
-              {f.label} ({n})
-            </button>
-          )
-        })}
-      </div>
-
-      <div className={tableWrapClass}>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className={tableHeadClass}>
-              <tr>
-                {visibleColumns.map((col) => (
-                  <DraggableTh
-                    key={col.id}
-                    id={col.id}
-                    onReorder={moveColumn}
-                    align={col.align === 'right' ? 'right' : 'left'}
-                    className="font-semibold"
-                  >
-                    <span className="text-stone-500">{col.label}</span>
-                  </DraggableTh>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-100">
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={visibleColumns.length} className="px-4 py-10">
-                    <EmptyState
-                      bare
-                      title={
-                        viewMode === 'invoice'
-                          ? 'No invoice-linked payments'
-                          : 'No unlinked payments'
-                      }
-                      hint={
-                        viewMode === 'invoice'
-                          ? 'Add a payment and tag an invoice to see it here.'
-                          : 'Add a payment tagged to a tenant (no invoice) to see it here.'
-                      }
-                    />
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((p) => (
-                  <tr
-                    key={p.id}
-                    className="cursor-pointer hover:bg-slate-50 focus-within:bg-slate-50"
-                    onClick={() => navigate(`/ops/payments/${p.id}`)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        navigate(`/ops/payments/${p.id}`)
-                      }
-                    }}
-                    tabIndex={0}
-                    role="link"
-                    aria-label={`Open payment ${p.ref}`}
-                  >
-                    {visibleColumns.map((col) => renderPaymentCell(col.id, p))}
+          <div className={tableWrapClass}>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className={tableHeadClass}>
+                  <tr>
+                    {RAZORPAY_COLUMNS.map((col) => (
+                      <th
+                        key={col.id}
+                        className={`px-4 py-3 font-semibold ${
+                          col.align === 'right' ? 'text-right' : 'text-left'
+                        }`}
+                      >
+                        <span className="text-stone-500">{col.label}</span>
+                      </th>
+                    ))}
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        <p className="border-t border-stone-100 px-4 py-2.5 text-xs text-stone-500">
-          Customer → O-HM Senior Care. Switch views above to see invoice-linked vs standalone
-          payments.
-        </p>
-      </div>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {razorpayRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={RAZORPAY_COLUMNS.length} className="px-4 py-10">
+                        <EmptyState
+                          bare
+                          title="No Razorpay payments yet"
+                          hint="Connect Razorpay to fetch payments, or send a payment request."
+                          actionLabel={
+                            canWrite !== false ? 'Request payment' : undefined
+                          }
+                          onAction={canWrite !== false ? openRzpRequest : undefined}
+                        />
+                      </td>
+                    </tr>
+                  ) : (
+                    razorpayRows.map((row) => (
+                      <tr key={row.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-medium text-stone-900">{row.id}</td>
+                        <td className="px-4 py-3 text-stone-800">{row.customer || '—'}</td>
+                        <td className="px-4 py-3 text-stone-600">{row.email || '—'}</td>
+                        <td className="px-4 py-3 text-stone-700">{row.method || '—'}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${paymentStatusClass(
+                              row.status,
+                            )}`}
+                          >
+                            {row.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-stone-600">{fmtDateTime(row.createdAt)}</td>
+                        <td className="px-4 py-3 text-right font-medium text-stone-900">
+                          {fmtMoney(row.amount)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <p className="border-t border-stone-100 px-4 py-2.5 text-xs text-stone-500">
+              Razorpay settlement feed — syncs after account ID is added.
+            </p>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <label className="block sm:w-56">
+              <span className={labelClass}>Tenant</span>
+              <select
+                className={fieldClass}
+                value={tenantFilter}
+                onChange={(e) => setTenantFilter(e.target.value)}
+              >
+                <option value="">All tenants</option>
+                {tenants.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
-      <Modal open={modalOpen} onClose={closeCreate} title="Add payment" wide>
+          <div role="tablist" aria-label="Payment status" className="flex flex-wrap gap-1.5">
+            {STATUS_FILTERS.map((f) => {
+              const on = statusFilter === f.id
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  onClick={() => setStatusFilter(f.id)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${
+                    on
+                      ? 'bg-ink text-white'
+                      : 'bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className={tableWrapClass}>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className={tableHeadClass}>
+                  <tr>
+                    {visibleColumns.map((col) => (
+                      <DraggableTh
+                        key={col.id}
+                        id={col.id}
+                        onReorder={moveColumn}
+                        align={col.align === 'right' ? 'right' : 'left'}
+                        className="font-semibold"
+                      >
+                        <span className="text-stone-500">{col.label}</span>
+                      </DraggableTh>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={visibleColumns.length} className="px-4 py-10">
+                        <LoadingState label="Loading payments…" />
+                      </td>
+                    </tr>
+                  ) : error ? (
+                    <tr>
+                      <td colSpan={visibleColumns.length} className="px-4 py-10">
+                        <ErrorState bare message={error} onRetry={load} />
+                      </td>
+                    </tr>
+                  ) : filtered.length === 0 ? (
+                    <tr>
+                      <td colSpan={visibleColumns.length} className="px-4 py-10">
+                        <EmptyState
+                          bare
+                          title="No platform payments"
+                          hint="Record a payment against a tenant invoice to see it here."
+                          actionLabel={canWrite !== false ? 'Add payment' : undefined}
+                          onAction={canWrite !== false ? openCreate : undefined}
+                        />
+                      </td>
+                    </tr>
+                  ) : (
+                    filtered.map((p) => (
+                      <tr
+                        key={p.id}
+                        className="cursor-pointer hover:bg-slate-50 focus-within:bg-slate-50"
+                        onClick={() => navigate(`/ops/payments/${p.id}`)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            navigate(`/ops/payments/${p.id}`)
+                          }
+                        }}
+                        tabIndex={0}
+                        role="link"
+                        aria-label={`Open payment ${p.ref || p.id}`}
+                      >
+                        {visibleColumns.map((col) => renderPaymentCell(col.id, p))}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <p className="border-t border-stone-100 px-4 py-2.5 text-xs text-stone-500">
+              Platform payments against tenant invoices (list / create / update / delete).
+            </p>
+          </div>
+        </>
+      )}
+
+      <Modal open={modalOpen} onClose={closeCreate} title="Record payment" wide>
         <form className="space-y-4" onSubmit={handleSubmit}>
           {formError ? (
             <p
@@ -508,29 +677,6 @@ const PaymentsPage = () => {
               {formError}
             </p>
           ) : null}
-
-          <div>
-            <p className={labelClass}>Tag payment to</p>
-            <div className="flex flex-wrap gap-4">
-              {[
-                { id: 'tenant', label: 'Tenant only' },
-                { id: 'invoice', label: 'Invoice' },
-              ].map((opt) => (
-                <label key={opt.id} className="inline-flex items-center gap-2 text-sm text-stone-700">
-                  <input
-                    type="radio"
-                    name="tagType"
-                    value={opt.id}
-                    checked={form.tagType === opt.id}
-                    onChange={() => onTagTypeChange(opt.id)}
-                    disabled={saving}
-                    className="accent-brand-500"
-                  />
-                  {opt.label}
-                </label>
-              ))}
-            </div>
-          </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block sm:col-span-2">
@@ -553,28 +699,26 @@ const PaymentsPage = () => {
               </select>
             </label>
 
-            {form.tagType === 'invoice' ? (
-              <label className="block sm:col-span-2">
-                <span className={labelClass}>
-                  Invoice <span className="text-rose-600">*</span>
-                </span>
-                <select
-                  className={fieldClass}
-                  value={form.invoiceId}
-                  onChange={(e) => onInvoiceChange(e.target.value)}
-                  disabled={saving}
-                  required
-                >
-                  <option value="">Select invoice</option>
-                  {invoicesForTenant.map((inv) => (
-                    <option key={inv.id} value={inv.id}>
-                      {inv.number} · {inv.tenantName || inv.payerName || '—'}
-                      {inv.owed != null ? ` · owed ${fmtMoney(inv.owed)}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
+            <label className="block sm:col-span-2">
+              <span className={labelClass}>
+                Invoice <span className="text-rose-600">*</span>
+              </span>
+              <select
+                className={fieldClass}
+                value={form.invoiceId}
+                onChange={(e) => onInvoiceChange(e.target.value)}
+                disabled={saving}
+                required
+              >
+                <option value="">Select invoice</option>
+                {invoicesForTenant.map((inv) => (
+                  <option key={inv.id} value={inv.id}>
+                    {inv.number} · {inv.tenantName || inv.customerName || '—'}
+                    {inv.owed != null ? ` · owed ${fmtMoney(inv.owed)}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
 
             <label className="block">
               <span className={labelClass}>
@@ -593,100 +737,176 @@ const PaymentsPage = () => {
             </label>
 
             <label className="block">
-              <span className={labelClass}>Status</span>
-              <select
-                className={fieldClass}
-                value={form.status}
-                onChange={(e) => setField('status', e.target.value)}
-                disabled={saving}
-              >
-                <option value="SUCCESS">Success</option>
-                <option value="PENDING">Pending</option>
-                <option value="FAILED">Failed</option>
-              </select>
+              <span className={labelClass}>Currency</span>
+              <input className={fieldClass} value={form.currency} disabled readOnly />
             </label>
 
             <label className="block">
-              <span className={labelClass}>Mode</span>
+              <span className={labelClass}>
+                Method <span className="text-rose-600">*</span>
+              </span>
               <select
                 className={fieldClass}
-                value={form.mode}
-                onChange={(e) => setField('mode', e.target.value)}
+                value={form.method}
+                onChange={(e) => setField('method', e.target.value)}
                 disabled={saving}
+                required
               >
-                {PAYMENT_MODES.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
                   </option>
                 ))}
               </select>
             </label>
 
             <label className="block">
-              <span className={labelClass}>Paid at</span>
+              <span className={labelClass}>
+                Status <span className="text-rose-600">*</span>
+              </span>
+              <select
+                className={fieldClass}
+                value={form.status}
+                onChange={(e) => setField('status', e.target.value)}
+                disabled={saving}
+                required
+              >
+                <option value="SUCCEEDED">Succeeded</option>
+                <option value="PENDING">Pending</option>
+                <option value="FAILED">Failed</option>
+              </select>
+            </label>
+
+            <label className="block">
+              <span className={labelClass}>
+                Reference <span className="text-rose-600">*</span>
+              </span>
+              <input
+                className={fieldClass}
+                value={form.reference}
+                onChange={(e) => setField('reference', e.target.value)}
+                disabled={saving}
+                placeholder="UTR123456789"
+                required
+              />
+            </label>
+
+            <label className="block">
+              <span className={labelClass}>
+                Paid at <span className="text-rose-600">*</span>
+              </span>
               <input
                 className={fieldClass}
                 type="datetime-local"
                 value={form.paidAt}
                 onChange={(e) => setField('paidAt', e.target.value)}
                 disabled={saving}
+                required
               />
             </label>
+          </div>
 
+          <div className="flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end">
+            <button type="button" className={btnSecondary} onClick={closeCreate} disabled={saving}>
+              Cancel
+            </button>
+            <button type="submit" className={btnPrimary} disabled={saving}>
+              {saving ? 'Saving…' : 'Record payment'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={rzpModalOpen} onClose={closeRzpRequest} title="Request Razorpay payment" wide>
+        <form className="space-y-4" onSubmit={handleRzpRequest}>
+          {rzpFormError ? (
+            <p
+              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
+              role="alert"
+            >
+              {rzpFormError}
+            </p>
+          ) : null}
+
+          <p className="text-xs text-stone-500">
+            Creates a Razorpay payment request once your account ID is connected. UI only for now.
+          </p>
+
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="block sm:col-span-2">
+              <span className={labelClass}>Tenant (optional)</span>
+              <select
+                className={fieldClass}
+                value={rzpForm.tenantId}
+                onChange={(e) => setRzpForm((f) => ({ ...f, tenantId: e.target.value }))}
+              >
+                <option value="">No tenant link</option>
+                {tenants.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
               <span className={labelClass}>
-                Purpose <span className="text-rose-600">*</span>
+                Amount (₹) <span className="text-rose-600">*</span>
               </span>
               <input
                 className={fieldClass}
-                value={form.purpose}
-                onChange={(e) => setField('purpose', e.target.value)}
-                disabled={saving}
-                placeholder="Platform subscription · Oct 2026"
+                type="number"
+                min="0"
+                step="0.01"
+                value={rzpForm.amount}
+                onChange={(e) => setRzpForm((f) => ({ ...f, amount: e.target.value }))}
                 required
               />
             </label>
 
             <label className="block">
-              <span className={labelClass}>Mode detail</span>
+              <span className={labelClass}>Currency</span>
+              <input className={fieldClass} value={rzpForm.currency} readOnly disabled />
+            </label>
+
+            <label className="block">
+              <span className={labelClass}>Customer name</span>
               <input
                 className={fieldClass}
-                value={form.modeDetail}
-                onChange={(e) => setField('modeDetail', e.target.value)}
-                disabled={saving}
-                placeholder="UPI · name@okaxis"
+                value={rzpForm.customerName}
+                onChange={(e) => setRzpForm((f) => ({ ...f, customerName: e.target.value }))}
+                placeholder="Dr. Ramesh"
               />
             </label>
 
             <label className="block">
-              <span className={labelClass}>Bank / UTR ref</span>
+              <span className={labelClass}>Customer phone</span>
               <input
                 className={fieldClass}
-                value={form.bankRef}
-                onChange={(e) => setField('bankRef', e.target.value)}
-                disabled={saving}
-                placeholder="Optional"
+                value={rzpForm.customerPhone}
+                onChange={(e) => setRzpForm((f) => ({ ...f, customerPhone: e.target.value }))}
+                placeholder="+91…"
               />
             </label>
 
-            <label className="block">
-              <span className={labelClass}>Payer name</span>
-              <input
-                className={fieldClass}
-                value={form.payerName}
-                onChange={(e) => setField('payerName', e.target.value)}
-                disabled={saving}
-              />
-            </label>
-
-            <label className="block">
-              <span className={labelClass}>Payer email</span>
+            <label className="block sm:col-span-2">
+              <span className={labelClass}>Customer email</span>
               <input
                 className={fieldClass}
                 type="email"
-                value={form.payerEmail}
-                onChange={(e) => setField('payerEmail', e.target.value)}
-                disabled={saving}
+                value={rzpForm.customerEmail}
+                onChange={(e) => setRzpForm((f) => ({ ...f, customerEmail: e.target.value }))}
+                placeholder="accounts@example.com"
+              />
+            </label>
+
+            <label className="block sm:col-span-2">
+              <span className={labelClass}>Description</span>
+              <input
+                className={fieldClass}
+                value={rzpForm.description}
+                onChange={(e) => setRzpForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="Platform subscription · Nov 2026"
               />
             </label>
 
@@ -694,25 +914,20 @@ const PaymentsPage = () => {
               <span className={labelClass}>Notes</span>
               <textarea
                 className={`${fieldClass} min-h-[72px] resize-y`}
-                value={form.notes}
-                onChange={(e) => setField('notes', e.target.value)}
-                disabled={saving}
-                placeholder="Optional reconciliation note"
+                value={rzpForm.notes}
+                onChange={(e) => setRzpForm((f) => ({ ...f, notes: e.target.value }))}
+                placeholder="Optional note for the payer"
               />
             </label>
           </div>
 
           <div className="flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              className={btnSecondary}
-              onClick={closeCreate}
-              disabled={saving}
-            >
+            <button type="button" className={btnSecondary} onClick={closeRzpRequest}>
               Cancel
             </button>
-            <button type="submit" className={btnPrimary} disabled={saving}>
-              {saving ? 'Saving…' : 'Save payment'}
+            <button type="submit" className={btnPrimary}>
+              <FiSend className="h-4 w-4" aria-hidden />
+              Send request
             </button>
           </div>
         </form>
