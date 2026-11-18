@@ -16,6 +16,7 @@ import PackagesPage from './pages/PackagesPage'
 import LeadsPage from './pages/LeadsPage'
 import Lobby from './pages/Lobby'
 import Login from './pages/Login'
+import DocumentManagerPage from './pages/DocumentManagerPage'
 import ModulePlaceholder from './pages/ModulePlaceholder'
 import MyTenants from './pages/MyTenants'
 import PatientsPage from './pages/PatientsPage'
@@ -99,7 +100,7 @@ const App = () => (
               <Route path="ops/venues" element={<VenuesPage />} />
               <Route path="ops/services" element={<ServicesPage />} />
               <Route path="ops/resources" element={<ResourcesPage />} />
-              <Route path="ops/emr" element={<ModulePlaceholder />} />
+              <Route path="ops/emr" element={<DocumentManagerPage />} />
               <Route path="ops/analytics/attendance-master" element={<ModulePlaceholder />} />
               <Route path="ops/analytics/reminders" element={<ModulePlaceholder />} />
               <Route path="ops/analytics/payment-master" element={<ModulePlaceholder />} />

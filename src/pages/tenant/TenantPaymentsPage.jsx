@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FiCheckCircle, FiEdit2, FiPlus, FiTrash2, FiXCircle } from 'react-icons/fi'
 import {
   MAPPING_STATUSES,
@@ -56,6 +56,8 @@ const TenantPaymentsPage = () => {
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [filters, setFilters] = useState({ method: '', isVerified: '', mappingStatus: '' })
+  const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState('-paid_at')
   const [status, setStatus] = useState({ type: '', message: '' })
 
   const [modalOpen, setModalOpen] = useState(false)
@@ -92,6 +94,45 @@ const TenantPaymentsPage = () => {
   useEffect(() => {
     load()
   }, [load])
+
+  const visibleRows = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const filtered = !q
+      ? rows
+      : rows.filter((row) => {
+          const hay = [
+            row.id,
+            row.invoice,
+            row.invoice_number,
+            row.patient,
+            row.patient_name,
+            row.method,
+            row.gateway,
+            row.mapping_status,
+            row.amount,
+          ]
+            .map((v) => String(v || '').toLowerCase())
+            .join(' ')
+          return hay.includes(q)
+        })
+
+    const cmpStr = (a, b) =>
+      String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' })
+    const cmpNum = (a, b) => (Number(a) || 0) - (Number(b) || 0)
+    const cmpDate = (a, b) => new Date(a || 0).getTime() - new Date(b || 0).getTime()
+    const desc = sortBy.startsWith('-')
+    const field = desc ? sortBy.slice(1) : sortBy
+    const sorted = [...filtered]
+    sorted.sort((a, b) => {
+      let diff = 0
+      if (field === 'amount') diff = cmpNum(a.amount, b.amount)
+      else if (field === 'method') diff = cmpStr(a.method, b.method)
+      else if (field === 'mapping_status') diff = cmpStr(a.mapping_status, b.mapping_status)
+      else diff = cmpDate(a.paid_at || a.created_at, b.paid_at || b.created_at)
+      return desc ? -diff : diff
+    })
+    return sorted
+  }, [rows, search, sortBy])
 
   useEffect(() => {
     if (!modalOpen || !tenantSlug) return
@@ -202,7 +243,15 @@ const TenantPaymentsPage = () => {
       <XTenantBanner slug={tenantSlug} />
       <StatusBanner type={status.type} message={status.message} />
 
-      <div className="flex flex-col gap-2 sm:flex-row">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <input
+          className={`${fieldClass} sm:max-w-xs`}
+          type="search"
+          placeholder="Search invoice, patient, method…"
+          aria-label="Search payments"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
         <select className={`${fieldClass} sm:w-44`} aria-label="Filter by method" value={filters.method} onChange={(e) => setFilter('method', e.target.value)}>
           <option value="">All methods</option>
           {PAYMENT_METHODS.map((m) => (
@@ -220,6 +269,21 @@ const TenantPaymentsPage = () => {
             <option key={m} value={m}>{m.replace(/_/g, ' ')}</option>
           ))}
         </select>
+        <select
+          className={`${fieldClass} sm:w-48`}
+          aria-label="Sort payments"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+        >
+          <option value="-paid_at">Paid date (newest)</option>
+          <option value="paid_at">Paid date (oldest)</option>
+          <option value="-amount">Amount high → low</option>
+          <option value="amount">Amount low → high</option>
+          <option value="method">Method A–Z</option>
+          <option value="-method">Method Z–A</option>
+          <option value="mapping_status">Mapping A–Z</option>
+          <option value="-mapping_status">Mapping Z–A</option>
+        </select>
       </div>
 
       <div className={tableWrapClass}>
@@ -229,13 +293,31 @@ const TenantPaymentsPage = () => {
           <LoadingState label="Loading payments…" />
         ) : loadError ? (
           <ErrorState bare message={loadError} onRetry={load} />
-        ) : rows.length === 0 ? (
+        ) : visibleRows.length === 0 ? (
           <EmptyState
             bare
-            title="No payments yet"
-            hint={canWrite ? 'Record a payment against an invoice.' : 'Nothing on file.'}
-            actionLabel={canWrite ? 'Record payment' : undefined}
-            onAction={canWrite ? openCreate : undefined}
+            title={
+              search || filters.method || filters.isVerified || filters.mappingStatus
+                ? 'No matching payments'
+                : 'No payments yet'
+            }
+            hint={
+              search || filters.method || filters.isVerified || filters.mappingStatus
+                ? 'Try another search or clear filters.'
+                : canWrite
+                  ? 'Record a payment against an invoice.'
+                  : 'Nothing on file.'
+            }
+            actionLabel={
+              !(search || filters.method || filters.isVerified || filters.mappingStatus) && canWrite
+                ? 'Record payment'
+                : undefined
+            }
+            onAction={
+              !(search || filters.method || filters.isVerified || filters.mappingStatus) && canWrite
+                ? openCreate
+                : undefined
+            }
           />
         ) : (
           <div className="overflow-x-auto">
@@ -254,7 +336,7 @@ const TenantPaymentsPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {rows.map((row) => {
+                {visibleRows.map((row) => {
                   const busy = busyId === row.id
                   return (
                     <tr key={row.id} className="hover:bg-stone-50">

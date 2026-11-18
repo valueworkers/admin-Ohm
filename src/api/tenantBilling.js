@@ -1,5 +1,8 @@
 import api from './axiosClient'
 import { normalizeUom } from '../features/billing/gstLines'
+import { fetchPatients, normalizePatient } from './patients'
+
+export { normalizePatient, patientFullName as patientDisplayName } from './patients'
 
 const asList = (data) => {
   if (Array.isArray(data)) return data
@@ -53,27 +56,10 @@ const parseEmails = (raw) =>
 
 /* ---------- Patients (dropdown) ---------- */
 
-export const normalizePatient = (row = {}) => ({
-  ...row,
-  id: String(row.id ?? ''),
-  name:
-    [row.first_name, row.last_name].filter(Boolean).join(' ').trim() ||
-    row.full_name ||
-    row.name ||
-    row.email ||
-    `Patient #${row.id}`,
-  email: row.email || '',
-  phone: row.phone || '',
-  address: row.address || '',
-})
-
-/** GET /api/billing/patients/ */
+/** GET /api/billing/patients/ — lightweight list for billing selects */
 export const fetchBillingPatients = async (tenantSlug, { search } = {}) => {
-  const { data } = await api.get('api/billing/patients/', {
-    params: cleanParams({ page: 1, page_size: 100, search }),
-    ...tenantOpts(tenantSlug),
-  })
-  return asList(data).map(normalizePatient)
+  const { results } = await fetchPatients(tenantSlug, { search, pageSize: 100 })
+  return results.map(normalizePatient)
 }
 
 /* ---------- Quotes ---------- */
@@ -155,9 +141,20 @@ export const buildBillingQuoteBody = (form = {}) => {
 }
 
 /** GET /api/billing/quotes/ */
-export const fetchBillingQuotes = async (tenantSlug, { status, search, page = 1, pageSize = 50 } = {}) => {
+export const fetchBillingQuotes = async (
+  tenantSlug,
+  { status, search, bookingEntity, company, ordering, page = 1, pageSize = 50 } = {},
+) => {
   const { data } = await api.get('api/billing/quotes/', {
-    params: cleanParams({ page, page_size: pageSize, status: status?.toLowerCase(), search }),
+    params: cleanParams({
+      page,
+      page_size: pageSize,
+      status: status?.toLowerCase(),
+      search,
+      booking_entity: bookingEntity,
+      company,
+      ordering,
+    }),
     ...tenantOpts(tenantSlug),
   })
   return listResult(data, normalizeBillingQuote)
@@ -382,7 +379,7 @@ export const buildBillingPaymentBody = (form = {}) => {
 /** GET /api/billing/payments/ */
 export const fetchBillingPayments = async (
   tenantSlug,
-  { method, isVerified, mappingStatus, page = 1, pageSize = 50 } = {},
+  { method, isVerified, mappingStatus, search, ordering, page = 1, pageSize = 50 } = {},
 ) => {
   const { data } = await api.get('api/billing/payments/', {
     params: cleanParams({
@@ -391,6 +388,8 @@ export const fetchBillingPayments = async (
       method,
       is_verified: isVerified,
       mapping_status: mappingStatus,
+      search,
+      ordering,
     }),
     ...tenantOpts(tenantSlug),
   })

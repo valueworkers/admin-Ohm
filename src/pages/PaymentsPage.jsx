@@ -183,6 +183,9 @@ const PaymentsPage = () => {
   const [error, setError] = useState('')
   const [tenantFilter, setTenantFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
+  const [methodFilter, setMethodFilter] = useState('')
+  const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState('-paid_at')
   const [sourceTab, setSourceTab] = useState('platform')
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState(emptyForm)
@@ -259,7 +262,49 @@ const PaymentsPage = () => {
     return () => window.clearTimeout(t)
   }, [banner])
 
-  const filtered = payments
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const rows = payments.filter((p) => {
+      if (methodFilter) {
+        const mode = String(p.mode || p.method || '').toLowerCase().replace(/\s+/g, '_')
+        if (mode !== methodFilter.toLowerCase()) return false
+      }
+      if (!q) return true
+      const hay = [
+        p.ref,
+        p.id,
+        p.tenantName,
+        p.tenantId,
+        p.invoiceNumber,
+        p.invoiceId,
+        p.mode,
+        p.method,
+        p.status,
+        p.reference,
+      ]
+        .map((v) => String(v || '').toLowerCase())
+        .join(' ')
+      return hay.includes(q)
+    })
+
+    const cmpStr = (a, b) =>
+      String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' })
+    const cmpNum = (a, b) => (Number(a) || 0) - (Number(b) || 0)
+    const cmpDate = (a, b) => new Date(a || 0).getTime() - new Date(b || 0).getTime()
+    const desc = sortBy.startsWith('-')
+    const field = desc ? sortBy.slice(1) : sortBy
+    const sorted = [...rows]
+    sorted.sort((a, b) => {
+      let diff = 0
+      if (field === 'amount') diff = cmpNum(a.amount, b.amount)
+      else if (field === 'status') diff = cmpStr(a.status, b.status)
+      else if (field === 'method') diff = cmpStr(a.mode || a.method, b.mode || b.method)
+      else if (field === 'tenant') diff = cmpStr(a.tenantName || a.tenantId, b.tenantName || b.tenantId)
+      else diff = cmpDate(a.paidAt, b.paidAt)
+      return desc ? -diff : diff
+    })
+    return sorted
+  }, [payments, search, methodFilter, sortBy])
 
   const successInView = filtered.filter((p) => {
     const s = String(p.status).toUpperCase()
@@ -555,6 +600,17 @@ const PaymentsPage = () => {
       ) : (
         <>
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <label className="block min-w-0 flex-1 sm:min-w-[12rem]">
+              <span className={labelClass}>Search</span>
+              <input
+                type="search"
+                className={fieldClass}
+                placeholder="Ref, tenant, invoice…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
             <label className="block sm:w-56">
               <span className={labelClass}>Tenant</span>
               <select
@@ -570,6 +626,54 @@ const PaymentsPage = () => {
                 ))}
               </select>
             </label>
+            <label className="block sm:w-44">
+              <span className={labelClass}>Method</span>
+              <select
+                className={fieldClass}
+                value={methodFilter}
+                onChange={(e) => setMethodFilter(e.target.value)}
+                aria-label="Filter by method"
+              >
+                <option value="">All methods</option>
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block sm:w-48">
+              <span className={labelClass}>Sort</span>
+              <select
+                className={fieldClass}
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                aria-label="Sort payments"
+              >
+                <option value="-paid_at">Paid date (newest)</option>
+                <option value="paid_at">Paid date (oldest)</option>
+                <option value="-amount">Amount high → low</option>
+                <option value="amount">Amount low → high</option>
+                <option value="tenant">Tenant A–Z</option>
+                <option value="-tenant">Tenant Z–A</option>
+                <option value="status">Status A–Z</option>
+                <option value="-status">Status Z–A</option>
+                <option value="method">Method A–Z</option>
+                <option value="-method">Method Z–A</option>
+              </select>
+            </label>
+            {search || methodFilter ? (
+              <button
+                type="button"
+                className={`${btnSecondary} min-h-10`}
+                onClick={() => {
+                  setSearch('')
+                  setMethodFilter('')
+                }}
+              >
+                Clear filters
+              </button>
+            ) : null}
           </div>
 
           <div role="tablist" aria-label="Payment status" className="flex flex-wrap gap-1.5">

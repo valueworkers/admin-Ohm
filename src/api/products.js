@@ -60,6 +60,15 @@ export const listProducts = async ({ cursor = '', q = '', limit = 50 } = {}) => 
   return request(`?${qs.toString()}`)
 }
 
+/** GET /api/products/categories — Wix store categories for the Resources form. */
+export const listCategories = async () => {
+  const data = await request('/categories')
+  return {
+    categories: Array.isArray(data?.categories) ? data.categories : [],
+    allProductsId: data?.allProductsId || '',
+  }
+}
+
 /** GET /api/products/:id — includes variants */
 export const getProduct = async (id) =>
   request(`/${encodeURIComponent(id)}`)

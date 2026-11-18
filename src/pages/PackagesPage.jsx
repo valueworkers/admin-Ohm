@@ -12,10 +12,13 @@ import { resolveCatalogTenantSlug } from '../utils/tenantHeader'
 import { btnGhost, btnPrimary, btnSecondary, fieldClass, labelClass } from '../utils/ui'
 
 const PERIODS = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY', 'ONE_TIME']
-const PACKAGE_TYPES = ['IN_HOUSE', 'AT_HOME', 'OUT_PATIENT', 'HYBRID']
+const PACKAGE_TYPES = [
+  { value: 'IN_HOUSE', label: 'In house' },
+  { value: 'CLIENT_SIDE', label: 'Client side' },
+  { value: 'OPD', label: 'OPD' },
+]
 
 const EMPTY = {
-  owner: '',
   name: '',
   description: '',
   price: '',
@@ -27,11 +30,27 @@ const EMPTY = {
 
 const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`
 
-const withOption = (list, value) => (list.includes(value) ? list : [value, ...list])
+const withOption = (list, value) => (list.includes(value) ? list : value ? [value, ...list] : list)
 
-const defaultOwner = (tenant) => {
-  const raw = tenant?.owner ?? tenant?.owner_id
-  return raw != null && /^\d+$/.test(String(raw)) ? String(raw) : ''
+const withTypeOption = (types, value) => {
+  if (!value || types.some((t) => t.value === value)) return types
+  return [{ value, label: String(value).replace(/_/g, ' ') }, ...types]
+}
+
+const resolveOwnerId = ({ tenant, user, editing, rows }) => {
+  const candidates = [
+    editing?.owner,
+    tenant?.owner,
+    tenant?.owner_id,
+    tenant?.ownerId,
+    user?.id,
+    rows?.[0]?.owner,
+  ]
+  for (const raw of candidates) {
+    const id = raw != null && typeof raw === 'object' ? raw.id : raw
+    if (id != null && /^\d+$/.test(String(id))) return Number(id)
+  }
+  return null
 }
 
 const PackagesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
@@ -76,14 +95,13 @@ const PackagesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
 
   const openCreate = () => {
     setEditing(null)
-    setForm({ ...EMPTY, owner: defaultOwner(access.tenant) || String(rows[0]?.owner ?? '') })
+    setForm({ ...EMPTY })
     setModalOpen(true)
   }
 
   const openEdit = (row) => {
     setEditing(row)
     setForm({
-      owner: String(row.owner ?? ''),
       name: row.name,
       description: row.description,
       price: row.price,
@@ -98,10 +116,6 @@ const PackagesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
   const handleSave = async (e) => {
     e.preventDefault()
     if (!tenantSlug) return
-    if (!/^\d+$/.test(String(form.owner).trim())) {
-      setStatus({ type: 'error', message: 'Owner ID is required.' })
-      return
-    }
     if (!form.name.trim()) {
       setStatus({ type: 'error', message: 'Package name is required.' })
       return
@@ -110,10 +124,24 @@ const PackagesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
       setStatus({ type: 'error', message: 'Price is required.' })
       return
     }
+    const owner = resolveOwnerId({
+      tenant: access.tenant,
+      user: access.user,
+      editing,
+      rows,
+    })
+    if (owner == null) {
+      setStatus({
+        type: 'error',
+        message: 'Could not resolve package owner for this tenant. Try again after selecting a tenant.',
+      })
+      return
+    }
     setSaving(true)
     try {
-      if (editing) await updatePackage(tenantSlug, editing.id, form)
-      else await createPackage(tenantSlug, form)
+      const payload = { ...form, owner }
+      if (editing) await updatePackage(tenantSlug, editing.id, payload)
+      else await createPackage(tenantSlug, payload)
       setStatus({ type: 'success', message: editing ? 'Package updated.' : 'Package created.' })
       setModalOpen(false)
       await load()
@@ -238,7 +266,8 @@ const PackagesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
                 </span>
                 <div className="flex items-center gap-1.5">
                   <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand-800">
-                    {pkg.package_type.replace(/_/g, ' ')}
+                    {PACKAGE_TYPES.find((t) => t.value === pkg.package_type)?.label ||
+                      pkg.package_type.replace(/_/g, ' ')}
                   </span>
                   <span
                     className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
@@ -272,7 +301,7 @@ const PackagesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
       >
         <form id="package-form" className="space-y-3" onSubmit={handleSave}>
           <div className="grid gap-3 sm:grid-cols-2">
-            <div>
+            <div className="sm:col-span-2">
               <label className={labelClass} htmlFor="pkg-name">
                 Package name <span className="text-rose-600">*</span>
               </label>
@@ -282,21 +311,6 @@ const PackagesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
                 placeholder="e.g. Geriatric care Monthly Package - 24/7"
                 value={form.name}
                 onChange={(e) => set('name', e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="pkg-owner">
-                Owner ID <span className="text-rose-600">*</span>
-              </label>
-              <input
-                id="pkg-owner"
-                type="number"
-                min="1"
-                inputMode="numeric"
-                className={fieldClass}
-                value={form.owner}
-                onChange={(e) => set('owner', e.target.value)}
                 required
               />
             </div>
@@ -339,9 +353,9 @@ const PackagesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
                 value={form.package_type}
                 onChange={(e) => set('package_type', e.target.value)}
               >
-                {withOption(PACKAGE_TYPES, form.package_type).map((t) => (
-                  <option key={t} value={t}>
-                    {t.replace(/_/g, ' ')}
+                {withTypeOption(PACKAGE_TYPES, form.package_type).map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
                   </option>
                 ))}
               </select>

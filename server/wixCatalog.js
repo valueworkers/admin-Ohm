@@ -5,6 +5,66 @@
 
 const WIX_BASE = 'https://www.wixapis.com'
 const CURRENCY_FALLBACK = 'INR'
+const STORES_APP_ID = '215238eb-22a5-4c36-9e7b-e7c08025e04e'
+const CATEGORY_TREE = { appNamespace: '@wix/stores' }
+
+/** Request these on product query/search/get so category names/ids come back. */
+export const PRODUCT_READ_FIELDS = [
+  'CURRENCY',
+  'DIRECT_CATEGORIES_INFO',
+  'BREADCRUMBS_INFO',
+]
+
+export const PRODUCT_DETAIL_FIELDS = [
+  ...PRODUCT_READ_FIELDS,
+  'PLAIN_DESCRIPTION',
+  'VARIANT_OPTION_CHOICE_NAMES',
+  'MEDIA_ITEMS_INFO',
+]
+
+const mapProductCategories = (product = {}) => {
+  const crumbs = Array.isArray(product.breadcrumbsInfo?.breadcrumbs)
+    ? product.breadcrumbsInfo.breadcrumbs
+    : []
+  const nameById = new Map(
+    crumbs
+      .filter((c) => c?.categoryId)
+      .map((c) => [String(c.categoryId), String(c.categoryName || '').trim()]),
+  )
+  const direct = Array.isArray(product.directCategoriesInfo?.categories)
+    ? product.directCategoriesInfo.categories
+    : []
+  const categories = direct
+    .map((c) => {
+      const id = String(c?.id || '').trim()
+      if (!id) return null
+      return {
+        id,
+        name: nameById.get(id) || '',
+        index: Number.isFinite(Number(c.index)) ? Number(c.index) : null,
+      }
+    })
+    .filter(Boolean)
+
+  const mainCategoryId = String(product.mainCategoryId || categories[0]?.id || '').trim()
+  const mainFromCrumb = crumbs.length ? crumbs[crumbs.length - 1] : null
+  const categoryName =
+    (mainCategoryId && nameById.get(mainCategoryId)) ||
+    categories.find((c) => c.name)?.name ||
+    String(mainFromCrumb?.categoryName || '').trim() ||
+    ''
+  const categoryPath = crumbs
+    .map((c) => String(c.categoryName || '').trim())
+    .filter(Boolean)
+    .join(' › ')
+
+  return {
+    mainCategoryId: mainCategoryId || '',
+    categoryName,
+    categoryPath,
+    categories,
+  }
+}
 
 const shortWixMessage = (data, fallback = 'Wix request failed') => {
   if (!data || typeof data !== 'object') return fallback
@@ -169,8 +229,51 @@ export const mapProductListItem = (product = {}) => {
     item.compareAtPrice = compareNum
   }
   if (brandName) item.brand = String(brandName)
+  const cats = mapProductCategories(product)
+  item.mainCategoryId = cats.mainCategoryId
+  item.categoryName = cats.categoryName
+  item.categoryPath = cats.categoryPath
+  item.categories = cats.categories
   return item
 }
+
+/** Flatten Wix Categories API row for the Resources dropdown / table. */
+export const mapCategoryListItem = (category = {}, { allProductsId = '' } = {}) => {
+  const id = String(category.id || '').trim()
+  const name = String(category.name || '').trim()
+  const parentId = String(category.parentCategory?.id || '').trim()
+  const crumbs = Array.isArray(category.breadcrumbsInfo?.breadcrumbs)
+    ? category.breadcrumbsInfo.breadcrumbs
+    : []
+  const path =
+    crumbs.map((c) => String(c.categoryName || '').trim()).filter(Boolean).join(' › ') ||
+    name
+  return {
+    id,
+    name,
+    path,
+    parentId,
+    visible: category.visible !== false,
+    itemCounter: Number(category.itemCounter) || 0,
+    isAllProducts: Boolean(allProductsId && id && id === String(allProductsId)),
+  }
+}
+
+/** Assign a product to a Wix category (idempotent — ALREADY_EXISTS is fine). */
+export const assignProductToCategory = async (wixFetch, { productId, categoryId }) => {
+  const pid = String(productId || '').trim()
+  const cid = String(categoryId || '').trim()
+  if (!pid || !cid) return null
+  return wixFetch(`/categories/v1/bulk/categories/${encodeURIComponent(cid)}/add-items`, {
+    method: 'POST',
+    body: {
+      items: [{ catalogItemId: pid, appId: STORES_APP_ID }],
+      treeReference: CATEGORY_TREE,
+    },
+  })
+}
+
+export { STORES_APP_ID, CATEGORY_TREE }
 
 /**
  * VERIFY: Query/Search omit variantsInfo.variants.

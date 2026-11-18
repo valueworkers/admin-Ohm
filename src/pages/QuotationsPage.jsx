@@ -710,6 +710,39 @@ const QuotationsPage = () => {
                   />
                 </span>
               </label>
+              <label className="block sm:w-48">
+                <span className={labelClass}>Sort</span>
+                <select
+                  className={fieldClass}
+                  aria-label="Sort quotations"
+                  value={`${sortDir === 'desc' ? '-' : ''}${ORDERING_FIELDS[sortKey] || 'quote_date'}`}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    const desc = v.startsWith('-')
+                    const field = desc ? v.slice(1) : v
+                    const key =
+                      Object.entries(ORDERING_FIELDS).find(([, f]) => f === field)?.[0] ||
+                      'quoteDate'
+                    setSortKey(key)
+                    setSortDir(desc ? 'desc' : 'asc')
+                  }}
+                >
+                  <option value="-quote_date">Quote date (newest)</option>
+                  <option value="quote_date">Quote date (oldest)</option>
+                  <option value="-updated_at">Last modified (newest)</option>
+                  <option value="updated_at">Last modified (oldest)</option>
+                  <option value="number">Number A–Z</option>
+                  <option value="-number">Number Z–A</option>
+                  <option value="company">Customer A–Z</option>
+                  <option value="-company">Customer Z–A</option>
+                  <option value="status">Status A–Z</option>
+                  <option value="-status">Status Z–A</option>
+                  <option value="-total">Total high → low</option>
+                  <option value="total">Total low → high</option>
+                  <option value="-valid_until">Valid until (latest)</option>
+                  <option value="valid_until">Valid until (earliest)</option>
+                </select>
+              </label>
               <label className="inline-flex items-center gap-2 pb-2 text-sm text-stone-700">
                 <input
                   type="checkbox"

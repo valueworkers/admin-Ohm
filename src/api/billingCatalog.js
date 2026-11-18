@@ -49,30 +49,40 @@ export const buildLocationBody = (form = {}) => ({
   postal_code: String(form.postal_code || '').trim(),
 })
 
-export const normalizePackage = (row = {}) => ({
-  ...row,
-  id: row.id != null ? String(row.id) : '',
-  owner: row.owner != null && typeof row.owner === 'object' ? row.owner.id ?? '' : row.owner ?? '',
-  owner_name: String(row.owner_name || row.owner?.full_name || row.owner?.email || ''),
-  name: String(row.name || ''),
-  description: String(row.description || ''),
-  price: money2(row.price),
-  registration_fees: money2(row.registration_fees),
-  package_type: String(row.package_type || 'IN_HOUSE'),
-  period: String(row.period || 'MONTHLY'),
-  is_active: row.is_active !== false,
-})
+/** API package_type: IN_HOUSE | CLIENT_SIDE | OPD */
+export const PACKAGE_TYPES = ['IN_HOUSE', 'CLIENT_SIDE', 'OPD']
 
-export const buildPackageBody = (form = {}) => ({
-  owner: Number(form.owner),
-  name: String(form.name || '').trim(),
-  description: String(form.description || '').trim(),
-  price: money2(form.price),
-  registration_fees: money2(form.registration_fees),
-  package_type: String(form.package_type || 'IN_HOUSE'),
-  period: String(form.period || 'MONTHLY'),
-  is_active: Boolean(form.is_active),
-})
+export const normalizePackage = (row = {}) => {
+  const rawType = String(row.package_type || 'IN_HOUSE').toUpperCase()
+  const package_type = PACKAGE_TYPES.includes(rawType) ? rawType : rawType || 'IN_HOUSE'
+  return {
+    ...row,
+    id: row.id != null ? String(row.id) : '',
+    owner: row.owner != null && typeof row.owner === 'object' ? row.owner.id ?? '' : row.owner ?? '',
+    owner_name: String(row.owner_name || row.owner?.full_name || row.owner?.email || ''),
+    name: String(row.name || ''),
+    description: String(row.description || ''),
+    price: money2(row.price),
+    registration_fees: money2(row.registration_fees),
+    package_type,
+    period: String(row.period || 'MONTHLY'),
+    is_active: row.is_active !== false,
+  }
+}
+
+export const buildPackageBody = (form = {}) => {
+  const rawType = String(form.package_type || 'IN_HOUSE').toUpperCase()
+  return {
+    owner: Number(form.owner),
+    name: String(form.name || '').trim(),
+    description: String(form.description || '').trim(),
+    price: money2(form.price),
+    registration_fees: money2(form.registration_fees),
+    package_type: PACKAGE_TYPES.includes(rawType) ? rawType : 'IN_HOUSE',
+    period: String(form.period || 'MONTHLY'),
+    is_active: Boolean(form.is_active),
+  }
+}
 
 /** GET /api/billing/locations/ */
 export const fetchLocations = async (tenantSlug, { page = 1, pageSize = 100 } = {}) => {

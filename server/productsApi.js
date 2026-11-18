@@ -4,10 +4,15 @@
  */
 
 import {
+  assignProductToCategory,
   buildCreateProductBody,
+  CATEGORY_TREE,
   createWixClient,
+  mapCategoryListItem,
   mapProductDetail,
   mapProductListItem,
+  PRODUCT_DETAIL_FIELDS,
+  PRODUCT_READ_FIELDS,
   shortWixMessage,
   writableOptions,
   writableVariants,
@@ -78,6 +83,38 @@ export function createProductsApiMiddleware(env = {}) {
         })
       }
       const { wixFetch, uploadImageBuffer } = createWixClient({ apiKey, siteId })
+
+      // GET /api/products/categories — Wix store category tree for dropdowns
+      if (
+        parts.length === 3 &&
+        parts[0] === 'api' &&
+        parts[1] === 'products' &&
+        parts[2] === 'categories' &&
+        req.method === 'GET'
+      ) {
+        let allProductsId = ''
+        try {
+          const all = await wixFetch('/stores/v3/all-products-category')
+          allProductsId = String(all?.categoryId || all?.id || '').trim()
+        } catch {
+          allProductsId = ''
+        }
+
+        const data = await wixFetch('/categories/v1/categories/query', {
+          method: 'POST',
+          body: {
+            treeReference: CATEGORY_TREE,
+            returnNonVisibleCategories: true,
+            query: { cursorPaging: { limit: 1000 } },
+          },
+        })
+        const categories = (data?.categories || [])
+          .map((c) => mapCategoryListItem(c, { allProductsId }))
+          .filter((c) => c.id && !c.isAllProducts)
+          .sort((a, b) => a.path.localeCompare(b.path) || a.name.localeCompare(b.name))
+
+        return sendJson(res, 200, { categories, allProductsId })
+      }
 
       // POST /api/products/media — upload image from computer → Wix Media Manager
       if (
@@ -175,7 +212,7 @@ export function createProductsApiMiddleware(env = {}) {
                   },
                   cursorPaging: { limit, ...(cursor ? { cursor } : {}) },
                 },
-                fields: ['CURRENCY'],
+                fields: PRODUCT_READ_FIELDS,
               },
             })
           } else {
@@ -185,12 +222,45 @@ export function createProductsApiMiddleware(env = {}) {
                 query: {
                   cursorPaging: { limit, ...(cursor ? { cursor } : {}) },
                 },
-                fields: ['CURRENCY'],
+                fields: PRODUCT_READ_FIELDS,
               },
             })
           }
 
-          const products = (data?.products || []).map(mapProductListItem)
+          let products = (data?.products || []).map(mapProductListItem)
+
+          // Resolve category names when breadcrumbs only cover the main path
+          try {
+            const catData = await wixFetch('/categories/v1/categories/query', {
+              method: 'POST',
+              body: {
+                treeReference: CATEGORY_TREE,
+                returnNonVisibleCategories: true,
+                query: { cursorPaging: { limit: 1000 } },
+              },
+            })
+            const nameById = new Map(
+              (catData?.categories || []).map((c) => [
+                String(c.id || ''),
+                String(c.name || '').trim(),
+              ]),
+            )
+            products = products.map((p) => {
+              const categories = (p.categories || []).map((c) => ({
+                ...c,
+                name: c.name || nameById.get(c.id) || '',
+              }))
+              const categoryName =
+                p.categoryName ||
+                nameById.get(p.mainCategoryId) ||
+                categories.find((c) => c.name)?.name ||
+                ''
+              return { ...p, categories, categoryName }
+            })
+          } catch {
+            // Categories optional — still return products
+          }
+
           const nextCursor =
             data?.pagingMetadata?.cursors?.next ||
             data?.metadata?.cursors?.next ||
@@ -214,13 +284,37 @@ export function createProductsApiMiddleware(env = {}) {
           const data = await wixFetch(pathCreate, {
             method: 'POST',
             body: { product },
-            fields: [
-              'CURRENCY',
-              'PLAIN_DESCRIPTION',
-              'VARIANT_OPTION_CHOICE_NAMES',
-            ],
+            fields: PRODUCT_DETAIL_FIELDS,
           })
           const created = data?.product || data
+          const categoryId = String(input.categoryId || input.mainCategoryId || '').trim()
+          if (categoryId && created?.id) {
+            try {
+              await assignProductToCategory(wixFetch, {
+                productId: created.id,
+                categoryId,
+              })
+            } catch (assignErr) {
+              // Product exists; surface soft warning via mapped detail + message
+              const mapped = mapProductDetail(created)
+              return sendJson(res, 201, {
+                ...mapped,
+                categoryAssignWarning: shortWixMessage(
+                  assignErr?.wix,
+                  assignErr?.message || 'Product created but category was not assigned.',
+                ),
+              })
+            }
+            try {
+              const refreshed = await wixFetch(
+                `/stores/v3/products/${encodeURIComponent(created.id)}`,
+                { fields: PRODUCT_DETAIL_FIELDS },
+              )
+              return sendJson(res, 201, mapProductDetail(refreshed?.product || refreshed))
+            } catch {
+              // fall through to created
+            }
+          }
           return sendJson(res, 201, mapProductDetail(created))
         }
 
@@ -233,12 +327,7 @@ export function createProductsApiMiddleware(env = {}) {
 
         if (req.method === 'GET') {
           const data = await wixFetch(`/stores/v3/products/${encodeURIComponent(productId)}`, {
-            fields: [
-              'CURRENCY',
-              'PLAIN_DESCRIPTION',
-              'VARIANT_OPTION_CHOICE_NAMES',
-              'MEDIA_ITEMS_INFO',
-            ],
+            fields: PRODUCT_DETAIL_FIELDS,
           })
           return sendJson(res, 200, mapProductDetail(data?.product || data))
         }
@@ -250,13 +339,7 @@ export function createProductsApiMiddleware(env = {}) {
             const getData = await wixFetch(
               `/stores/v3/products/${encodeURIComponent(productId)}`,
               {
-                fields: [
-                  'CURRENCY',
-                  'PLAIN_DESCRIPTION',
-                  'VARIANT_OPTION_CHOICE_NAMES',
-                  'MEDIA_ITEMS_INFO',
-                  'MERCHANT_DATA',
-                ],
+                fields: [...PRODUCT_DETAIL_FIELDS, 'MERCHANT_DATA'],
               },
             )
             const fresh = getData?.product || getData
@@ -508,8 +591,33 @@ export function createProductsApiMiddleware(env = {}) {
             }
           }
 
+          const categoryId = String(
+            patchInput.categoryId || patchInput.mainCategoryId || '',
+          ).trim()
+          let categoryAssignWarning = null
+          if (categoryId) {
+            try {
+              await assignProductToCategory(wixFetch, { productId, categoryId })
+              try {
+                const refreshed = await wixFetch(
+                  `/stores/v3/products/${encodeURIComponent(productId)}`,
+                  { fields: PRODUCT_DETAIL_FIELDS },
+                )
+                updated = refreshed?.product || refreshed || updated
+              } catch {
+                // keep previous updated payload
+              }
+            } catch (assignErr) {
+              categoryAssignWarning = shortWixMessage(
+                assignErr?.wix,
+                assignErr?.message || 'Could not assign category.',
+              )
+            }
+          }
+
           const detail = mapProductDetail(updated)
           if (stockWarning) detail.stockWarning = stockWarning
+          if (categoryAssignWarning) detail.categoryAssignWarning = categoryAssignWarning
           return sendJson(res, 200, detail)
         }
 

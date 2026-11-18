@@ -106,6 +106,8 @@ const TenantQuotesPage = () => {
   const [loadError, setLoadError] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [search, setSearch] = useState('')
+  const [bookingEntity, setBookingEntity] = useState('')
+  const [sortBy, setSortBy] = useState('-updated_at')
   const [status, setStatus] = useState({ type: '', message: '' })
 
   const [modalOpen, setModalOpen] = useState(false)
@@ -129,7 +131,12 @@ const TenantQuotesPage = () => {
     setLoading(true)
     setLoadError('')
     try {
-      const { results } = await fetchBillingQuotes(tenantSlug, { status: statusFilter, search })
+      const { results } = await fetchBillingQuotes(tenantSlug, {
+        status: statusFilter,
+        search,
+        bookingEntity: bookingEntity || undefined,
+        ordering: sortBy || undefined,
+      })
       setRows(results)
     } catch (err) {
       setRows([])
@@ -137,7 +144,7 @@ const TenantQuotesPage = () => {
     } finally {
       setLoading(false)
     }
-  }, [tenantSlug, statusFilter, search])
+  }, [tenantSlug, statusFilter, search, bookingEntity, sortBy])
 
   useEffect(() => {
     const t = setTimeout(load, 250)
@@ -244,7 +251,7 @@ const TenantQuotesPage = () => {
       <XTenantBanner slug={tenantSlug} />
       <StatusBanner type={status.type} message={status.message} />
 
-      <div className="flex flex-col gap-2 sm:flex-row">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <input
           className={`${fieldClass} sm:max-w-xs`}
           placeholder="Search number or company"
@@ -263,6 +270,35 @@ const TenantQuotesPage = () => {
               {s === 'all' ? 'All statuses' : s[0].toUpperCase() + s.slice(1)}
             </option>
           ))}
+        </select>
+        <select
+          className={`${fieldClass} sm:w-44`}
+          aria-label="Filter by booking entity"
+          value={bookingEntity}
+          onChange={(e) => setBookingEntity(e.target.value)}
+        >
+          <option value="">All entities</option>
+          {BOOKING_ENTITIES.map((e) => (
+            <option key={e} value={e}>
+              {e}
+            </option>
+          ))}
+        </select>
+        <select
+          className={`${fieldClass} sm:w-48`}
+          aria-label="Sort quotations"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+        >
+          <option value="-updated_at">Newest updated</option>
+          <option value="updated_at">Oldest updated</option>
+          <option value="-created_at">Newest created</option>
+          <option value="number">Number A–Z</option>
+          <option value="-number">Number Z–A</option>
+          <option value="status">Status A–Z</option>
+          <option value="-status">Status Z–A</option>
+          <option value="company">Company A–Z</option>
+          <option value="-company">Company Z–A</option>
         </select>
       </div>
 

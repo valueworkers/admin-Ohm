@@ -15,6 +15,7 @@ import {
   deleteProduct,
   formatPriceRange,
   getProduct,
+  listCategories,
   listProducts,
   updateProduct,
   uploadProductImage,
@@ -42,6 +43,7 @@ const DESC_MAX = 16000
 const emptyCreate = () => ({
   name: '',
   brand: '',
+  categoryId: '',
   plainDescription: '',
   imageUrl: '',
   visible: true,
@@ -119,6 +121,8 @@ const ResourcesPage = () => {
   const [status, setStatus] = useState({ type: '', message: '' })
   const [search, setSearch] = useState('')
   const [searchApplied, setSearchApplied] = useState('')
+  const [categories, setCategories] = useState([])
+  const [categoryFilter, setCategoryFilter] = useState('')
 
   const [expandedIds, setExpandedIds] = useState(() => new Set())
   const [variantsById, setVariantsById] = useState({})
@@ -248,10 +252,39 @@ const ResourcesPage = () => {
     load()
   }, [load])
 
+  useEffect(() => {
+    let alive = true
+    listCategories()
+      .then((data) => {
+        if (alive) setCategories(data.categories || [])
+      })
+      .catch(() => {
+        if (alive) setCategories([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const categoryLabel = useCallback(
+    (row) => {
+      if (row?.categoryName) return row.categoryName
+      if (row?.categoryPath) return row.categoryPath
+      const id = row?.mainCategoryId || row?.categories?.[0]?.id
+      if (!id) return ''
+      const hit = categories.find((c) => String(c.id) === String(id))
+      return hit?.path || hit?.name || ''
+    },
+    [categories],
+  )
+
   const filtered = useMemo(() => {
-    // Server already searched when searchApplied set; keep client filter for empty q soft match
-    return rows
-  }, [rows])
+    if (!categoryFilter) return rows
+    return rows.filter((row) => {
+      if (String(row.mainCategoryId) === String(categoryFilter)) return true
+      return (row.categories || []).some((c) => String(c.id) === String(categoryFilter))
+    })
+  }, [rows, categoryFilter])
 
   const toggleExpand = async (row) => {
     const id = String(row.id)
@@ -333,6 +366,7 @@ const ResourcesPage = () => {
       setForm({
         name: detail.name || '',
         brand: detail.brand || '',
+        categoryId: detail.mainCategoryId || detail.categories?.[0]?.id || '',
         plainDescription: detail.plainDescription || '',
         imageUrl: detail.image || '',
         visible: detail.visible !== false,
@@ -466,6 +500,7 @@ const ResourcesPage = () => {
       const payload = {
         name: form.name.trim(),
         brand: form.brand,
+        categoryId: form.categoryId || undefined,
         plainDescription: form.plainDescription,
         imageUrl: form.imageUrl,
         mediaId: form.mediaId || undefined,
@@ -490,8 +525,13 @@ const ResourcesPage = () => {
           stockQuantity: r.stockQuantity,
         }))
       }
-      await createProduct(payload)
-      toast('success', 'Product created.')
+      const created = await createProduct(payload)
+      toast(
+        'success',
+        created?.categoryAssignWarning
+          ? `Product created. Category note: ${created.categoryAssignWarning}`
+          : 'Product created.',
+      )
       closeModal()
       await load({ q: searchApplied })
     } catch (err) {
@@ -518,6 +558,7 @@ const ResourcesPage = () => {
       const payload = {
         name,
         brand: form.brand,
+        categoryId: form.categoryId || undefined,
         plainDescription: form.plainDescription,
         visible: form.visible,
       }
@@ -603,10 +644,17 @@ const ResourcesPage = () => {
       }
 
       const updated = await updateProduct(editDetail.id, payload)
-      if (updated?.stockWarning) {
+      if (updated?.stockWarning || updated?.categoryAssignWarning) {
         toast(
           'warning',
-          `Product saved, but stock failed: ${updated.stockWarning}`,
+          [
+            updated?.stockWarning ? `Stock: ${updated.stockWarning}` : '',
+            updated?.categoryAssignWarning
+              ? `Category: ${updated.categoryAssignWarning}`
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' · ') || 'Product saved with warnings.',
         )
       } else {
         toast('success', 'Product updated.')
@@ -750,16 +798,29 @@ const ResourcesPage = () => {
       />
 
       <form
-        className="flex flex-col gap-2 sm:flex-row sm:items-center"
+        className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center"
         onSubmit={applySearch}
       >
         <input
-          className={fieldClass}
+          className={`${fieldClass} sm:max-w-xs`}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by name"
           aria-label="Search products"
         />
+        <select
+          className={`${fieldClass} sm:w-56`}
+          aria-label="Filter by category"
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+        >
+          <option value="">All categories</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.path || c.name}
+            </option>
+          ))}
+        </select>
         <button type="submit" className={btnSecondary} disabled={loading}>
           Search
         </button>
@@ -794,6 +855,7 @@ const ResourcesPage = () => {
                   <tr>
                     <th className="w-10 px-2 py-3" aria-label="Expand" />
                     <th className="px-4 py-3">Product</th>
+                    <th className="px-4 py-3">Category</th>
                     <th className="px-4 py-3">Brand</th>
                     <th className="px-4 py-3">Price</th>
                     <th className="px-4 py-3">Stock</th>
@@ -867,6 +929,17 @@ const ResourcesPage = () => {
                             </div>
                           </td>
                           <td className="px-4 py-3 text-stone-600">
+                            {categoryLabel(row) ? (
+                              <span className="inline-flex max-w-[180px] rounded-md bg-stone-100 px-2 py-0.5 text-xs font-semibold text-stone-700">
+                                <span className="truncate" title={row.categoryPath || categoryLabel(row)}>
+                                  {categoryLabel(row)}
+                                </span>
+                              </span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-stone-600">
                             {row.brand || '—'}
                           </td>
                           <td className="px-4 py-3">
@@ -918,7 +991,7 @@ const ResourcesPage = () => {
                         </tr>
                         {open ? (
                           <tr className="bg-stone-50/90">
-                            <td colSpan={6} className="px-4 py-3">
+                            <td colSpan={7} className="px-4 py-3">
                               {loadingV ? (
                                 <p className="pl-10 text-sm text-stone-500">
                                   Loading variants…
@@ -1008,6 +1081,11 @@ const ResourcesPage = () => {
                     )}
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-stone-900">{row.name}</p>
+                      {categoryLabel(row) ? (
+                        <p className="mt-0.5 text-xs font-medium text-stone-600">
+                          {categoryLabel(row)}
+                        </p>
+                      ) : null}
                       {row.brand ? (
                         <p className="text-xs text-stone-500">{row.brand}</p>
                       ) : null}
@@ -1162,6 +1240,26 @@ const ResourcesPage = () => {
                 onChange={(e) => setField('brand', e.target.value)}
                 disabled={saving}
               />
+            </label>
+            <label className="block">
+              <span className={labelClass}>Category</span>
+              <select
+                className={fieldClass}
+                value={form.categoryId || ''}
+                onChange={(e) => setField('categoryId', e.target.value)}
+                disabled={saving}
+              >
+                <option value="">No category</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.path || c.name}
+                    {c.visible === false ? ' (hidden)' : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-stone-500">
+                From your Wix product catalog. Assigning adds the product to that category.
+              </p>
             </label>
             <label className="block">
               <span className={labelClass}>Description (HTML)</span>

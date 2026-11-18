@@ -2322,6 +2322,9 @@ const LeadsPage = () => {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [onboardFilter, setOnboardFilter] = useState('All')
+  const [pipelineFilter, setPipelineFilter] = useState('All')
+  const [assigneeFilter, setAssigneeFilter] = useState('All')
+  const [sortBy, setSortBy] = useState('newest')
   const [scraping, setScraping] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [scrapeOpen, setScrapeOpen] = useState(false)
@@ -2391,40 +2394,83 @@ const LeadsPage = () => {
     [scopedLeads, leadType],
   )
 
-  const visible = useMemo(
-    () =>
-      typeLeads.filter((l) => {
-        if (statusFilter !== 'All' && l.status !== statusFilter) return false
-        if (onboardFilter !== 'All' && l.onboardingStatus !== onboardFilter) return false
-        if (!q) return true
-        const hay = [
-          l.leadId,
-          l.firstName,
-          l.middleName,
-          l.lastName,
-          l.companyName,
-          l.primaryContactName,
-          l.primaryContactNumber,
-          l.alternateContactName,
-          l.alternateContactNumber,
-          l.primaryEmailId,
-          l.secondaryEmailId,
-          l.address,
-          l.website,
-          l.affiliate,
-          l.assignedToName,
-          l.assignedToEmail,
-          leadTypeLabel(l.leadType),
-          pipelineLabel(l.pipelineStatus),
-        ]
-          .map((v) => String(v || '').toLowerCase())
-          .join(' ')
-        return hay.includes(q)
-      }),
-    [typeLeads, statusFilter, onboardFilter, q],
-  )
+  const visible = useMemo(() => {
+    const filtered = typeLeads.filter((l) => {
+      if (statusFilter !== 'All' && l.status !== statusFilter) return false
+      if (onboardFilter !== 'All' && l.onboardingStatus !== onboardFilter) return false
+      if (pipelineFilter !== 'All' && l.pipelineStatus !== pipelineFilter) return false
+      if (assigneeFilter === 'unassigned' && l.assignedToId) return false
+      if (
+        assigneeFilter !== 'All' &&
+        assigneeFilter !== 'unassigned' &&
+        String(l.assignedToId || '') !== String(assigneeFilter)
+      ) {
+        return false
+      }
+      if (!q) return true
+      const hay = [
+        l.leadId,
+        l.firstName,
+        l.middleName,
+        l.lastName,
+        l.companyName,
+        l.primaryContactName,
+        l.primaryContactNumber,
+        l.alternateContactName,
+        l.alternateContactNumber,
+        l.primaryEmailId,
+        l.secondaryEmailId,
+        l.address,
+        l.website,
+        l.affiliate,
+        l.assignedToName,
+        l.assignedToEmail,
+        leadTypeLabel(l.leadType),
+        pipelineLabel(l.pipelineStatus),
+      ]
+        .map((v) => String(v || '').toLowerCase())
+        .join(' ')
+      return hay.includes(q)
+    })
 
-  const filtering = Boolean(q) || statusFilter !== 'All' || onboardFilter !== 'All'
+    const cmpStr = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' })
+    const cmpDate = (a, b) => new Date(a || 0).getTime() - new Date(b || 0).getTime()
+    const sorted = [...filtered]
+    switch (sortBy) {
+      case 'oldest':
+        sorted.sort((a, b) => cmpDate(a.leadIdentifiedDate || a.createdAt, b.leadIdentifiedDate || b.createdAt))
+        break
+      case 'company_az':
+        sorted.sort((a, b) => cmpStr(a.companyName || displayName(a), b.companyName || displayName(b)))
+        break
+      case 'company_za':
+        sorted.sort((a, b) => cmpStr(b.companyName || displayName(b), a.companyName || displayName(a)))
+        break
+      case 'pipeline':
+        sorted.sort((a, b) => {
+          const ai = PIPELINE_STATUSES.findIndex((p) => p.key === a.pipelineStatus)
+          const bi = PIPELINE_STATUSES.findIndex((p) => p.key === b.pipelineStatus)
+          return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
+        })
+        break
+      case 'assignee':
+        sorted.sort((a, b) => cmpStr(a.assignedToName || 'Unassigned', b.assignedToName || 'Unassigned'))
+        break
+      case 'newest':
+      default:
+        sorted.sort((a, b) => cmpDate(b.leadIdentifiedDate || b.createdAt, a.leadIdentifiedDate || a.createdAt))
+        break
+    }
+    return sorted
+  }, [typeLeads, statusFilter, onboardFilter, pipelineFilter, assigneeFilter, q, sortBy])
+
+  const filtering = Boolean(
+    q ||
+      statusFilter !== 'All' ||
+      onboardFilter !== 'All' ||
+      pipelineFilter !== 'All' ||
+      assigneeFilter !== 'All',
+  )
 
   useEffect(() => {
     try {
@@ -2779,6 +2825,21 @@ const LeadsPage = () => {
             ))}
           </select>
         </label>
+        <label className="block sm:w-44">
+          <span className={labelClass}>Pipeline</span>
+          <select
+            className={fieldClass}
+            value={pipelineFilter}
+            onChange={(e) => setPipelineFilter(e.target.value)}
+          >
+            <option value="All">All</option>
+            {PIPELINE_STATUSES.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="block sm:w-40">
           <span className={labelClass}>Onboarding</span>
           <select
@@ -2794,6 +2855,40 @@ const LeadsPage = () => {
             ))}
           </select>
         </label>
+        {canManageLeads ? (
+          <label className="block sm:w-48">
+            <span className={labelClass}>Assignee</span>
+            <select
+              className={fieldClass}
+              value={assigneeFilter}
+              onChange={(e) => setAssigneeFilter(e.target.value)}
+            >
+              <option value="All">All</option>
+              <option value="unassigned">Unassigned</option>
+              {assignees.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {assigneeOptionLabel(u)}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <label className="block sm:w-44">
+          <span className={labelClass}>Sort</span>
+          <select
+            className={fieldClass}
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            aria-label="Sort leads"
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="company_az">Company A–Z</option>
+            <option value="company_za">Company Z–A</option>
+            <option value="pipeline">Pipeline stage</option>
+            <option value="assignee">Assignee A–Z</option>
+          </select>
+        </label>
         {filtering ? (
           <button
             type="button"
@@ -2802,6 +2897,8 @@ const LeadsPage = () => {
               setQuery('')
               setStatusFilter('All')
               setOnboardFilter('All')
+              setPipelineFilter('All')
+              setAssigneeFilter('All')
             }}
           >
             Clear filters

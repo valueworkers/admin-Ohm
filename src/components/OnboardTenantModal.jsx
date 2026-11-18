@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FiLoader, FiPlus, FiTrash2 } from 'react-icons/fi'
+import { FiChevronDown, FiLoader, FiPlus, FiTrash2 } from 'react-icons/fi'
 import { checkSlugAvailability } from '../api/onboarding'
 import { compressLogo } from '../utils/image'
 import { apiErrorMessage } from '../utils/errors'
@@ -21,21 +21,51 @@ const emptyBranch = () => ({
   pincode: '',
 })
 
+const ERP_OPTIONS = [
+  'Tally Prime',
+  'Zoho',
+  'SAP',
+  'Microsoft Dynamics 365',
+  'ERPNext',
+  'Marg',
+  'Busy',
+  'Oracle NetSuite',
+  'Odoo',
+  'Sage',
+  'Infor',
+  'Workday',
+  'Epicor',
+  'IFS',
+  'Acumatica',
+  'Ramco',
+  'Focus ERP',
+  'Others',
+  'None',
+]
+
 export const EMPTY_ONBOARD = {
   tenantName: '',
   tenantLogo: null,
   email: '',
   phone: '',
+  secondaryEmail: '',
+  secondaryPhone: '',
+  tertiaryEmail: '',
+  tertiaryPhone: '',
   gst: '',
   opsAdminEmail: '',
   wantsCoOwners: 'no',
   coOwnerEmails: [''],
   branches: [emptyBranch()],
+  existingWebsite: '',
   needWebsite: 'no',
   domain: '',
   slug: '',
   needErp: 'no',
   currentErp: '',
+  connectRazorpay: 'no',
+  razorpayAccountId: '',
+  razorpayKeyId: '',
   requestedPlan: null,
 }
 
@@ -87,6 +117,7 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
   const [error, setError] = useState('')
   const [logoBusy, setLogoBusy] = useState(false)
   const [logoPreview, setLogoPreview] = useState('')
+  const [showExtraContacts, setShowExtraContacts] = useState(false)
   const [slugStatus, setSlugStatus] = useState({
     checking: false,
     available: null,
@@ -107,6 +138,7 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
     setError('')
     setLogoBusy(false)
     setLogoPreview('')
+    setShowExtraContacts(false)
     setSlugStatus({ checking: false, available: null, reason: '', checkedSlug: '' })
   }
 
@@ -232,6 +264,23 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
     if (!EMAIL_RE.test(String(form.email || '').trim())) return 'Enter a valid email.'
     if (!PHONE_RE.test(String(form.phone || '').trim())) return 'Phone must be 10 digits.'
 
+    const secondaryEmail = String(form.secondaryEmail || '').trim()
+    const secondaryPhone = String(form.secondaryPhone || '').trim()
+    const tertiaryEmail = String(form.tertiaryEmail || '').trim()
+    const tertiaryPhone = String(form.tertiaryPhone || '').trim()
+    if (secondaryEmail && !EMAIL_RE.test(secondaryEmail)) {
+      return 'Enter a valid secondary contact email (or leave blank).'
+    }
+    if (secondaryPhone && !PHONE_RE.test(secondaryPhone)) {
+      return 'Secondary phone must be 10 digits (or leave blank).'
+    }
+    if (tertiaryEmail && !EMAIL_RE.test(tertiaryEmail)) {
+      return 'Enter a valid tertiary contact email (or leave blank).'
+    }
+    if (tertiaryPhone && !PHONE_RE.test(tertiaryPhone)) {
+      return 'Tertiary phone must be 10 digits (or leave blank).'
+    }
+
     const opsAdmin = String(form.opsAdminEmail || '').trim()
     if (opsAdmin && !EMAIL_RE.test(opsAdmin)) return 'Enter a valid ops admin email.'
 
@@ -263,10 +312,21 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
     }
 
     if (form.needWebsite === 'yes' && !String(form.domain || '').trim()) {
-      return 'Enter the domain when a website is needed.'
+      return 'Enter the customized website / domain.'
     }
-    if (!String(form.currentErp || '').trim()) {
-      return 'Enter the existing ERP (or “none” if they do not use one).'
+
+    const erp = String(form.currentErp || '').trim()
+    if (!erp || erp === 'Others') {
+      return 'Select an existing ERP (or choose Others and enter the name).'
+    }
+
+    if (form.connectRazorpay === 'yes') {
+      if (!String(form.razorpayAccountId || '').trim()) {
+        return 'Enter the Razorpay account ID to connect.'
+      }
+      if (!String(form.razorpayKeyId || '').trim()) {
+        return 'Enter the Razorpay key ID to connect.'
+      }
     }
 
     return ''
@@ -293,6 +353,10 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
     fd.append('organization_name', String(form.tenantName || '').trim())
     fd.append('email', String(form.email || '').trim())
     fd.append('contact_phone', String(form.phone || '').trim())
+    fd.append('secondary_contact_email', String(form.secondaryEmail || '').trim())
+    fd.append('secondary_contact_phone', String(form.secondaryPhone || '').trim())
+    fd.append('tertiary_contact_email', String(form.tertiaryEmail || '').trim())
+    fd.append('tertiary_contact_phone', String(form.tertiaryPhone || '').trim())
     fd.append('gst_number', gst)
     fd.append('branches', JSON.stringify(branches))
     fd.append('ops_admin_email', String(form.opsAdminEmail || '').trim())
@@ -302,19 +366,26 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
       coOwnerEmails?.length ? JSON.stringify(coOwnerEmails) : 'null',
     )
     fd.append('slug', slug)
-    fd.append('needs_website', form.needWebsite === 'yes' ? 'true' : 'false')
-    fd.append(
-      'domain',
-      form.needWebsite === 'yes' ? String(form.domain || '').trim() : '',
-    )
-    // Back-compat aliases for older lobby handlers
-    fd.append(
-      'custom_domain',
-      form.needWebsite === 'yes' ? String(form.domain || '').trim() : '',
-    )
-    fd.append('wants_custom_website', form.needWebsite === 'yes' ? 'true' : 'false')
+    const wantsCustom = form.needWebsite === 'yes'
+    const existingWebsite = wantsCustom ? '' : String(form.existingWebsite || '').trim()
+    const customDomain = wantsCustom ? String(form.domain || '').trim() : ''
+    fd.append('existing_website', existingWebsite)
+    fd.append('domain', customDomain || existingWebsite)
+    fd.append('custom_domain', customDomain)
+    fd.append('needs_website', wantsCustom ? 'true' : 'false')
+    fd.append('wants_custom_website', wantsCustom ? 'true' : 'false')
     fd.append('needs_erp', form.needErp === 'yes' ? 'true' : 'false')
     fd.append('current_erp', String(form.currentErp || '').trim())
+    const connectRazorpay = form.connectRazorpay === 'yes'
+    fd.append('connect_razorpay', connectRazorpay ? 'true' : 'false')
+    fd.append(
+      'razorpay_account_id',
+      connectRazorpay ? String(form.razorpayAccountId || '').trim() : '',
+    )
+    fd.append(
+      'razorpay_key_id',
+      connectRazorpay ? String(form.razorpayKeyId || '').trim() : '',
+    )
     fd.append('requested_plan', form.requestedPlan != null ? String(form.requestedPlan) : '')
     if (form.tenantLogo) fd.append('logo', form.tenantLogo)
     return fd
@@ -419,6 +490,84 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
               placeholder="10-digit mobile"
             />
           </label>
+
+          <div className="sm:col-span-2">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-stone-600 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"
+              onClick={() => setShowExtraContacts((v) => !v)}
+              disabled={saving}
+              aria-expanded={showExtraContacts}
+            >
+              <FiChevronDown
+                className={`h-4 w-4 transition-transform ${showExtraContacts ? 'rotate-180' : ''}`}
+                aria-hidden
+              />
+              {showExtraContacts
+                ? 'Hide secondary & tertiary contacts'
+                : 'Secondary & tertiary contacts (optional)'}
+            </button>
+          </div>
+
+          {showExtraContacts ? (
+            <>
+              <label className="block">
+                <span className={labelClass}>Secondary contact email</span>
+                <input
+                  type="email"
+                  className={fieldClass}
+                  value={form.secondaryEmail}
+                  onChange={(e) => set('secondaryEmail', e.target.value)}
+                  disabled={saving}
+                  placeholder="secondary@example.com"
+                  autoComplete="email"
+                />
+              </label>
+
+              <label className="block">
+                <span className={labelClass}>Secondary contact phone</span>
+                <input
+                  className={fieldClass}
+                  value={form.secondaryPhone}
+                  onChange={(e) =>
+                    set('secondaryPhone', e.target.value.replace(/\D/g, '').slice(0, 10))
+                  }
+                  disabled={saving}
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="10-digit mobile"
+                />
+              </label>
+
+              <label className="block">
+                <span className={labelClass}>Tertiary contact email</span>
+                <input
+                  type="email"
+                  className={fieldClass}
+                  value={form.tertiaryEmail}
+                  onChange={(e) => set('tertiaryEmail', e.target.value)}
+                  disabled={saving}
+                  placeholder="tertiary@example.com"
+                  autoComplete="email"
+                />
+              </label>
+
+              <label className="block">
+                <span className={labelClass}>Tertiary contact phone</span>
+                <input
+                  className={fieldClass}
+                  value={form.tertiaryPhone}
+                  onChange={(e) =>
+                    set('tertiaryPhone', e.target.value.replace(/\D/g, '').slice(0, 10))
+                  }
+                  disabled={saving}
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="10-digit mobile"
+                />
+              </label>
+            </>
+          ) : null}
 
           <label className="block">
             <span className={labelClass}>Ops admin email (optional)</span>
@@ -599,98 +748,195 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
         <div className="space-y-4 rounded-xl border border-stone-200 p-4">
           <p className="text-sm font-semibold text-ink">Website &amp; ERP</p>
 
-          <div>
-            <p className={labelClass}>Do you need a customize website?</p>
-            <YesNo
-              name="needWebsite"
-              value={form.needWebsite}
-              onChange={(v) =>
-                setForm((f) => ({
-                  ...f,
-                  needWebsite: v,
-                  domain: v === 'no' ? '' : f.domain,
-                }))
-              }
-              disabled={saving}
-            />
-          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {form.needWebsite === 'yes' ? (
+              <label className="block sm:col-span-2">
+                <span className={labelClass}>
+                  Customized website / domain <span className="text-rose-600">*</span>
+                </span>
+                <input
+                  className={fieldClass}
+                  value={form.domain}
+                  onChange={(e) => set('domain', e.target.value)}
+                  disabled={saving}
+                  placeholder="care.example.com"
+                  autoComplete="url"
+                  required
+                />
+                <span className="mt-1 block text-xs text-stone-500">
+                  Domain for the new customized website.
+                </span>
+              </label>
+            ) : (
+              <label className="block sm:col-span-2">
+                <span className={labelClass}>Existing website / domain (optional)</span>
+                <input
+                  className={fieldClass}
+                  value={form.existingWebsite}
+                  onChange={(e) => set('existingWebsite', e.target.value)}
+                  disabled={saving}
+                  placeholder="https://www.example.com"
+                  autoComplete="url"
+                />
+                <span className="mt-1 block text-xs text-stone-500">
+                  Leave blank if they do not have a website yet.
+                </span>
+              </label>
+            )}
 
-          {form.needWebsite === 'yes' ? (
+            <div>
+              <p className={labelClass}>Do you need a customized website?</p>
+              <YesNo
+                name="needWebsite"
+                value={form.needWebsite}
+                onChange={(v) =>
+                  setForm((f) => ({
+                    ...f,
+                    needWebsite: v,
+                    domain: v === 'yes' ? f.domain : '',
+                  }))
+                }
+                disabled={saving}
+              />
+            </div>
+
             <label className="block">
-              <span className={labelClass}>
-                Domain <span className="text-rose-600">*</span>
-              </span>
+              <span className={labelClass}>Free subdomain (slug)</span>
               <input
                 className={fieldClass}
-                value={form.domain}
-                onChange={(e) => set('domain', e.target.value)}
+                value={form.slug}
+                onChange={(e) => set('slug', normalizeSlug(e.target.value))}
                 disabled={saving}
-                placeholder="care.example.com"
-                autoComplete="url"
+                placeholder="vaishnavi-medicare"
               />
-              <span className="mt-1 block text-xs text-stone-500">
-                Capture the domain you want for this tenant’s website.
-              </span>
-            </label>
-          ) : null}
-
-          <label className="block">
-            <span className={labelClass}>Free subdomain (slug)</span>
-            <input
-              className={fieldClass}
-              value={form.slug}
-              onChange={(e) => set('slug', normalizeSlug(e.target.value))}
-              disabled={saving}
-              placeholder="vaishnavi-medicare"
-            />
-            <p className="mt-1 text-xs text-slate-500">
-              Slug used:{' '}
-              <span className="font-medium text-slate-700">{derivedSlug || '—'}</span>
-              {!form.slug ? ' (from organization name if left blank)' : ''}
-            </p>
-            {derivedSlug.length >= 3 ? (
-              <p
-                className={`mt-1 text-xs ${
-                  slugStatus.checking
-                    ? 'text-slate-500'
-                    : slugStatus.available
-                      ? 'text-emerald-700'
-                      : slugStatus.available === false
-                        ? 'text-rose-600'
-                        : 'text-slate-500'
-                }`}
-              >
-                {slugStatus.checking
-                  ? 'Checking availability…'
-                  : slugStatus.available
-                    ? 'Slug is available.'
-                    : slugStatus.reason || 'Slug not available.'}
+              <p className="mt-1 text-xs text-slate-500">
+                Slug used:{' '}
+                <span className="font-medium text-slate-700">{derivedSlug || '—'}</span>
+                {!form.slug ? ' (from organization name if left blank)' : ''}
               </p>
-            ) : null}
-          </label>
+              {derivedSlug.length >= 3 ? (
+                <p
+                  className={`mt-1 text-xs ${
+                    slugStatus.checking
+                      ? 'text-slate-500'
+                      : slugStatus.available
+                        ? 'text-emerald-700'
+                        : slugStatus.available === false
+                          ? 'text-rose-600'
+                          : 'text-slate-500'
+                  }`}
+                >
+                  {slugStatus.checking
+                    ? 'Checking availability…'
+                    : slugStatus.available
+                      ? 'Slug is available.'
+                      : slugStatus.reason || 'Slug not available.'}
+                </p>
+              ) : null}
+            </label>
 
-          <div>
-            <p className={labelClass}>Do you need ERP?</p>
-            <YesNo
-              name="needErp"
-              value={form.needErp}
-              onChange={(v) => set('needErp', v)}
-              disabled={saving}
-            />
+            <div>
+              <p className={labelClass}>Do you need ERP?</p>
+              <YesNo
+                name="needErp"
+                value={form.needErp}
+                onChange={(v) => set('needErp', v)}
+                disabled={saving}
+              />
+            </div>
+
+            <label className="block">
+              <span className={labelClass}>
+                Existing ERP <span className="text-rose-600">*</span>
+              </span>
+              <select
+                className={fieldClass}
+                value={
+                  !form.currentErp
+                    ? ''
+                    : ERP_OPTIONS.includes(form.currentErp)
+                      ? form.currentErp
+                      : 'Others'
+                }
+                onChange={(e) => set('currentErp', e.target.value)}
+                disabled={saving}
+                required
+              >
+                <option value="">Select ERP</option>
+                {ERP_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+              {form.currentErp === 'Others' ||
+              (form.currentErp && !ERP_OPTIONS.includes(form.currentErp)) ? (
+                <input
+                  className={`${fieldClass} mt-2`}
+                  value={form.currentErp === 'Others' ? '' : form.currentErp}
+                  onChange={(e) => set('currentErp', e.target.value.trim() || 'Others')}
+                  disabled={saving}
+                  placeholder="Enter ERP name"
+                  aria-label="Other ERP name"
+                />
+              ) : null}
+            </label>
           </div>
+        </div>
 
-          <label className="block">
-            <span className={labelClass}>
-              Existing ERP <span className="text-rose-600">*</span>
-            </span>
-            <input
-              className={fieldClass}
-              value={form.currentErp}
-              onChange={(e) => set('currentErp', e.target.value)}
-              disabled={saving}
-              placeholder="e.g. Tally, Zoho Books, SAP, none"
-            />
-          </label>
+        <div className="space-y-4 rounded-xl border border-stone-200 p-4">
+          <p className="text-sm font-semibold text-ink">Razorpay</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <p className={labelClass}>Connect Razorpay account?</p>
+              <YesNo
+                name="connectRazorpay"
+                value={form.connectRazorpay}
+                onChange={(v) =>
+                  setForm((f) => ({
+                    ...f,
+                    connectRazorpay: v,
+                    razorpayAccountId: v === 'yes' ? f.razorpayAccountId : '',
+                    razorpayKeyId: v === 'yes' ? f.razorpayKeyId : '',
+                  }))
+                }
+                disabled={saving}
+              />
+            </div>
+            {form.connectRazorpay === 'yes' ? (
+              <>
+                <label className="block">
+                  <span className={labelClass}>
+                    Razorpay account ID <span className="text-rose-600">*</span>
+                  </span>
+                  <input
+                    className={fieldClass}
+                    value={form.razorpayAccountId}
+                    onChange={(e) => set('razorpayAccountId', e.target.value.trim())}
+                    disabled={saving}
+                    placeholder="acc_xxxxxxxx"
+                    required
+                  />
+                </label>
+                <label className="block">
+                  <span className={labelClass}>
+                    Razorpay key ID <span className="text-rose-600">*</span>
+                  </span>
+                  <input
+                    className={fieldClass}
+                    value={form.razorpayKeyId}
+                    onChange={(e) => set('razorpayKeyId', e.target.value.trim())}
+                    disabled={saving}
+                    placeholder="rzp_live_xxxxxxxx or rzp_test_xxxxxxxx"
+                    required
+                  />
+                  <span className="mt-1 block text-xs text-stone-500">
+                    Key ID only — never paste the Key Secret in this form.
+                  </span>
+                </label>
+              </>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end">
