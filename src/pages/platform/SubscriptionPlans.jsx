@@ -1,496 +1,366 @@
-import { useCallback, useEffect, useState } from 'react'
-import { FiEdit2, FiPlus, FiRefreshCw, FiTrash2 } from 'react-icons/fi'
-import { createPlan, deletePlan, fetchPlans, updatePlan } from '../../api/plans'
-import ConfirmDialog from '../../components/ui/ConfirmDialog'
-import Modal from '../../components/ui/Modal'
+import { useRef, useState } from 'react'
+import { FiCheck, FiPlus, FiTrash2, FiX } from 'react-icons/fi'
 import PageHeader from '../../components/ui/PageHeader'
-import StatusBanner from '../../components/ui/StatusBanner'
-import { EmptyState, ErrorState, LoadingState } from '../../components/ui/PageState'
-import { apiErrorMessage } from '../../utils/errors'
-import {
-  btnGhost,
-  btnPrimary,
-  btnSecondary,
-  fieldClass,
-  labelClass,
-  tableHeadClass,
-  tableWrapClass,
-} from '../../utils/ui'
+import { btnGhost, btnPrimary, btnSecondary, fieldClass, labelClass } from '../../utils/ui'
 
-const emptyFeature = () => ({ code: '', name: '', description: '' })
+const CURRENCIES = [
+  { code: 'INR', symbol: '₹' },
+  { code: 'USD', symbol: '$' },
+  { code: 'EUR', symbol: '€' },
+  { code: 'GBP', symbol: '£' },
+]
 
-const EMPTY_FORM = () => ({
-  code: '',
-  name: '',
-  description: '',
-  max_employees: '',
-  max_branches: '',
-  features: [emptyFeature()],
-})
+const SEED = [
+  {
+    id: 'tier-free',
+    name: 'Free',
+    monthlyPrice: 0,
+    yearlyPrice: 0,
+    badge: '',
+    features: ['Up to 3 projects', 'Basic analytics', 'Community support'],
+    ctaText: 'Get Started',
+    highlighted: false,
+  },
+  {
+    id: 'tier-pro',
+    name: 'Pro',
+    monthlyPrice: 29,
+    yearlyPrice: 290,
+    badge: 'Most Popular',
+    features: ['Unlimited projects', 'Advanced analytics', 'Priority support', 'Custom integrations'],
+    ctaText: 'Start Free Trial',
+    highlighted: true,
+  },
+  {
+    id: 'tier-ent',
+    name: 'Enterprise',
+    monthlyPrice: 99,
+    yearlyPrice: 990,
+    badge: 'Best Value',
+    features: [
+      'Everything in Pro',
+      'Dedicated account manager',
+      'Custom contracts',
+      'SLA guarantee',
+      'Advanced security',
+    ],
+    ctaText: 'Contact Sales',
+    highlighted: false,
+  },
+]
 
-const toEditForm = (plan = {}) => ({
-  code: plan.code || '',
-  name: plan.name || '',
-  description: plan.description || '',
-  max_employees: plan.max_employees != null ? String(plan.max_employees) : '',
-  max_branches: plan.max_branches != null ? String(plan.max_branches) : '',
-  features:
-    Array.isArray(plan.features) && plan.features.length > 0
-      ? plan.features.map((f) => ({
-          code: f.code || '',
-          name: f.name || '',
-          description: f.description || '',
-        }))
-      : [emptyFeature()],
-})
-
-const buildPayload = (form) => ({
-  code: form.code.trim(),
-  name: form.name.trim(),
-  description: form.description.trim(),
-  max_employees: form.max_employees === '' ? null : Number(form.max_employees),
-  max_branches: form.max_branches === '' ? null : Number(form.max_branches),
-  features: (form.features || [])
-    .map((f) => ({
-      code: String(f.code || '').trim(),
-      name: String(f.name || '').trim(),
-      description: String(f.description || '').trim(),
-    }))
-    .filter((f) => f.code || f.name),
+const blankTier = () => ({
+  id: `tier-${Date.now()}`,
+  name: 'New Tier',
+  monthlyPrice: 0,
+  yearlyPrice: 0,
+  badge: '',
+  features: ['Feature 1'],
+  ctaText: 'Get Started',
+  highlighted: false,
 })
 
 const SubscriptionPlans = () => {
-  const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [status, setStatus] = useState({ type: '', message: '' })
-  const [modalMode, setModalMode] = useState(null)
-  const [editTarget, setEditTarget] = useState(null)
-  const [editForm, setEditForm] = useState(null)
-  const [deleteTarget, setDeleteTarget] = useState(null)
-  const [saving, setSaving] = useState(false)
+  const [billingCycle, setBillingCycle] = useState('monthly')
+  const [currency, setCurrency] = useState('INR')
+  const [tiers, setTiers] = useState(SEED)
+  const [draftFeature, setDraftFeature] = useState({})
+  const editorRef = useRef(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const list = await fetchPlans()
-      setRows(list)
-    } catch (err) {
-      setRows([])
-      setError(apiErrorMessage(err, 'Could not load subscription plans.'))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const symbol = CURRENCIES.find((c) => c.code === currency)?.symbol || '₹'
 
-  useEffect(() => {
-    load()
-  }, [load])
-
-  const openCreate = () => {
-    setStatus({ type: '', message: '' })
-    setModalMode('create')
-    setEditTarget(null)
-    setEditForm(EMPTY_FORM())
-  }
-
-  const openEdit = (plan) => {
-    setStatus({ type: '', message: '' })
-    setModalMode('edit')
-    setEditTarget(plan)
-    setEditForm(toEditForm(plan))
-  }
-
-  const closeEdit = () => {
-    if (saving) return
-    setModalMode(null)
-    setEditTarget(null)
-    setEditForm(null)
-  }
-
-  const setEditField = (key, value) => {
-    setEditForm((prev) => ({ ...prev, [key]: value }))
-  }
-
-  const setFeatureField = (index, key, value) => {
-    setEditForm((prev) => {
-      const features = [...(prev.features || [])]
-      features[index] = { ...features[index], [key]: value }
-      return { ...prev, features }
+  const addTier = () => {
+    const tier = blankTier()
+    setTiers((t) => [...t, tier])
+    window.requestAnimationFrame(() => {
+      editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      window.setTimeout(() => {
+        document.getElementById(`tier-editor-${tier.id}`)?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+        })
+        document
+          .querySelector(`#tier-editor-${tier.id} input[aria-label="Tier name"]`)
+          ?.focus()
+      }, 280)
     })
   }
 
-  const addFeature = () => {
-    setEditForm((prev) => ({
-      ...prev,
-      features: [...(prev.features || []), emptyFeature()],
-    }))
+  const updateTier = (id, field, value) => {
+    setTiers((prev) => prev.map((t) => (t.id === id ? { ...t, [field]: value } : t)))
   }
 
-  const removeFeature = (index) => {
-    setEditForm((prev) => {
-      const features = (prev.features || []).filter((_, i) => i !== index)
-      return { ...prev, features: features.length ? features : [emptyFeature()] }
-    })
+  const addFeature = (tierId) => {
+    const text = String(draftFeature[tierId] || '').trim()
+    if (!text) return
+    setTiers((prev) =>
+      prev.map((t) => (t.id === tierId ? { ...t, features: [...t.features, text] } : t)),
+    )
+    setDraftFeature((d) => ({ ...d, [tierId]: '' }))
   }
 
-  const savePlan = async (event) => {
-    event.preventDefault()
-    if (!editForm) return
-    if (modalMode === 'edit' && !editTarget?.id) return
-    setSaving(true)
-    setStatus({ type: '', message: '' })
-    try {
-      const payload = buildPayload(editForm)
-      if (!payload.name) {
-        setStatus({ type: 'error', message: 'Plan name is required.' })
-        return
-      }
-      if (!payload.code) {
-        setStatus({ type: 'error', message: 'Plan code is required.' })
-        return
-      }
-      if (modalMode === 'create') {
-        await createPlan(payload)
-        setStatus({ type: 'success', message: `${payload.name} created.` })
-      } else {
-        await updatePlan(editTarget.id, payload)
-        setStatus({ type: 'success', message: `${payload.name} updated.` })
-      }
-      setModalMode(null)
-      setEditTarget(null)
-      setEditForm(null)
-      await load()
-    } catch (err) {
-      setStatus({
-        type: 'error',
-        message: apiErrorMessage(
-          err,
-          modalMode === 'create' ? 'Could not create plan.' : 'Could not update plan.'
-        ),
-      })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const confirmDelete = async () => {
-    if (!deleteTarget?.id) return
-    const name = deleteTarget.name || 'Plan'
-    setSaving(true)
-    setStatus({ type: '', message: '' })
-    try {
-      await deletePlan(deleteTarget.id)
-      setStatus({ type: 'success', message: `${name} deleted.` })
-      setDeleteTarget(null)
-      await load()
-    } catch (err) {
-      setStatus({
-        type: 'error',
-        message: apiErrorMessage(err, 'Could not delete plan.'),
-      })
-    } finally {
-      setSaving(false)
-    }
+  const removeFeature = (tierId, index) => {
+    setTiers((prev) =>
+      prev.map((t) =>
+        t.id === tierId ? { ...t, features: t.features.filter((_, i) => i !== index) } : t,
+      ),
+    )
   }
 
   return (
-    <div className="space-y-4">
+    <div className="sc-page-enter space-y-4">
       <PageHeader
-        eyebrow="Platform"
-        title="Subscription plans"
-        description="Plans available for tenant onboarding and subscriptions."
+        eyebrow="Platform · Billing"
+        title="Plans"
+        description="Build pricing tiers and preview the public plan cards. Save API will land with the new plans contract."
         actions={
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className={btnSecondary} onClick={load} disabled={loading}>
-              <FiRefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden />
-              Refresh
-            </button>
-            <button type="button" className={btnPrimary} onClick={openCreate}>
-              <FiPlus className="h-4 w-4" aria-hidden />
-              Create plan
-            </button>
-          </div>
+          <button type="button" className={btnPrimary} onClick={addTier}>
+            <FiPlus className="h-4 w-4" aria-hidden />
+            Add tier
+          </button>
         }
       />
 
-      <StatusBanner type={status.type} message={status.message} />
-
-      {error ? (
-        <ErrorState message={error} onRetry={load} />
-      ) : (
-        <div className={tableWrapClass}>
-          {loading ? (
-            <LoadingState label="Loading plans…" />
-          ) : rows.length === 0 ? (
-            <EmptyState
-              bare
-              title="No plans"
-              hint="Create a subscription plan to get started."
-              actionLabel="Create plan"
-              onAction={openCreate}
-            />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className={tableHeadClass}>
-                  <tr>
-                    <th className="px-4 py-3">Plan</th>
-                    <th className="px-4 py-3">Code</th>
-                    <th className="px-4 py-3">Features</th>
-                    <th className="px-4 py-3">Limits</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {rows.map((row) => (
-                    <tr key={row.id} className="hover:bg-stone-50">
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-stone-900">{row.name}</p>
-                        <p className="mt-0.5 text-xs text-stone-500">{row.description || '—'}</p>
-                      </td>
-                      <td className="px-4 py-3 text-stone-600">{row.code || '—'}</td>
-                      <td className="px-4 py-3">
-                        {row.features?.length ? (
-                          <ul className="flex flex-wrap gap-1.5">
-                            {row.features.map((f) => (
-                              <li
-                                key={f.code || f.name}
-                                className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800"
-                                title={f.description || ''}
-                              >
-                                {f.name || f.code}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <span className="text-stone-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-stone-600">
-                        <div>Employees: {row.max_employees ?? '—'}</div>
-                        <div className="text-xs text-stone-400">
-                          Branches: {row.max_branches ?? '—'}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap justify-end gap-1">
-                          <button
-                            type="button"
-                            className={btnGhost}
-                            onClick={() => openEdit(row)}
-                          >
-                            <FiEdit2 className="h-3.5 w-3.5" aria-hidden />
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            className={`${btnGhost} text-rose-600 hover:bg-rose-50`}
-                            onClick={() => setDeleteTarget(row)}
-                          >
-                            <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      <Modal
-        open={Boolean(modalMode) && Boolean(editForm)}
-        title={
-          modalMode === 'create'
-            ? 'Create plan'
-            : editTarget
-              ? `Edit plan · ${editTarget.name}`
-              : 'Edit plan'
-        }
-        onClose={closeEdit}
-        wide
-        footer={
-          <div className="flex justify-end gap-2">
-            <button type="button" className={btnSecondary} onClick={closeEdit} disabled={saving}>
-              Cancel
-            </button>
-            <button type="submit" form="plan-form" className={btnPrimary} disabled={saving}>
-              {saving
-                ? modalMode === 'create'
-                  ? 'Creating…'
-                  : 'Saving…'
-                : modalMode === 'create'
-                  ? 'Create plan'
-                  : 'Save changes'}
-            </button>
-          </div>
-        }
-      >
-        {editForm ? (
-          <form id="plan-form" className="space-y-4" onSubmit={savePlan}>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className={labelClass} htmlFor="plan-name">
-                  Name
-                </label>
-                <input
-                  id="plan-name"
-                  className={fieldClass}
-                  value={editForm.name}
-                  onChange={(e) => setEditField('name', e.target.value)}
-                  required
-                  disabled={saving}
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="plan-code">
-                  Code
-                </label>
-                <input
-                  id="plan-code"
-                  className={fieldClass}
-                  value={editForm.code}
-                  onChange={(e) => setEditField('code', e.target.value)}
-                  required
-                  disabled={saving}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className={labelClass} htmlFor="plan-description">
-                  Description
-                </label>
-                <textarea
-                  id="plan-description"
-                  className={`${fieldClass} min-h-[72px] resize-y`}
-                  value={editForm.description}
-                  onChange={(e) => setEditField('description', e.target.value)}
-                  disabled={saving}
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="plan-max-employees">
-                  Max employees
-                </label>
-                <input
-                  id="plan-max-employees"
-                  type="number"
-                  min="0"
-                  className={fieldClass}
-                  value={editForm.max_employees}
-                  onChange={(e) => setEditField('max_employees', e.target.value)}
-                  disabled={saving}
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="plan-max-branches">
-                  Max branches
-                </label>
-                <input
-                  id="plan-max-branches"
-                  type="number"
-                  min="0"
-                  className={fieldClass}
-                  value={editForm.max_branches}
-                  onChange={(e) => setEditField('max_branches', e.target.value)}
-                  disabled={saving}
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-stone-900">Features</p>
-                <button
-                  type="button"
-                  className={btnGhost}
-                  onClick={addFeature}
-                  disabled={saving}
-                >
-                  <FiPlus className="h-3.5 w-3.5" aria-hidden />
-                  Add feature
-                </button>
-              </div>
-              <div className="space-y-2">
-                {editForm.features.map((feature, index) => (
-                  <div
-                    key={`feature-${index}`}
-                    className="grid gap-2 rounded-lg border border-stone-200 p-3 sm:grid-cols-[1fr_1fr_1fr_auto]"
+      <div className="space-y-4">
+        <section className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm md:p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-base font-semibold text-ink">Live preview</h2>
+            <div
+              role="tablist"
+              aria-label="Billing cycle"
+              className="inline-flex rounded-xl border border-stone-200 bg-stone-50 p-1"
+            >
+              {['monthly', 'yearly'].map((cycle) => {
+                const on = billingCycle === cycle
+                return (
+                  <button
+                    key={cycle}
+                    type="button"
+                    role="tab"
+                    aria-selected={on}
+                    onClick={() => setBillingCycle(cycle)}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${
+                      on ? 'bg-ink text-white shadow-sm' : 'text-stone-500 hover:text-stone-800'
+                    }`}
                   >
-                    <div>
-                      <label className={labelClass} htmlFor={`feature-code-${index}`}>
-                        Code
-                      </label>
-                      <input
-                        id={`feature-code-${index}`}
-                        className={fieldClass}
-                        value={feature.code}
-                        onChange={(e) => setFeatureField(index, 'code', e.target.value)}
-                        disabled={saving}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass} htmlFor={`feature-name-${index}`}>
-                        Name
-                      </label>
-                      <input
-                        id={`feature-name-${index}`}
-                        className={fieldClass}
-                        value={feature.name}
-                        onChange={(e) => setFeatureField(index, 'name', e.target.value)}
-                        disabled={saving}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass} htmlFor={`feature-desc-${index}`}>
-                        Description
-                      </label>
-                      <input
-                        id={`feature-desc-${index}`}
-                        className={fieldClass}
-                        value={feature.description}
-                        onChange={(e) => setFeatureField(index, 'description', e.target.value)}
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="flex items-end">
-                      <button
-                        type="button"
-                        className={`${btnGhost} text-rose-600`}
-                        onClick={() => removeFeature(index)}
-                        aria-label="Remove feature"
-                        disabled={saving}
-                      >
-                        <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    {cycle === 'monthly' ? 'Monthly' : 'Yearly'}
+                  </button>
+                )
+              })}
             </div>
-          </form>
-        ) : null}
-      </Modal>
+          </div>
 
-      <ConfirmDialog
-        open={Boolean(deleteTarget)}
-        title="Delete plan?"
-        message={
-          deleteTarget
-            ? `This permanently deletes “${deleteTarget.name || 'this plan'}”.`
-            : 'This permanently deletes the plan.'
-        }
-        confirmLabel="Delete"
-        loading={saving}
-        onConfirm={confirmDelete}
-        onClose={() => {
-          if (!saving) setDeleteTarget(null)
-        }}
-      />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {tiers.map((tier) => {
+              const price = billingCycle === 'monthly' ? tier.monthlyPrice : tier.yearlyPrice
+              const savings =
+                tier.monthlyPrice > 0 && billingCycle === 'yearly'
+                  ? Math.round(
+                      ((tier.monthlyPrice * 12 - tier.yearlyPrice) / (tier.monthlyPrice * 12)) *
+                        100,
+                    )
+                  : 0
+
+              return (
+                <article
+                  key={tier.id}
+                  className={`relative flex flex-col rounded-xl border-2 p-5 transition-shadow ${
+                    tier.highlighted
+                      ? 'border-brand-500 shadow-md'
+                      : 'border-stone-200 shadow-sm'
+                  }`}
+                >
+                  {tier.badge ? (
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-ink px-3 py-0.5 text-[11px] font-semibold text-white">
+                      {tier.badge}
+                    </span>
+                  ) : null}
+
+                  <h3 className="text-lg font-bold text-ink">{tier.name}</h3>
+                  <p className="mt-2 mb-4">
+                    <span className="text-3xl font-bold text-ink">
+                      {symbol}
+                      {price}
+                    </span>
+                    <span className="text-sm text-stone-500">
+                      /{billingCycle === 'monthly' ? 'mo' : 'yr'}
+                    </span>
+                  </p>
+                  {savings > 0 ? (
+                    <p className="mb-3 text-xs font-medium text-emerald-700">
+                      Save {savings}% with yearly billing
+                    </p>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    className={`mb-4 w-full rounded-lg px-4 py-2.5 text-sm font-semibold ${
+                      tier.highlighted
+                        ? 'bg-ink text-white hover:bg-stone-800'
+                        : 'bg-stone-100 text-ink hover:bg-stone-200'
+                    }`}
+                  >
+                    {tier.ctaText}
+                  </button>
+
+                  <ul className="space-y-2">
+                    {tier.features.map((feature, index) => (
+                      <li key={`${tier.id}-p-${index}`} className="flex gap-2 text-sm text-stone-600">
+                        <FiCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                        <span>{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              )
+            })}
+          </div>
+        </section>
+
+        <section
+          ref={editorRef}
+          id="plans-editor"
+          className="space-y-4 rounded-xl border border-stone-200 bg-white p-4 shadow-sm md:p-5"
+        >
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <h2 className="text-base font-semibold text-ink">Editor</h2>
+            <label className="block sm:w-40">
+              <span className={labelClass}>Currency</span>
+              <select
+                className={fieldClass}
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                aria-label="Currency"
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code} ({c.symbol})
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            {tiers.map((tier) => (
+              <div
+                key={tier.id}
+                id={`tier-editor-${tier.id}`}
+                className="rounded-xl border border-stone-200 p-4"
+              >
+                <div className="mb-3 flex items-start justify-between gap-2">
+                  <input
+                    className="min-w-0 flex-1 border-b border-transparent bg-transparent text-base font-semibold text-ink outline-none focus:border-brand-500"
+                    value={tier.name}
+                    onChange={(e) => updateTier(tier.id, 'name', e.target.value)}
+                    aria-label="Tier name"
+                  />
+                  <button
+                    type="button"
+                    className={`${btnGhost} text-rose-600 hover:bg-rose-50`}
+                    onClick={() => setTiers((prev) => prev.filter((t) => t.id !== tier.id))}
+                    aria-label={`Delete ${tier.name}`}
+                  >
+                    <FiTrash2 className="h-4 w-4" aria-hidden />
+                  </button>
+                </div>
+
+                <div className="mb-3 grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className={labelClass}>Monthly ({symbol})</span>
+                    <input
+                      type="number"
+                      min={0}
+                      className={fieldClass}
+                      value={tier.monthlyPrice}
+                      onChange={(e) =>
+                        updateTier(tier.id, 'monthlyPrice', Number(e.target.value) || 0)
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={labelClass}>Yearly ({symbol})</span>
+                    <input
+                      type="number"
+                      min={0}
+                      className={fieldClass}
+                      value={tier.yearlyPrice}
+                      onChange={(e) =>
+                        updateTier(tier.id, 'yearlyPrice', Number(e.target.value) || 0)
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={labelClass}>Badge</span>
+                    <input
+                      className={fieldClass}
+                      placeholder="e.g. Most Popular"
+                      value={tier.badge}
+                      onChange={(e) => updateTier(tier.id, 'badge', e.target.value)}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={labelClass}>CTA text</span>
+                    <input
+                      className={fieldClass}
+                      value={tier.ctaText}
+                      onChange={(e) => updateTier(tier.id, 'ctaText', e.target.value)}
+                    />
+                  </label>
+                </div>
+
+                <label className="mb-3 inline-flex items-center gap-2 text-sm text-stone-700">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-stone-300 text-ink focus:ring-brand-500/30"
+                    checked={tier.highlighted}
+                    onChange={(e) => updateTier(tier.id, 'highlighted', e.target.checked)}
+                  />
+                  Highlight this tier
+                </label>
+
+                <div>
+                  <span className={labelClass}>Features</span>
+                  <ul className="mb-2 space-y-1.5">
+                    {tier.features.map((feature, index) => (
+                      <li key={`${tier.id}-f-${index}`} className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 text-sm text-stone-600">{feature}</span>
+                        <button
+                          type="button"
+                          className={`${btnGhost} text-rose-600 hover:bg-rose-50`}
+                          onClick={() => removeFeature(tier.id, index)}
+                          aria-label={`Remove ${feature}`}
+                        >
+                          <FiX className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex gap-2">
+                    <input
+                      className={fieldClass}
+                      placeholder="Add feature…"
+                      value={draftFeature[tier.id] || ''}
+                      onChange={(e) =>
+                        setDraftFeature((d) => ({ ...d, [tier.id]: e.target.value }))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addFeature(tier.id)
+                        }
+                      }}
+                    />
+                    <button type="button" className={btnSecondary} onClick={() => addFeature(tier.id)}>
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
     </div>
   )
 }

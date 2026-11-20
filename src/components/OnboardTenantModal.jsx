@@ -43,6 +43,13 @@ const ERP_OPTIONS = [
   'None',
 ]
 
+const PAYMENT_PROVIDERS = [
+  { id: 'razorpay', label: 'Razorpay' },
+  { id: 'cashfree', label: 'Cashfree' },
+  { id: 'cash', label: 'Cash (offline)' },
+  { id: 'cod', label: 'COD' },
+]
+
 export const EMPTY_ONBOARD = {
   tenantName: '',
   tenantLogo: null,
@@ -63,9 +70,13 @@ export const EMPTY_ONBOARD = {
   slug: '',
   needErp: 'no',
   currentErp: '',
-  connectRazorpay: 'no',
+  hasOwnPaymentGateway: 'yes',
+  existingPaymentProviders: [],
   razorpayAccountId: '',
   razorpayKeyId: '',
+  cashfreeAppId: '',
+  cashfreeSecretKey: '',
+  providedPaymentProviders: [],
   requestedPlan: null,
 }
 
@@ -149,7 +160,10 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
   }
 
   useEffect(() => {
-    if (!open) return undefined
+    if (!open || form.needWebsite === 'yes') {
+      setSlugStatus({ checking: false, available: null, reason: '', checkedSlug: '' })
+      return undefined
+    }
     const slug = derivedSlug
     if (!slug || slug.length < 3) {
       setSlugStatus({ checking: false, available: null, reason: '', checkedSlug: '' })
@@ -192,7 +206,7 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [open, derivedSlug])
+  }, [open, derivedSlug, form.needWebsite])
 
   useEffect(() => {
     if (!form.tenantLogo) {
@@ -301,32 +315,38 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
       return 'Pincode must be 6 digits.'
     }
 
-    const slug = derivedSlug
-    if (!SLUG_RE.test(slug)) return 'Slug must be at least 3 characters (a-z, 0-9, hyphen).'
-    if (slugStatus.checking) return 'Still checking slug availability…'
-    if (slugStatus.available === false) {
-      return slugStatus.reason || 'This slug is not available.'
-    }
-    if (slugStatus.checkedSlug !== slug || slugStatus.available !== true) {
-      return 'Wait for slug availability to confirm.'
-    }
-
-    if (form.needWebsite === 'yes' && !String(form.domain || '').trim()) {
-      return 'Enter the customized website / domain.'
-    }
-
-    const erp = String(form.currentErp || '').trim()
-    if (!erp || erp === 'Others') {
-      return 'Select an existing ERP (or choose Others and enter the name).'
-    }
-
-    if (form.connectRazorpay === 'yes') {
-      if (!String(form.razorpayAccountId || '').trim()) {
-        return 'Enter the Razorpay account ID to connect.'
+    if (form.needWebsite !== 'yes' && String(form.slug || '').trim()) {
+      const slug = derivedSlug
+      if (!SLUG_RE.test(slug)) return 'Slug must be at least 3 characters (a-z, 0-9, hyphen).'
+      if (slugStatus.checking) return 'Still checking slug availability…'
+      if (slugStatus.available === false) {
+        return slugStatus.reason || 'This slug is not available.'
       }
-      if (!String(form.razorpayKeyId || '').trim()) {
-        return 'Enter the Razorpay key ID to connect.'
+    }
+
+    if (form.hasOwnPaymentGateway === 'yes') {
+      const existingPay = form.existingPaymentProviders || []
+      if (!existingPay.length) {
+        return 'Select at least one payment provider to connect.'
       }
+      if (existingPay.includes('razorpay')) {
+        if (!String(form.razorpayAccountId || '').trim()) {
+          return 'Enter the Razorpay account ID.'
+        }
+        if (!String(form.razorpayKeyId || '').trim()) {
+          return 'Enter the Razorpay key ID.'
+        }
+      }
+      if (existingPay.includes('cashfree')) {
+        if (!String(form.cashfreeAppId || '').trim()) {
+          return 'Enter the Cashfree App ID.'
+        }
+        if (!String(form.cashfreeSecretKey || '').trim()) {
+          return 'Enter the Cashfree secret key.'
+        }
+      }
+    } else if (!(form.providedPaymentProviders || []).length) {
+      return 'Select at least one payment gateway for us to provide.'
     }
 
     return ''
@@ -365,10 +385,11 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
       'co_owner_emails',
       coOwnerEmails?.length ? JSON.stringify(coOwnerEmails) : 'null',
     )
-    fd.append('slug', slug)
     const wantsCustom = form.needWebsite === 'yes'
-    const existingWebsite = wantsCustom ? '' : String(form.existingWebsite || '').trim()
+    const existingWebsite = String(form.existingWebsite || '').trim()
     const customDomain = wantsCustom ? String(form.domain || '').trim() : ''
+    // Custom site: still send a derived slug for tenant schema; UI does not collect it.
+    fd.append('slug', wantsCustom ? slugFromOrgName(form.tenantName) || slug : slug)
     fd.append('existing_website', existingWebsite)
     fd.append('domain', customDomain || existingWebsite)
     fd.append('custom_domain', customDomain)
@@ -376,15 +397,22 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
     fd.append('wants_custom_website', wantsCustom ? 'true' : 'false')
     fd.append('needs_erp', form.needErp === 'yes' ? 'true' : 'false')
     fd.append('current_erp', String(form.currentErp || '').trim())
-    const connectRazorpay = form.connectRazorpay === 'yes'
-    fd.append('connect_razorpay', connectRazorpay ? 'true' : 'false')
+    const ownGateway = form.hasOwnPaymentGateway === 'yes'
+    const existingPay = ownGateway ? form.existingPaymentProviders || [] : []
+    const providedPay = ownGateway ? [] : form.providedPaymentProviders || []
+    const hasRazorpay = existingPay.includes('razorpay')
+    const hasCashfree = existingPay.includes('cashfree')
+    fd.append('has_own_payment_gateway', ownGateway ? 'true' : 'false')
+    fd.append('existing_payment_providers', JSON.stringify(existingPay))
+    fd.append('needs_payment_gateway', ownGateway ? 'false' : 'true')
+    fd.append('provided_payment_providers', JSON.stringify(providedPay))
+    fd.append('connect_razorpay', hasRazorpay ? 'true' : 'false')
+    fd.append('razorpay_account_id', hasRazorpay ? String(form.razorpayAccountId || '').trim() : '')
+    fd.append('razorpay_key_id', hasRazorpay ? String(form.razorpayKeyId || '').trim() : '')
+    fd.append('cashfree_app_id', hasCashfree ? String(form.cashfreeAppId || '').trim() : '')
     fd.append(
-      'razorpay_account_id',
-      connectRazorpay ? String(form.razorpayAccountId || '').trim() : '',
-    )
-    fd.append(
-      'razorpay_key_id',
-      connectRazorpay ? String(form.razorpayKeyId || '').trim() : '',
+      'cashfree_secret_key',
+      hasCashfree ? String(form.cashfreeSecretKey || '').trim() : '',
     )
     fd.append('requested_plan', form.requestedPlan != null ? String(form.requestedPlan) : '')
     if (form.tenantLogo) fd.append('logo', form.tenantLogo)
@@ -749,40 +777,20 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
           <p className="text-sm font-semibold text-ink">Website &amp; ERP</p>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            {form.needWebsite === 'yes' ? (
-              <label className="block sm:col-span-2">
-                <span className={labelClass}>
-                  Customized website / domain <span className="text-rose-600">*</span>
-                </span>
-                <input
-                  className={fieldClass}
-                  value={form.domain}
-                  onChange={(e) => set('domain', e.target.value)}
-                  disabled={saving}
-                  placeholder="care.example.com"
-                  autoComplete="url"
-                  required
-                />
-                <span className="mt-1 block text-xs text-stone-500">
-                  Domain for the new customized website.
-                </span>
-              </label>
-            ) : (
-              <label className="block sm:col-span-2">
-                <span className={labelClass}>Existing website / domain (optional)</span>
-                <input
-                  className={fieldClass}
-                  value={form.existingWebsite}
-                  onChange={(e) => set('existingWebsite', e.target.value)}
-                  disabled={saving}
-                  placeholder="https://www.example.com"
-                  autoComplete="url"
-                />
-                <span className="mt-1 block text-xs text-stone-500">
-                  Leave blank if they do not have a website yet.
-                </span>
-              </label>
-            )}
+            <label className="block sm:col-span-2">
+              <span className={labelClass}>Current website (optional)</span>
+              <input
+                className={fieldClass}
+                value={form.existingWebsite}
+                onChange={(e) => set('existingWebsite', e.target.value)}
+                disabled={saving}
+                placeholder="https://www.example.com"
+                autoComplete="url"
+              />
+              <span className="mt-1 block text-xs text-stone-500">
+                Their live website, if any. Leave blank if they don’t have one yet.
+              </span>
+            </label>
 
             <div>
               <p className={labelClass}>Do you need a customized website?</p>
@@ -794,6 +802,75 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
                     ...f,
                     needWebsite: v,
                     domain: v === 'yes' ? f.domain : '',
+                    slug: v === 'no' ? f.slug : '',
+                  }))
+                }
+                disabled={saving}
+              />
+            </div>
+
+            {form.needWebsite === 'yes' ? (
+              <label className="block">
+                <span className={labelClass}>New website domain</span>
+                <input
+                  className={fieldClass}
+                  value={form.domain}
+                  onChange={(e) => set('domain', e.target.value)}
+                  disabled={saving}
+                  placeholder="care.example.com"
+                  autoComplete="url"
+                />
+                <span className="mt-1 block text-xs text-stone-500">
+                  Domain or subdomain for the new customized website, e.g. care.example.com.
+                </span>
+              </label>
+            ) : (
+              <label className="block">
+                <span className={labelClass}>Free subdomain (slug)</span>
+                <input
+                  className={fieldClass}
+                  value={form.slug}
+                  onChange={(e) => set('slug', normalizeSlug(e.target.value))}
+                  disabled={saving}
+                  placeholder="vaishnavi-medicare"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Slug used:{' '}
+                  <span className="font-medium text-slate-700">{derivedSlug || '—'}</span>
+                  {!form.slug ? ' (from organization name if left blank)' : ''}
+                </p>
+                {derivedSlug.length >= 3 ? (
+                  <p
+                    className={`mt-1 text-xs ${
+                      slugStatus.checking
+                        ? 'text-slate-500'
+                        : slugStatus.available
+                          ? 'text-emerald-700'
+                          : slugStatus.available === false
+                            ? 'text-rose-600'
+                            : 'text-slate-500'
+                    }`}
+                  >
+                    {slugStatus.checking
+                      ? 'Checking availability…'
+                      : slugStatus.available
+                        ? 'Slug is available.'
+                        : slugStatus.reason || 'Slug not available.'}
+                  </p>
+                ) : null}
+              </label>
+            )}
+
+            <div>
+              <p className={labelClass}>Do you need ERP?</p>
+              <YesNo
+                name="needErp"
+                value={form.needErp}
+                onChange={(v) =>
+                  setForm((f) => ({
+                    ...f,
+                    needErp: v,
+                    currentErp: '',
                   }))
                 }
                 disabled={saving}
@@ -801,53 +878,8 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
             </div>
 
             <label className="block">
-              <span className={labelClass}>Free subdomain (slug)</span>
-              <input
-                className={fieldClass}
-                value={form.slug}
-                onChange={(e) => set('slug', normalizeSlug(e.target.value))}
-                disabled={saving}
-                placeholder="vaishnavi-medicare"
-              />
-              <p className="mt-1 text-xs text-slate-500">
-                Slug used:{' '}
-                <span className="font-medium text-slate-700">{derivedSlug || '—'}</span>
-                {!form.slug ? ' (from organization name if left blank)' : ''}
-              </p>
-              {derivedSlug.length >= 3 ? (
-                <p
-                  className={`mt-1 text-xs ${
-                    slugStatus.checking
-                      ? 'text-slate-500'
-                      : slugStatus.available
-                        ? 'text-emerald-700'
-                        : slugStatus.available === false
-                          ? 'text-rose-600'
-                          : 'text-slate-500'
-                  }`}
-                >
-                  {slugStatus.checking
-                    ? 'Checking availability…'
-                    : slugStatus.available
-                      ? 'Slug is available.'
-                      : slugStatus.reason || 'Slug not available.'}
-                </p>
-              ) : null}
-            </label>
-
-            <div>
-              <p className={labelClass}>Do you need ERP?</p>
-              <YesNo
-                name="needErp"
-                value={form.needErp}
-                onChange={(v) => set('needErp', v)}
-                disabled={saving}
-              />
-            </div>
-
-            <label className="block">
               <span className={labelClass}>
-                Existing ERP <span className="text-rose-600">*</span>
+                {form.needErp === 'yes' ? 'Choose your ERP' : 'Existing ERP you are using'}
               </span>
               <select
                 className={fieldClass}
@@ -860,9 +892,10 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
                 }
                 onChange={(e) => set('currentErp', e.target.value)}
                 disabled={saving}
-                required
               >
-                <option value="">Select ERP</option>
+                <option value="">
+                  {form.needErp === 'yes' ? 'Select ERP' : 'Select existing ERP'}
+                </option>
                 {ERP_OPTIONS.map((opt) => (
                   <option key={opt} value={opt}>
                     {opt}
@@ -885,65 +918,261 @@ const OnboardTenantModal = ({ open, onClose, onSubmit, saving }) => {
         </div>
 
         <div className="space-y-4 rounded-xl border border-stone-200 p-4">
-          <p className="text-sm font-semibold text-ink">Razorpay</p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <p className={labelClass}>Connect Razorpay account?</p>
-              <YesNo
-                name="connectRazorpay"
-                value={form.connectRazorpay}
-                onChange={(v) =>
-                  setForm((f) => ({
-                    ...f,
-                    connectRazorpay: v,
-                    razorpayAccountId: v === 'yes' ? f.razorpayAccountId : '',
-                    razorpayKeyId: v === 'yes' ? f.razorpayKeyId : '',
-                  }))
-                }
-                disabled={saving}
-              />
-            </div>
-            {form.connectRazorpay === 'yes' ? (
-              <>
-                <label className="block">
-                  <span className={labelClass}>
-                    Razorpay account ID <span className="text-rose-600">*</span>
-                  </span>
-                  <input
-                    className={fieldClass}
-                    value={form.razorpayAccountId}
-                    onChange={(e) => set('razorpayAccountId', e.target.value.trim())}
-                    disabled={saving}
-                    placeholder="acc_xxxxxxxx"
-                    required
-                  />
-                </label>
-                <label className="block">
-                  <span className={labelClass}>
-                    Razorpay key ID <span className="text-rose-600">*</span>
-                  </span>
-                  <input
-                    className={fieldClass}
-                    value={form.razorpayKeyId}
-                    onChange={(e) => set('razorpayKeyId', e.target.value.trim())}
-                    disabled={saving}
-                    placeholder="rzp_live_xxxxxxxx or rzp_test_xxxxxxxx"
-                    required
-                  />
-                  <span className="mt-1 block text-xs text-stone-500">
-                    Key ID only — never paste the Key Secret in this form.
-                  </span>
-                </label>
-              </>
-            ) : null}
+          <p className="text-sm font-semibold text-ink">Payment gateway</p>
+          <p className="text-xs text-stone-500">
+            If they already have an account (e.g. Razorpay), connect it. If not, we can provide one.
+          </p>
+
+          <div>
+            <p className={labelClass}>Do they already have their own payment gateway?</p>
+            <YesNo
+              name="hasOwnPaymentGateway"
+              value={form.hasOwnPaymentGateway}
+              onChange={(v) =>
+                setForm((f) => ({
+                  ...f,
+                  hasOwnPaymentGateway: v,
+                  existingPaymentProviders: v === 'yes' ? f.existingPaymentProviders : [],
+                  providedPaymentProviders: v === 'no' ? f.providedPaymentProviders : [],
+                  razorpayAccountId: v === 'yes' ? f.razorpayAccountId : '',
+                  razorpayKeyId: v === 'yes' ? f.razorpayKeyId : '',
+                  cashfreeAppId: v === 'yes' ? f.cashfreeAppId : '',
+                  cashfreeSecretKey: v === 'yes' ? f.cashfreeSecretKey : '',
+                }))
+              }
+              disabled={saving}
+            />
           </div>
+
+          {form.hasOwnPaymentGateway === 'yes' ? (
+            <>
+              <div>
+                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                  <p className={labelClass}>
+                    Connect their payment providers <span className="text-rose-600">*</span>
+                  </p>
+                  <button
+                    type="button"
+                    className={btnGhost}
+                    disabled={saving}
+                    onClick={() =>
+                      setForm((f) => {
+                        const all = PAYMENT_PROVIDERS.map((p) => p.id)
+                        const cur = f.existingPaymentProviders || []
+                        const allOn = all.every((id) => cur.includes(id))
+                        const next = allOn ? [] : all
+                        return {
+                          ...f,
+                          existingPaymentProviders: next,
+                          razorpayAccountId: next.includes('razorpay')
+                            ? f.razorpayAccountId
+                            : '',
+                          razorpayKeyId: next.includes('razorpay') ? f.razorpayKeyId : '',
+                          cashfreeAppId: next.includes('cashfree') ? f.cashfreeAppId : '',
+                          cashfreeSecretKey: next.includes('cashfree')
+                            ? f.cashfreeSecretKey
+                            : '',
+                        }
+                      })
+                    }
+                  >
+                    {(form.existingPaymentProviders || []).length === PAYMENT_PROVIDERS.length
+                      ? 'Clear all'
+                      : 'Select all'}
+                  </button>
+                </div>
+                <p className="mb-2 text-xs text-stone-500">
+                  Select providers they already use, then enter account details.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  {PAYMENT_PROVIDERS.map((p) => {
+                    const on = (form.existingPaymentProviders || []).includes(p.id)
+                    return (
+                      <label
+                        key={`exist-${p.id}`}
+                        className="inline-flex items-center gap-2 text-sm text-stone-700"
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-stone-300 text-ink focus:ring-brand-500/30"
+                          checked={on}
+                          disabled={saving}
+                          onChange={() =>
+                            setForm((f) => {
+                              const cur = f.existingPaymentProviders || []
+                              const next = cur.includes(p.id)
+                                ? cur.filter((id) => id !== p.id)
+                                : [...cur, p.id]
+                              return {
+                                ...f,
+                                existingPaymentProviders: next,
+                                razorpayAccountId: next.includes('razorpay')
+                                  ? f.razorpayAccountId
+                                  : '',
+                                razorpayKeyId: next.includes('razorpay')
+                                  ? f.razorpayKeyId
+                                  : '',
+                                cashfreeAppId: next.includes('cashfree')
+                                  ? f.cashfreeAppId
+                                  : '',
+                                cashfreeSecretKey: next.includes('cashfree')
+                                  ? f.cashfreeSecretKey
+                                  : '',
+                              }
+                            })
+                          }
+                        />
+                        {p.label}
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {(form.existingPaymentProviders || []).includes('razorpay') ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className={labelClass}>
+                      Razorpay account ID <span className="text-rose-600">*</span>
+                    </span>
+                    <input
+                      className={fieldClass}
+                      value={form.razorpayAccountId}
+                      onChange={(e) => set('razorpayAccountId', e.target.value.trim())}
+                      disabled={saving}
+                      placeholder="acc_xxxxxxxx"
+                      required
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={labelClass}>
+                      Razorpay key ID <span className="text-rose-600">*</span>
+                    </span>
+                    <input
+                      className={fieldClass}
+                      value={form.razorpayKeyId}
+                      onChange={(e) => set('razorpayKeyId', e.target.value.trim())}
+                      disabled={saving}
+                      placeholder="rzp_live_xxxxxxxx or rzp_test_xxxxxxxx"
+                      required
+                    />
+                    <span className="mt-1 block text-xs text-stone-500">
+                      Key ID only — never paste the Key Secret in this form.
+                    </span>
+                  </label>
+                </div>
+              ) : null}
+
+              {(form.existingPaymentProviders || []).includes('cashfree') ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className={labelClass}>
+                      Cashfree App ID <span className="text-rose-600">*</span>
+                    </span>
+                    <input
+                      className={fieldClass}
+                      value={form.cashfreeAppId}
+                      onChange={(e) => set('cashfreeAppId', e.target.value.trim())}
+                      disabled={saving}
+                      placeholder="App ID"
+                      required
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={labelClass}>
+                      Cashfree secret key <span className="text-rose-600">*</span>
+                    </span>
+                    <input
+                      className={fieldClass}
+                      value={form.cashfreeSecretKey}
+                      onChange={(e) => set('cashfreeSecretKey', e.target.value.trim())}
+                      disabled={saving}
+                      placeholder="Secret key"
+                      required
+                    />
+                  </label>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div>
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <p className={labelClass}>
+                  Payment gateways for us to provide <span className="text-rose-600">*</span>
+                </p>
+                <button
+                  type="button"
+                  className={btnGhost}
+                  disabled={saving}
+                  onClick={() =>
+                    setForm((f) => {
+                      const all = PAYMENT_PROVIDERS.map((p) => p.id)
+                      const cur = f.providedPaymentProviders || []
+                      const allOn = all.every((id) => cur.includes(id))
+                      return {
+                        ...f,
+                        providedPaymentProviders: allOn ? [] : all,
+                      }
+                    })
+                  }
+                >
+                  {(form.providedPaymentProviders || []).length === PAYMENT_PROVIDERS.length
+                    ? 'Clear all'
+                    : 'Select all'}
+                </button>
+              </div>
+              <p className="mb-2 text-xs text-stone-500">
+                They don’t have an account yet — pick what we should set up.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {PAYMENT_PROVIDERS.map((p) => {
+                  const on = (form.providedPaymentProviders || []).includes(p.id)
+                  return (
+                    <label
+                      key={`prov-${p.id}`}
+                      className="inline-flex items-center gap-2 text-sm text-stone-700"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-stone-300 text-ink focus:ring-brand-500/30"
+                        checked={on}
+                        disabled={saving}
+                        onChange={() =>
+                          setForm((f) => {
+                            const cur = f.providedPaymentProviders || []
+                            return {
+                              ...f,
+                              providedPaymentProviders: cur.includes(p.id)
+                                ? cur.filter((id) => id !== p.id)
+                                : [...cur, p.id],
+                            }
+                          })
+                        }
+                      />
+                      {p.label}
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end">
           <button type="button" className={btnSecondary} onClick={handleClose} disabled={saving || logoBusy}>
             Cancel
           </button>
-          <button type="submit" className={btnPrimary} disabled={saving || logoBusy || slugStatus.checking}>
+          <button
+            type="submit"
+            className={btnPrimary}
+            disabled={
+              saving ||
+                logoBusy ||
+                (form.needWebsite !== 'yes' &&
+                  Boolean(String(form.slug || '').trim()) &&
+                  slugStatus.checking)
+            }
+          >
             {saving ? (
               <>
                 <FiLoader className="h-4 w-4 animate-spin" aria-hidden />

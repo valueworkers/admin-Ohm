@@ -32,6 +32,8 @@ import ResourcesPage from './pages/ResourcesPage'
 import Roles from './pages/Roles'
 import ServicesPage from './pages/ServicesPage'
 import SettingsPage from './pages/SettingsPage'
+import PaymentMasterPage from './pages/PaymentMasterPage'
+import PayrollPage from './pages/PayrollPage'
 import StaffPayoutsPage from './pages/StaffPayoutsPage'
 import TenantDetail from './pages/TenantDetail'
 import Tenants from './pages/Tenants'
@@ -103,11 +105,11 @@ const App = () => (
               <Route path="ops/emr" element={<DocumentManagerPage />} />
               <Route path="ops/analytics/attendance-master" element={<ModulePlaceholder />} />
               <Route path="ops/analytics/reminders" element={<ModulePlaceholder />} />
-              <Route path="ops/analytics/payment-master" element={<ModulePlaceholder />} />
+              <Route path="ops/analytics/payment-master" element={<PaymentMasterPage />} />
               <Route path="ops/analytics/unmapped-payments" element={<ModulePlaceholder />} />
               <Route path="ops/staff/employees" element={<EmployeesPage />} />
               <Route path="ops/staff/attendance" element={<AttendancePage />} />
-              <Route path="ops/staff/payroll" element={<ModulePlaceholder />} />
+              <Route path="ops/staff/payroll" element={<PayrollPage />} />
               <Route path="ops/staff/payouts" element={<StaffPayoutsPage />} />
               <Route path="ops/staff/for-hire" element={<ModulePlaceholder />} />
               <Route path="ops/customers" element={<PatientsPage />} />
