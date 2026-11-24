@@ -223,7 +223,7 @@ const PaymentDetailPage = () => {
   if (!isSuperAdmin) {
     return (
       <TenantOpsPlaceholder
-        title="Payments"
+        title="Collections"
         description="Your organization’s payment history will appear here when tenant payments are enabled."
       />
     )

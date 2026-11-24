@@ -32,6 +32,7 @@ import ResourcesPage from './pages/ResourcesPage'
 import Roles from './pages/Roles'
 import ServicesPage from './pages/ServicesPage'
 import SettingsPage from './pages/SettingsPage'
+import ExpensesPage from './pages/ExpensesPage'
 import PaymentMasterPage from './pages/PaymentMasterPage'
 import PayrollPage from './pages/PayrollPage'
 import StaffPayoutsPage from './pages/StaffPayoutsPage'
@@ -92,6 +93,7 @@ const App = () => (
             <Route path="ops/invoices" element={<ByRole sa={<InvoicesPage />} tenant={<TenantInvoicesPage />} />} />
             <Route path="ops/payments/:paymentId" element={<SuperOnly to="/ops/payments"><PaymentDetailPage /></SuperOnly>} />
             <Route path="ops/payments" element={<ByRole sa={<PaymentsPage />} tenant={<TenantPaymentsPage />} />} />
+            <Route path="ops/expenses" element={<ExpensesPage />} />
           </Route>
 
           <Route element={<RequireSelectedTenant />}>

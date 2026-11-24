@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FiPlus, FiRefreshCw, FiSend } from 'react-icons/fi'
+import { FiPlus } from 'react-icons/fi'
 import { fetchInvoices } from '../api/invoices'
 import {
   createPlatformPayment,
@@ -59,32 +59,6 @@ const PAYMENT_COLUMNS = [
 ]
 
 const PAYMENT_COLUMN_IDS = PAYMENT_COLUMNS.map((c) => c.id)
-
-const SOURCE_TABS = [
-  { id: 'platform', label: 'Platform' },
-  { id: 'razorpay', label: 'Razorpay' },
-]
-
-const RAZORPAY_COLUMNS = [
-  { id: 'rzpId', label: 'Razorpay ID' },
-  { id: 'customer', label: 'Customer' },
-  { id: 'email', label: 'Email' },
-  { id: 'method', label: 'Method' },
-  { id: 'status', label: 'Status' },
-  { id: 'created', label: 'Created' },
-  { id: 'amount', label: 'Amount', align: 'right' },
-]
-
-const emptyRazorpayRequest = () => ({
-  tenantId: '',
-  amount: '',
-  currency: 'INR',
-  customerName: '',
-  customerEmail: '',
-  customerPhone: '',
-  description: '',
-  notes: '',
-})
 
 const toLocalInput = (iso) => {
   if (!iso) {
@@ -186,16 +160,11 @@ const PaymentsPage = () => {
   const [methodFilter, setMethodFilter] = useState('')
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState('-paid_at')
-  const [sourceTab, setSourceTab] = useState('platform')
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState(emptyForm)
   const [formError, setFormError] = useState('')
   const [banner, setBanner] = useState({ type: '', message: '' })
   const [saving, setSaving] = useState(false)
-  const [razorpayRows] = useState([])
-  const [rzpModalOpen, setRzpModalOpen] = useState(false)
-  const [rzpForm, setRzpForm] = useState(emptyRazorpayRequest)
-  const [rzpFormError, setRzpFormError] = useState('')
   const { columnOrder, moveColumn } = useColumnOrder(
     'sc_ops_payments_col_order_v1',
     PAYMENT_COLUMN_IDS,
@@ -418,188 +387,36 @@ const PaymentsPage = () => {
     }
   }
 
-  const openRzpRequest = () => {
-    setRzpForm(emptyRazorpayRequest())
-    setRzpFormError('')
-    setRzpModalOpen(true)
-  }
-
-  const closeRzpRequest = () => {
-    if (saving) return
-    setRzpModalOpen(false)
-    setRzpFormError('')
-  }
-
-  const handleRzpRequest = (event) => {
-    event.preventDefault()
-    if (!String(rzpForm.amount || '').trim() || Number(rzpForm.amount) <= 0) {
-      setRzpFormError('Enter a valid amount.')
-      return
-    }
-    if (!String(rzpForm.customerEmail || '').trim() && !String(rzpForm.customerPhone || '').trim()) {
-      setRzpFormError('Add customer email or phone.')
-      return
-    }
-    setRzpFormError('')
-    setBanner({
-      type: 'info',
-      message: 'Razorpay is not connected yet. Add your Razorpay account ID to enable requests.',
-    })
-    setRzpModalOpen(false)
-  }
-
   if (!isSuperAdmin) {
     return (
       <TenantOpsPlaceholder
-        title="Payments"
+        title="Collections"
         description="Your organization’s payment history will appear here when tenant payments are enabled."
       />
     )
   }
 
-  const isRazorpay = sourceTab === 'razorpay'
-
   return (
     <div className="sc-page-enter space-y-4">
       <PageHeader
         eyebrow="Platform · Billing"
-        title="Payments"
-        description={
-          isRazorpay
-            ? 'Razorpay payments and payment requests. Connect your Razorpay account ID to sync live data.'
-            : `${filtered.length} platform payment${
-                filtered.length === 1 ? '' : 's'
-              } · ${fmtMoney(successTotal)} succeeded in this view.`
-        }
+        title="Collections"
+        description={`${filtered.length} platform payment${
+          filtered.length === 1 ? '' : 's'
+        } · ${fmtMoney(successTotal)} succeeded in this view.`}
         actions={
           canWrite !== false ? (
-            isRazorpay ? (
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className={btnSecondary}
-                  disabled
-                  title="Connect Razorpay account ID to refresh"
-                >
-                  <FiRefreshCw className="h-4 w-4" aria-hidden />
-                  Refresh
-                </button>
-                <button type="button" className={btnPrimary} onClick={openRzpRequest}>
-                  <FiSend className="h-4 w-4" aria-hidden />
-                  Request payment
-                </button>
-              </div>
-            ) : (
-              <button type="button" className={btnPrimary} onClick={openCreate}>
-                <FiPlus className="h-4 w-4" aria-hidden />
-                Add payment
-              </button>
-            )
+            <button type="button" className={btnPrimary} onClick={openCreate}>
+              <FiPlus className="h-4 w-4" aria-hidden />
+              Add payment
+            </button>
           ) : null
         }
       />
 
       <StatusBanner type={banner.type} message={banner.message} />
 
-      <div
-        role="tablist"
-        aria-label="Payment source"
-        className="inline-flex flex-wrap gap-1 rounded-xl border border-stone-200 bg-stone-50 p-1"
-      >
-        {SOURCE_TABS.map((tab) => {
-          const on = sourceTab === tab.id
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={on}
-              onClick={() => setSourceTab(tab.id)}
-              className={`rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 ${
-                on
-                  ? 'bg-ink text-white shadow-sm'
-                  : 'text-stone-500 hover:bg-white hover:text-stone-800'
-              }`}
-            >
-              {tab.label}
-            </button>
-          )
-        })}
-      </div>
-
-      {isRazorpay ? (
-        <>
-          <p className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900">
-            Razorpay account ID not configured yet. List and request actions will work once you add
-            it.
-          </p>
-
-          <div className={tableWrapClass}>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className={tableHeadClass}>
-                  <tr>
-                    {RAZORPAY_COLUMNS.map((col) => (
-                      <th
-                        key={col.id}
-                        className={`px-4 py-3 font-semibold ${
-                          col.align === 'right' ? 'text-right' : 'text-left'
-                        }`}
-                      >
-                        <span className="text-stone-500">{col.label}</span>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {razorpayRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={RAZORPAY_COLUMNS.length} className="px-4 py-10">
-                        <EmptyState
-                          bare
-                          title="No Razorpay payments yet"
-                          hint="Connect Razorpay to fetch payments, or send a payment request."
-                          actionLabel={
-                            canWrite !== false ? 'Request payment' : undefined
-                          }
-                          onAction={canWrite !== false ? openRzpRequest : undefined}
-                        />
-                      </td>
-                    </tr>
-                  ) : (
-                    razorpayRows.map((row) => (
-                      <tr key={row.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 font-medium text-stone-900">{row.id}</td>
-                        <td className="px-4 py-3 text-stone-800">{row.customer || '—'}</td>
-                        <td className="px-4 py-3 text-stone-600">{row.email || '—'}</td>
-                        <td className="px-4 py-3 text-stone-700">{row.method || '—'}</td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${paymentStatusClass(
-                              row.status,
-                            )}`}
-                          >
-                            {row.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-stone-600">{fmtDateTime(row.createdAt)}</td>
-                        <td className="px-4 py-3 text-right font-medium text-stone-900">
-                          {fmtMoney(row.amount)}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <p className="border-t border-stone-100 px-4 py-2.5 text-xs text-stone-500">
-              Razorpay settlement feed — syncs after account ID is added.
-            </p>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
             <label className="block min-w-0 flex-1 sm:min-w-[12rem]">
               <span className={labelClass}>Search</span>
               <input
@@ -768,8 +585,6 @@ const PaymentsPage = () => {
               Platform payments against tenant invoices (list / create / update / delete).
             </p>
           </div>
-        </>
-      )}
 
       <Modal open={modalOpen} onClose={closeCreate} title="Record payment" wide>
         <form className="space-y-4" onSubmit={handleSubmit}>
@@ -921,121 +736,6 @@ const PaymentsPage = () => {
         </form>
       </Modal>
 
-      <Modal open={rzpModalOpen} onClose={closeRzpRequest} title="Request Razorpay payment" wide>
-        <form className="space-y-4" onSubmit={handleRzpRequest}>
-          {rzpFormError ? (
-            <p
-              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
-              role="alert"
-            >
-              {rzpFormError}
-            </p>
-          ) : null}
-
-          <p className="text-xs text-stone-500">
-            Creates a Razorpay payment request once your account ID is connected. UI only for now.
-          </p>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block sm:col-span-2">
-              <span className={labelClass}>Tenant (optional)</span>
-              <select
-                className={fieldClass}
-                value={rzpForm.tenantId}
-                onChange={(e) => setRzpForm((f) => ({ ...f, tenantId: e.target.value }))}
-              >
-                <option value="">No tenant link</option>
-                {tenants.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className={labelClass}>
-                Amount (₹) <span className="text-rose-600">*</span>
-              </span>
-              <input
-                className={fieldClass}
-                type="number"
-                min="0"
-                step="0.01"
-                value={rzpForm.amount}
-                onChange={(e) => setRzpForm((f) => ({ ...f, amount: e.target.value }))}
-                required
-              />
-            </label>
-
-            <label className="block">
-              <span className={labelClass}>Currency</span>
-              <input className={fieldClass} value={rzpForm.currency} readOnly disabled />
-            </label>
-
-            <label className="block">
-              <span className={labelClass}>Customer name</span>
-              <input
-                className={fieldClass}
-                value={rzpForm.customerName}
-                onChange={(e) => setRzpForm((f) => ({ ...f, customerName: e.target.value }))}
-                placeholder="Dr. Ramesh"
-              />
-            </label>
-
-            <label className="block">
-              <span className={labelClass}>Customer phone</span>
-              <input
-                className={fieldClass}
-                value={rzpForm.customerPhone}
-                onChange={(e) => setRzpForm((f) => ({ ...f, customerPhone: e.target.value }))}
-                placeholder="+91…"
-              />
-            </label>
-
-            <label className="block sm:col-span-2">
-              <span className={labelClass}>Customer email</span>
-              <input
-                className={fieldClass}
-                type="email"
-                value={rzpForm.customerEmail}
-                onChange={(e) => setRzpForm((f) => ({ ...f, customerEmail: e.target.value }))}
-                placeholder="accounts@example.com"
-              />
-            </label>
-
-            <label className="block sm:col-span-2">
-              <span className={labelClass}>Description</span>
-              <input
-                className={fieldClass}
-                value={rzpForm.description}
-                onChange={(e) => setRzpForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder="Platform subscription · Nov 2026"
-              />
-            </label>
-
-            <label className="block sm:col-span-2">
-              <span className={labelClass}>Notes</span>
-              <textarea
-                className={`${fieldClass} min-h-[72px] resize-y`}
-                value={rzpForm.notes}
-                onChange={(e) => setRzpForm((f) => ({ ...f, notes: e.target.value }))}
-                placeholder="Optional note for the payer"
-              />
-            </label>
-          </div>
-
-          <div className="flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end">
-            <button type="button" className={btnSecondary} onClick={closeRzpRequest}>
-              Cancel
-            </button>
-            <button type="submit" className={btnPrimary}>
-              <FiSend className="h-4 w-4" aria-hidden />
-              Send request
-            </button>
-          </div>
-        </form>
-      </Modal>
     </div>
   )
 }

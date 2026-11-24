@@ -228,7 +228,7 @@ const TenantPaymentsPage = () => {
     <div className="space-y-4">
       <PageHeader
         eyebrow={access.tenant?.name || 'Operations'}
-        title="Payments"
+        title="Collections"
         description="Patient payments against invoices for this tenant."
         actions={
           canWrite ? (
@@ -288,7 +288,7 @@ const TenantPaymentsPage = () => {
 
       <div className={tableWrapClass}>
         {!tenantSlug ? (
-          <EmptyState bare title="No tenant selected" hint="Payments load once a tenant is selected." />
+          <EmptyState bare title="No tenant selected" hint="Collections load once a tenant is selected." />
         ) : loading ? (
           <LoadingState label="Loading payments…" />
         ) : loadError ? (

@@ -110,11 +110,19 @@ export const FEATURE_CATALOG = [
   },
   {
     key: 'payments',
-    label: 'Payments',
-    description: 'Payments for your organization (tenant view).',
+    label: 'Collections',
+    description: 'Collections / payments for your organization.',
     group: 'Operations',
     core: true,
     route: '/ops/payments',
+  },
+  {
+    key: 'expenses',
+    label: 'Expenses',
+    description: 'Expense tracking for your organization.',
+    group: 'Operations',
+    core: true,
+    route: '/ops/expenses',
   },
   {
     key: 'employees',

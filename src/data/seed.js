@@ -117,6 +117,7 @@ const flatFeatures = (extras = {}) => ({
   customer_lobby: true,
   invoices: true,
   payments: true,
+  expenses: true,
   employees: true,
   vendors: true,
   attendance: true,

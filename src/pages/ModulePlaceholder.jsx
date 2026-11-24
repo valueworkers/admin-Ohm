@@ -14,7 +14,8 @@ const TITLES = {
   '/ops/customer-lobby': 'Customer Lobby',
   '/ops/quotations': 'Quotations',
   '/ops/invoices': 'Invoices',
-  '/ops/payments': 'Payments',
+  '/ops/payments': 'Collections',
+  '/ops/expenses': 'Expenses',
   '/ops/n8n-templates': 'N8N Templates',
 }
 
