@@ -51,6 +51,7 @@ export const normalizeCustomer = (row = {}) => ({
   profile_pic: row.profile_pic || null,
 })
 
+/** POST /api/customers/ body */
 export const buildCreateCustomerBody = (form = {}) => ({
   email: str(form.email),
   password: String(form.password || ''),
@@ -62,6 +63,7 @@ export const buildCreateCustomerBody = (form = {}) => ({
   city: str(form.city),
 })
 
+/** PATCH /api/customers/:id/ body */
 export const buildUpdateCustomerBody = (form = {}) => ({
   first_name: str(form.first_name),
   middle_name: str(form.middle_name),
@@ -73,14 +75,19 @@ export const buildUpdateCustomerBody = (form = {}) => ({
 /** GET /api/customers/ */
 export const fetchCustomers = async (
   tenantSlug,
-  { page = 1, pageSize = 100, search, ordering = 'first_name' } = {},
+  { page = 1, pageSize = 20, search, ordering = 'first_name' } = {},
 ) => {
   const { data } = await api.get('api/customers/', {
     params: cleanParams({ page, page_size: pageSize, search, ordering }),
     ...tenantOpts(tenantSlug),
   })
   const results = asList(data).map(normalizeCustomer)
-  return { count: Number(data?.count) || results.length, results }
+  return {
+    count: Number(data?.count) || results.length,
+    results,
+    next: data?.next || null,
+    previous: data?.previous || null,
+  }
 }
 
 /** GET /api/customers/:id/ */

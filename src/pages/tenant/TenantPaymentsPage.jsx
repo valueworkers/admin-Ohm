@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FiCheckCircle, FiEdit2, FiPlus, FiTrash2, FiXCircle } from 'react-icons/fi'
+import { FiCheckCircle, FiDownload, FiEdit2, FiPlus, FiTrash2, FiXCircle } from 'react-icons/fi'
 import {
   MAPPING_STATUSES,
   PAYMENT_METHODS,
@@ -25,6 +25,7 @@ import {
 } from '../../features/billing/TenantBillingShared'
 import { useAccess } from '../../hooks/useAccess'
 import { apiErrorMessage } from '../../utils/errors'
+import { downloadExcelTable } from '../../utils/exportExcel'
 import { resolveCatalogTenantSlug } from '../../utils/tenantHeader'
 import {
   btnGhost,
@@ -231,12 +232,60 @@ const TenantPaymentsPage = () => {
         title="Collections"
         description="Patient payments against invoices for this tenant."
         actions={
-          canWrite ? (
-            <button type="button" className={btnPrimary} onClick={openCreate} disabled={!tenantSlug}>
-              <FiPlus className="h-4 w-4" aria-hidden />
-              Record payment
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={btnSecondary}
+              disabled={!visibleRows.length}
+              onClick={() => {
+                try {
+                  downloadExcelTable(
+                    'tenant-collections',
+                    [
+                      'Invoice',
+                      'Patient',
+                      'Method',
+                      'Gateway',
+                      'Amount',
+                      'Currency',
+                      'Paid at',
+                      'Verified',
+                      'Mapping status',
+                    ],
+                    visibleRows.map((row) => [
+                      row.invoice_number || row.invoice || '',
+                      row.patient_name || row.patient || '',
+                      row.method,
+                      row.gateway,
+                      row.amount ?? '',
+                      row.currency || 'INR',
+                      shortDate(row.paid_at),
+                      row.is_verified ? 'Yes' : 'No',
+                      row.mapping_status,
+                    ]),
+                  )
+                  setStatus({
+                    type: 'success',
+                    message: `Exported ${visibleRows.length} payment${visibleRows.length === 1 ? '' : 's'} to Excel.`,
+                  })
+                } catch (err) {
+                  setStatus({
+                    type: 'error',
+                    message: err?.message || 'Could not export collections.',
+                  })
+                }
+              }}
+            >
+              <FiDownload className="h-4 w-4" aria-hidden />
+              Export to Excel
             </button>
-          ) : null
+            {canWrite ? (
+              <button type="button" className={btnPrimary} onClick={openCreate} disabled={!tenantSlug}>
+                <FiPlus className="h-4 w-4" aria-hidden />
+                Record payment
+              </button>
+            ) : null}
+          </div>
         }
       />
 

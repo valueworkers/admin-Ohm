@@ -8,6 +8,8 @@ const asList = (data) => {
   return []
 }
 
+const unwrap = (data) => data?.data || data
+
 const tenantOpts = (tenantSlug) => {
   const slug = String(tenantSlug || '').trim()
   if (!slug) throw new Error('Select a tenant first so X-Tenant can be sent.')
@@ -25,135 +27,182 @@ const money2 = (value) => {
   return (Number.isFinite(n) ? n : 0).toFixed(2)
 }
 
-export const normalizeLocation = (row = {}) => ({
-  ...row,
-  id: row.id != null ? String(row.id) : '',
-  location_type: String(row.location_type || 'OPD'),
-  building_name: String(row.building_name || ''),
-  address_line1: String(row.address_line1 || ''),
-  address_line2: String(row.address_line2 || ''),
-  locality: String(row.locality || ''),
-  city: String(row.city || ''),
-  state: String(row.state || ''),
-  postal_code: String(row.postal_code || ''),
-})
+const idOf = (value) =>
+  value != null && typeof value === 'object' ? String(value.id ?? '') : String(value ?? '')
+
+const cleanParams = (params = {}) =>
+  Object.fromEntries(
+    Object.entries(params).filter(([, v]) => v !== '' && v != null && v !== 'all'),
+  )
+
+const addressFromRow = (row = {}) => {
+  const addr =
+    row.address && typeof row.address === 'object' ? row.address : {}
+  return {
+    line1: String(addr.line1 || row.address_line1 || '').trim(),
+    line2: String(addr.line2 || row.address_line2 || '').trim(),
+    locality: String(addr.locality || row.locality || '').trim(),
+    city: String(addr.city || row.city || '').trim(),
+    state: String(addr.state || row.state || '').trim(),
+    pincode: String(addr.pincode || row.postal_code || row.pincode || '').trim(),
+  }
+}
+
+/** Care location — GET/POST /api/care/locations/ */
+export const normalizeLocation = (row = {}) => {
+  const address = addressFromRow(row)
+  return {
+    ...row,
+    id: row.id != null ? String(row.id) : '',
+    name: String(row.name || row.building_name || '').trim(),
+    phone: String(row.phone || '').trim(),
+    email: String(row.email || '').trim(),
+    address,
+    // Flat aliases for table/forms
+    building_name: String(row.name || row.building_name || '').trim(),
+    address_line1: address.line1,
+    address_line2: address.line2,
+    locality: address.locality,
+    city: address.city,
+    state: address.state,
+    postal_code: address.pincode,
+  }
+}
 
 export const buildLocationBody = (form = {}) => ({
-  location_type: String(form.location_type || 'OPD').trim() || 'OPD',
-  building_name: String(form.building_name || '').trim(),
-  address_line1: String(form.address_line1 || '').trim(),
-  address_line2: String(form.address_line2 || '').trim(),
-  locality: String(form.locality || '').trim(),
-  city: String(form.city || '').trim(),
-  state: String(form.state || '').trim(),
-  postal_code: String(form.postal_code || '').trim(),
+  name: String(form.name || form.building_name || '').trim(),
+  phone: String(form.phone || '').trim(),
+  email: String(form.email || '').trim(),
+  address: {
+    line1: String(form.address?.line1 || form.address_line1 || '').trim(),
+    line2: String(form.address?.line2 || form.address_line2 || '').trim(),
+    locality: String(form.address?.locality || form.locality || '').trim(),
+    city: String(form.address?.city || form.city || '').trim(),
+    state: String(form.address?.state || form.state || '').trim(),
+    pincode: String(
+      form.address?.pincode || form.postal_code || form.pincode || '',
+    ).trim(),
+  },
 })
 
 /** API package_type: IN_HOUSE | CLIENT_SIDE | OPD */
 export const PACKAGE_TYPES = ['IN_HOUSE', 'CLIENT_SIDE', 'OPD']
 
+/** Care package — GET/POST /api/care/packages/ (resource target) */
 export const normalizePackage = (row = {}) => {
   const rawType = String(row.package_type || 'IN_HOUSE').toUpperCase()
   const package_type = PACKAGE_TYPES.includes(rawType) ? rawType : rawType || 'IN_HOUSE'
+  const resourceRaw = row.resource
+  const resourceId = idOf(resourceRaw)
+  const resourceName =
+    String(row.resource_name || '').trim() ||
+    (resourceRaw && typeof resourceRaw === 'object'
+      ? String(resourceRaw.name || resourceRaw.label || '').trim()
+      : '')
   return {
     ...row,
     id: row.id != null ? String(row.id) : '',
-    owner: row.owner != null && typeof row.owner === 'object' ? row.owner.id ?? '' : row.owner ?? '',
-    owner_name: String(row.owner_name || row.owner?.full_name || row.owner?.email || ''),
     name: String(row.name || ''),
     description: String(row.description || ''),
     price: money2(row.price),
-    registration_fees: money2(row.registration_fees),
     package_type,
     period: String(row.period || 'MONTHLY'),
-    is_active: row.is_active !== false,
+    resource: resourceId,
+    resource_name: resourceName,
+    is_active: row.is_active !== false && row.is_deleted !== true,
   }
 }
 
 export const buildPackageBody = (form = {}) => {
   const rawType = String(form.package_type || 'IN_HOUSE').toUpperCase()
   return {
-    owner: Number(form.owner),
     name: String(form.name || '').trim(),
-    description: String(form.description || '').trim(),
-    price: money2(form.price),
-    registration_fees: money2(form.registration_fees),
     package_type: PACKAGE_TYPES.includes(rawType) ? rawType : 'IN_HOUSE',
     period: String(form.period || 'MONTHLY'),
-    is_active: Boolean(form.is_active),
+    price: money2(form.price),
+    resource: String(form.resource || form.resourceId || '').trim(),
+    description: String(form.description || '').trim(),
   }
 }
 
-/** GET /api/billing/locations/ */
+/** GET /api/care/locations/ */
 export const fetchLocations = async (tenantSlug, { page = 1, pageSize = 100 } = {}) => {
-  const { data } = await api.get('api/billing/locations/', {
+  const { data } = await api.get('api/care/locations/', {
     params: { page, page_size: pageSize },
     ...tenantOpts(tenantSlug),
   })
   return asList(data).map(normalizeLocation)
 }
 
-/** POST /api/billing/locations/ */
+/** POST /api/care/locations/ */
 export const createLocation = async (tenantSlug, form) => {
   const { data } = await api.post(
-    'api/billing/locations/',
+    'api/care/locations/',
     buildLocationBody(form),
     tenantOpts(tenantSlug),
   )
-  return normalizeLocation(data?.data || data)
+  return normalizeLocation(unwrap(data))
 }
 
-/** PATCH /api/billing/locations/:id/ — full create-shaped body */
+/** PATCH /api/care/locations/:id/ */
 export const updateLocation = async (tenantSlug, locationId, form) => {
   const id = requireId(locationId, 'Location')
   const { data } = await api.patch(
-    `api/billing/locations/${id}/`,
+    `api/care/locations/${id}/`,
     buildLocationBody(form),
     tenantOpts(tenantSlug),
   )
-  return normalizeLocation(data?.data || data)
+  return normalizeLocation(unwrap(data))
 }
 
-/** DELETE /api/billing/locations/:id/ */
+/** DELETE /api/care/locations/:id/ */
 export const deleteLocation = async (tenantSlug, locationId) => {
   const id = requireId(locationId, 'Location')
-  await api.delete(`api/billing/locations/${id}/`, tenantOpts(tenantSlug))
+  await api.delete(`api/care/locations/${id}/`, tenantOpts(tenantSlug))
   return { id }
 }
 
-/** GET /api/billing/packages/ */
-export const fetchPackages = async (tenantSlug, { page = 1, pageSize = 100 } = {}) => {
-  const { data } = await api.get('api/billing/packages/', {
-    params: { page, page_size: pageSize },
+/** GET /api/care/packages/ */
+export const fetchPackages = async (
+  tenantSlug,
+  { page = 1, pageSize = 100, packageType, period } = {},
+) => {
+  const { data } = await api.get('api/care/packages/', {
+    params: cleanParams({
+      page,
+      page_size: pageSize,
+      package_type: packageType,
+      period,
+    }),
     ...tenantOpts(tenantSlug),
   })
   return asList(data).map(normalizePackage)
 }
 
-/** POST /api/billing/packages/ */
+/** POST /api/care/packages/ */
 export const createPackage = async (tenantSlug, form) => {
   const { data } = await api.post(
-    'api/billing/packages/',
+    'api/care/packages/',
     buildPackageBody(form),
     tenantOpts(tenantSlug),
   )
-  return normalizePackage(data?.data || data)
+  return normalizePackage(unwrap(data))
 }
 
-/** PATCH /api/billing/packages/:id/ — full create-shaped body */
+/** PATCH /api/care/packages/:id/ */
 export const updatePackage = async (tenantSlug, packageId, form) => {
   const id = requireId(packageId, 'Package')
   const { data } = await api.patch(
-    `api/billing/packages/${id}/`,
+    `api/care/packages/${id}/`,
     buildPackageBody(form),
     tenantOpts(tenantSlug),
   )
-  return normalizePackage(data?.data || data)
+  return normalizePackage(unwrap(data))
 }
 
-/** DELETE /api/billing/packages/:id/ */
+/** DELETE /api/care/packages/:id/ */
 export const deletePackage = async (tenantSlug, packageId) => {
   const id = requireId(packageId, 'Package')
-  await api.delete(`api/billing/packages/${id}/`, tenantOpts(tenantSlug))
+  await api.delete(`api/care/packages/${id}/`, tenantOpts(tenantSlug))
   return { id }
 }

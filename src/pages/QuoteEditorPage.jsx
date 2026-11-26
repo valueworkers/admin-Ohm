@@ -14,7 +14,10 @@ import {
 import {
   createPlatformQuote,
   downloadPlatformQuotePdf,
+  ensureQuoteSellerTaxSettings,
   fetchPlatformQuoteById,
+  quoteHasBuyerTaxPlace,
+  resolveBuyerTaxPlace,
   revisePlatformQuote,
   sendPlatformQuote,
   sendPlatformQuoteTest,
@@ -503,6 +506,11 @@ const QuoteEditorPage = () => {
       list.push(
         "Add the buyer's GSTIN or state, so GST can be split (CGST + SGST in Karnataka, IGST outside).",
       )
+    } else if (
+      String(form.gstin).trim() &&
+      !isValidGstinFormat(String(form.gstin).trim().toUpperCase())
+    ) {
+      list.push('Buyer GSTIN format looks invalid.')
     }
     form.lines.forEach((ln, i) => {
       if (!String(ln.item).trim()) list.push(`Line ${i + 1} needs an item name.`)
@@ -609,16 +617,26 @@ const QuoteEditorPage = () => {
             : Number(existing?.payload?.chargesGstRate) || 18,
       }
 
+      // Apidog: buyer state/gstin are create-only; PATCH cannot set them.
+      const { stateName, gstin: buyerGstin } = resolveBuyerTaxPlace(quoteForm)
+      if (asSent && !stateName && !buyerGstin) {
+        setStatus({
+          type: 'error',
+          message: 'Set a valid GSTIN or state before sending this quote.',
+        })
+        return
+      }
+
       // Revision of a sent quote → edit locally, then POST .../revise/ (same body as create) on Send
       if (isRevising && asSent) {
         const sourceId = revisingFromId || existing?.id || quoteId
+        await ensureQuoteSellerTaxSettings(
+          form.sellerGstin || seller.sellerGstin || '',
+        )
         let revised = await revisePlatformQuote(sourceId, quoteForm, quoteOpts)
         const revisedStatus = String(revised.status || '').toUpperCase()
         if (revisedStatus === 'DRAFT') {
-          revised = await sendPlatformQuote(revised.id, {
-            cc: form.ccEmails,
-            bcc: form.bccEmails,
-          })
+          revised = await sendPlatformQuote(revised.id)
         }
         setRevisingFromId(null)
         setExisting(revised)
@@ -639,16 +657,22 @@ const QuoteEditorPage = () => {
         return
       }
 
-      // New → POST; existing draft → PATCH — same payload shape
-      let saved = isNew
+      // Recreate when server draft has no buyer GSTIN/state (PATCH cannot add them).
+      const mustCreate =
+        isNew ||
+        ((asSent || Boolean(stateName || buyerGstin)) &&
+          !quoteHasBuyerTaxPlace(existing))
+
+      let saved = mustCreate
         ? await createPlatformQuote(quoteForm, quoteOpts)
         : await updatePlatformQuote(existing?.id || quoteId, quoteForm, quoteOpts)
 
       if (asSent) {
-        saved = await sendPlatformQuote(saved.id, {
-          cc: form.ccEmails,
-          bcc: form.bccEmails,
-        })
+        await ensureQuoteSellerTaxSettings(
+          form.sellerGstin || seller.sellerGstin || '',
+        )
+        // Send body is {} per Apidog; cc/bcc were saved on create.
+        saved = await sendPlatformQuote(saved.id)
         setExisting(saved)
         setForm(formFromQuote(saved))
         setStatus({
@@ -665,7 +689,7 @@ const QuoteEditorPage = () => {
         type: 'success',
         message: `Quote ${saved.number} saved.`,
       })
-      if (isNew) {
+      if (isNew || (mustCreate && saved.id !== (existing?.id || quoteId))) {
         window.setTimeout(() => navigate(`/ops/quotations/${saved.id}`), 600)
       }
     } catch (err) {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { FiPlus } from 'react-icons/fi'
+import { FiDownload, FiPlus } from 'react-icons/fi'
 import { fetchInvoices } from '../api/invoices'
 import DraggableTh from '../components/ui/DraggableTh'
 import PageHeader from '../components/ui/PageHeader'
@@ -16,7 +16,8 @@ import {
   invoiceAgeDays,
 } from '../features/invoices/store'
 import { apiErrorMessage } from '../utils/errors'
-import { btnPrimary, tableHeadClass, tableWrapClass } from '../utils/ui'
+import { downloadExcelTable } from '../utils/exportExcel'
+import { btnPrimary, btnSecondary, tableHeadClass, tableWrapClass } from '../utils/ui'
 
 const INVOICE_COLUMNS = [
   { id: 'number', label: 'Invoice' },
@@ -209,12 +210,60 @@ const InvoicesPage = () => {
         title="Invoices"
         description={`Platform invoices across tenants, as of ${asOf}. Raise invoices directly to a customer or tenant org.`}
         actions={
-          canWrite !== false ? (
-            <Link to="/ops/invoices/new" className={btnPrimary}>
-              <FiPlus className="h-4 w-4" aria-hidden />
-              Create invoice
-            </Link>
-          ) : null
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={btnSecondary}
+              disabled={!invoices.length}
+              onClick={() => {
+                downloadExcelTable(
+                  'invoices',
+                  [
+                    'Invoice',
+                    'Customer',
+                    'Email',
+                    'GSTIN',
+                    'Status',
+                    'Tenant',
+                    'Issue date',
+                    'Due date',
+                    'Your ref',
+                    'Amount',
+                    'Received',
+                    'Owed',
+                    'Age (days)',
+                  ],
+                  invoices.map((inv) => {
+                    const age = invoiceAgeDays(inv.issueDate || inv.date)
+                    return [
+                      inv.number,
+                      displayPayer(inv),
+                      inv.buyerEmail,
+                      inv.gstin,
+                      inv.status,
+                      inv.tenantName,
+                      fmtDate(inv.issueDate || inv.date),
+                      fmtDate(inv.dueDate),
+                      inv.yourRef,
+                      inv.amount ?? '',
+                      inv.received ?? '',
+                      inv.owed ?? '',
+                      inv.status === 'PAID' || Number(inv.owed) <= 0 ? '' : age ?? '',
+                    ]
+                  }),
+                )
+              }}
+            >
+              <FiDownload className="h-4 w-4" aria-hidden />
+              Export to Excel
+            </button>
+            {canWrite !== false ? (
+              <Link to="/ops/invoices/new" className={btnPrimary}>
+                <FiPlus className="h-4 w-4" aria-hidden />
+                Create invoice
+              </Link>
+            ) : null}
+          </div>
         }
       />
 

@@ -24,229 +24,177 @@ const requireId = (id, label) => {
 
 const str = (v) => String(v ?? '').trim()
 
-const nullableStr = (v) => {
-  const s = str(v)
-  return s || null
-}
-
 const cleanParams = (params = {}) =>
   Object.fromEntries(
     Object.entries(params).filter(([, v]) => v !== '' && v != null && v !== 'all'),
   )
 
 export const GENDERS = [
-  { value: 'male', label: 'Male' },
-  { value: 'female', label: 'Female' },
-  { value: 'other', label: 'Other' },
-  { value: 'prefer-not-to-say', label: 'Prefer not to say' },
+  { value: 'MALE', label: 'Male' },
+  { value: 'FEMALE', label: 'Female' },
+  { value: 'OTHER', label: 'Other' },
 ]
 
 export const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
 
-/** Writable fields for POST/PUT (excludes id, patient_id, is_deleted, is_active, registration_date, updated_at, registered_by). */
-export const PATIENT_WRITE_KEYS = [
-  'first_name',
-  'last_name',
-  'full_name',
-  'email',
-  'phone',
-  'address',
-  'age',
-  'emergency_contact',
-  'emergency_phone',
-  'emergency_contact_2',
-  'emergency_phone_2',
-  'medical_conditions',
-  'allergies',
-  'present_health_condition',
-  'gender',
-  'blood_group',
-  'preferred_language',
-  'education_qualifications',
-  'earlier_occupation',
-  'year_of_retirement',
-  'affiliate',
-  'source',
-  'referred_by',
-  'is_probono',
-  'is_registration_fees_paid',
-]
-
 export const patientFullName = (row = {}) =>
-  str(row.full_name) ||
   [row.first_name, row.last_name].filter(Boolean).join(' ').trim() ||
+  row.full_name ||
   row.name ||
   row.email ||
-  (row.patient_id ? `Patient ${row.patient_id}` : '') ||
   (row.id ? `Patient #${row.id}` : '—')
 
+const addressFromRow = (row = {}) => {
+  const addr = row.address && typeof row.address === 'object' ? row.address : {}
+  return {
+    line1: str(addr.line1 || row.address_line1),
+    line2: str(addr.line2 || row.address_line2),
+    locality: str(addr.locality || row.locality),
+    city: str(addr.city || row.city),
+    state: str(addr.state || row.state),
+    pincode: str(addr.pincode || row.pincode || row.postal_code),
+  }
+}
+
+/** Care patient — /api/care/patients/ */
 export const normalizePatient = (row = {}) => {
+  const address = addressFromRow(row)
   const first = str(row.first_name)
   const last = str(row.last_name)
   return {
     ...row,
     id: String(row.id ?? ''),
-    patient_id: str(row.patient_id),
+    patient_id: str(row.patient_id || row.id),
     first_name: first,
     last_name: last,
-    full_name: str(row.full_name) || [first, last].filter(Boolean).join(' ').trim(),
+    full_name: [first, last].filter(Boolean).join(' ').trim(),
     email: str(row.email),
     phone: str(row.phone || row.mobile_number),
-    address: str(row.address),
-    age: row.age != null && row.age !== '' ? Number(row.age) : null,
-    emergency_contact: str(row.emergency_contact),
-    emergency_phone: str(row.emergency_phone),
-    emergency_contact_2: str(row.emergency_contact_2),
-    emergency_phone_2: str(row.emergency_phone_2),
-    medical_conditions: str(row.medical_conditions),
-    allergies: str(row.allergies),
-    present_health_condition: str(row.present_health_condition),
-    gender: str(row.gender),
+    dob: str(row.dob).slice(0, 10),
+    gender: str(row.gender).toUpperCase(),
     blood_group: str(row.blood_group),
-    preferred_language: str(row.preferred_language),
-    education_qualifications: str(row.education_qualifications),
-    earlier_occupation: str(row.earlier_occupation),
-    year_of_retirement:
-      row.year_of_retirement != null && row.year_of_retirement !== ''
-        ? Number(row.year_of_retirement)
-        : null,
-    affiliate: str(row.affiliate),
-    source: str(row.source),
-    referred_by: str(row.referred_by),
-    is_probono: Boolean(row.is_probono),
-    is_registration_fees_paid: Boolean(row.is_registration_fees_paid),
+    address,
+    address_line1: address.line1,
+    address_line2: address.line2,
+    locality: address.locality,
+    city: address.city,
+    state: address.state,
+    postal_code: address.pincode,
+    medical_history: str(row.medical_history || row.medical_conditions),
+    allergies: str(row.allergies),
+    emergency_contact_name: str(row.emergency_contact_name || row.emergency_contact),
+    emergency_contact_phone: str(row.emergency_contact_phone || row.emergency_phone),
+    emergency_contact_relation: str(row.emergency_contact_relation),
     is_deleted: Boolean(row.is_deleted),
-    is_active: row.is_active !== false,
-    registration_date: row.registration_date || '',
-    updated_at: row.updated_at || '',
-    registered_by: row.registered_by ?? null,
-    name: patientFullName(row),
+    is_active: row.is_active !== false && row.status !== false,
+    name: patientFullName({ first_name: first, last_name: last, email: row.email, id: row.id }),
   }
 }
 
-export const buildPatientBody = (form = {}) => {
-  const first = str(form.first_name)
-  const last = str(form.last_name)
-  const full =
-    str(form.full_name) || [first, last].filter(Boolean).join(' ').trim()
+export const buildPatientBody = (form = {}) => ({
+  first_name: str(form.first_name),
+  last_name: str(form.last_name),
+  phone: str(form.phone || form.mobile_number),
+  email: str(form.email),
+  dob: str(form.dob).slice(0, 10),
+  gender: str(form.gender || 'MALE').toUpperCase(),
+  blood_group: str(form.blood_group || 'O+'),
+  address: {
+    line1: str(form.address?.line1 || form.address_line1 || form.address),
+    line2: str(form.address?.line2 || form.address_line2),
+    locality: str(form.address?.locality || form.locality),
+    city: str(form.address?.city || form.city),
+    state: str(form.address?.state || form.state),
+    pincode: str(form.address?.pincode || form.postal_code || form.pincode),
+  },
+  medical_history: str(form.medical_history || form.medical_conditions),
+  allergies: str(form.allergies),
+  emergency_contact_name: str(
+    form.emergency_contact_name || form.emergency_contact,
+  ),
+  emergency_contact_phone: str(
+    form.emergency_contact_phone || form.emergency_phone,
+  ),
+  emergency_contact_relation: str(form.emergency_contact_relation || 'Family'),
+})
 
-  const yearRaw = form.year_of_retirement
-  const year =
-    yearRaw === '' || yearRaw == null
-      ? null
-      : Number.isFinite(Number(yearRaw))
-        ? Number(yearRaw)
-        : null
-
-  return {
-    first_name: first,
-    last_name: last,
-    full_name: full,
-    email: str(form.email),
-    phone: str(form.phone),
-    address: str(form.address),
-    age: Math.max(0, Number(form.age) || 0),
-    emergency_contact: str(form.emergency_contact),
-    emergency_phone: str(form.emergency_phone),
-    emergency_contact_2: nullableStr(form.emergency_contact_2),
-    emergency_phone_2: nullableStr(form.emergency_phone_2),
-    medical_conditions: nullableStr(form.medical_conditions),
-    allergies: nullableStr(form.allergies),
-    present_health_condition: nullableStr(form.present_health_condition),
-    gender: str(form.gender),
-    blood_group: str(form.blood_group),
-    preferred_language: str(form.preferred_language),
-    education_qualifications: nullableStr(form.education_qualifications),
-    earlier_occupation: nullableStr(form.earlier_occupation),
-    year_of_retirement: year,
-    affiliate: nullableStr(form.affiliate),
-    source: nullableStr(form.source),
-    referred_by: nullableStr(form.referred_by),
-    is_probono: Boolean(form.is_probono),
-    is_registration_fees_paid: Boolean(form.is_registration_fees_paid),
-  }
-}
-
-export const buildPatientPatchBody = (form = {}) => buildPatientBody(form)
-
-/** GET /api/billing/patients/ */
+/** GET /api/care/patients/ */
 export const fetchPatients = async (
   tenantSlug,
-  {
-    page = 1,
-    pageSize = 100,
-    search,
-    gender,
-    isActive,
-    isProbono,
-    ordering,
-  } = {},
+  { page = 1, pageSize = 100, search, status, isActive, ordering } = {},
 ) => {
-  const { data } = await api.get('api/billing/patients/', {
+  const { data } = await api.get('api/care/patients/', {
     params: cleanParams({
       page,
       page_size: pageSize,
       search,
-      gender,
-      is_active: isActive,
-      is_probono: isProbono,
+      status: status ?? (isActive === true || isActive === 'true' ? 'true' : isActive === false || isActive === 'false' ? 'false' : undefined),
       ordering,
     }),
     ...tenantOpts(tenantSlug),
   })
   const results = asList(data).map(normalizePatient)
-  return { count: Number(data?.count) || results.length, results }
+  return {
+    count: Number(data?.count) || results.length,
+    results,
+    next: data?.next || null,
+    previous: data?.previous || null,
+  }
 }
 
-/** GET /api/billing/patients/:id/ */
+/** GET /api/care/patients/:id/ */
 export const fetchPatient = async (tenantSlug, patientId) => {
   const id = requireId(patientId, 'Patient')
-  const { data } = await api.get(`api/billing/patients/${id}/`, tenantOpts(tenantSlug))
+  const { data } = await api.get(`api/care/patients/${id}/`, tenantOpts(tenantSlug))
   return normalizePatient(unwrap(data))
 }
 
-/** POST /api/billing/patients/ */
+/** POST /api/care/patients/ */
 export const createPatient = async (tenantSlug, form) => {
   const { data } = await api.post(
-    'api/billing/patients/',
+    'api/care/patients/',
     buildPatientBody(form),
     tenantOpts(tenantSlug),
   )
   return normalizePatient(unwrap(data))
 }
 
-/** PATCH /api/billing/patients/:id/ */
+/** PATCH /api/care/patients/:id/ */
 export const updatePatient = async (tenantSlug, patientId, form) => {
   const id = requireId(patientId, 'Patient')
   const { data } = await api.patch(
-    `api/billing/patients/${id}/`,
-    buildPatientPatchBody(form),
-    tenantOpts(tenantSlug),
-  )
-  return normalizePatient(unwrap(data))
-}
-
-/** PUT /api/billing/patients/:id/ */
-export const replacePatient = async (tenantSlug, patientId, form) => {
-  const id = requireId(patientId, 'Patient')
-  const { data } = await api.put(
-    `api/billing/patients/${id}/`,
+    `api/care/patients/${id}/`,
     buildPatientBody(form),
     tenantOpts(tenantSlug),
   )
   return normalizePatient(unwrap(data))
 }
 
-/** POST /api/billing/patients/:id/soft_delete/ */
+/** Alias kept for older callers that used PUT replace. */
+export const replacePatient = updatePatient
+
+/** DELETE /api/care/patients/:id/ — soft delete */
 export const softDeletePatient = async (tenantSlug, patientId) => {
   const id = requireId(patientId, 'Patient')
-  await api.post(`api/billing/patients/${id}/soft_delete/`, {}, tenantOpts(tenantSlug))
+  await api.delete(`api/care/patients/${id}/`, tenantOpts(tenantSlug))
   return { id }
 }
 
-/** DELETE /api/billing/patients/:id/ */
-export const deletePatient = async (tenantSlug, patientId) => {
-  const id = requireId(patientId, 'Patient')
-  await api.delete(`api/billing/patients/${id}/`, tenantOpts(tenantSlug))
-  return { id }
-}
+export const deletePatient = softDeletePatient
+
+/** Unused helper retained for compatibility with older imports. */
+export const PATIENT_WRITE_KEYS = [
+  'first_name',
+  'last_name',
+  'phone',
+  'email',
+  'dob',
+  'gender',
+  'blood_group',
+  'address',
+  'medical_history',
+  'allergies',
+  'emergency_contact_name',
+  'emergency_contact_phone',
+  'emergency_contact_relation',
+]

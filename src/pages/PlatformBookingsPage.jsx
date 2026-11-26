@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FiEdit2, FiFileText, FiPlus, FiTrash2 } from 'react-icons/fi'
+import { FiDownload, FiEdit2, FiFileText, FiPlus, FiTrash2 } from 'react-icons/fi'
 import {
   convertPlatformBookingToInvoice,
   createPlatformBooking,
@@ -16,6 +16,7 @@ import TenantOpsPlaceholder from '../components/TenantOpsPlaceholder'
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
 import { apiErrorMessage } from '../utils/errors'
+import { downloadExcelTable } from '../utils/exportExcel'
 import {
   btnGhost,
   btnPrimary,
@@ -308,12 +309,62 @@ const PlatformBookingsPage = () => {
         title="Bookings"
         description="Platform bookings with tenants (onboarding, consultation, training)."
         actions={
-          canWrite !== false ? (
-            <button type="button" className={btnPrimary} onClick={openCreate}>
-              <FiPlus className="h-4 w-4" aria-hidden />
-              Add booking
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={btnSecondary}
+              disabled={!rows.length}
+              onClick={() => {
+                try {
+                  downloadExcelTable(
+                    'bookings',
+                    [
+                      'Title',
+                      'Tenant',
+                      'Type',
+                      'Status',
+                      'Start',
+                      'End',
+                      'Location',
+                      'Amount',
+                      'Invoice',
+                      'Notes',
+                    ],
+                    rows.map((r) => [
+                      r.title,
+                      r.tenantName || tenantNameById[String(r.tenantId)] || r.tenantId,
+                      r.bookingType,
+                      r.status,
+                      fmtDateTime(r.startDatetime),
+                      fmtDateTime(r.endDatetime),
+                      r.location,
+                      r.totalAmount ?? '',
+                      r.invoiceId || r.invoiceNumber || '',
+                      r.notes,
+                    ]),
+                  )
+                  setBanner({
+                    type: 'success',
+                    message: `Exported ${rows.length} booking${rows.length === 1 ? '' : 's'} to Excel.`,
+                  })
+                } catch (err) {
+                  setBanner({
+                    type: 'error',
+                    message: err?.message || 'Could not export bookings.',
+                  })
+                }
+              }}
+            >
+              <FiDownload className="h-4 w-4" aria-hidden />
+              Export to Excel
             </button>
-          ) : null
+            {canWrite !== false ? (
+              <button type="button" className={btnPrimary} onClick={openCreate}>
+                <FiPlus className="h-4 w-4" aria-hidden />
+                Add booking
+              </button>
+            ) : null}
+          </div>
         }
       />
 

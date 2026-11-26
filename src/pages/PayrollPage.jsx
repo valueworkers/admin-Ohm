@@ -12,9 +12,8 @@ import {
   createSalaryTransaction,
   deleteSalaryStructure,
   fetchEmployeePayroll,
-  fetchSalaryReports,
+  fetchSalaryReportById,
   fetchSalaryStructures,
-  refreshSalaryReports,
   updateSalaryStructure,
 } from '../api/payroll'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
@@ -32,7 +31,6 @@ import {
   fieldClass,
   labelClass,
   tableHeadClass,
-  tableWrapClass,
 } from '../utils/ui'
 
 const PAGE_SIZES = [10, 20, 50, 100]
@@ -154,6 +152,8 @@ const PayrollPage = () => {
   const [pageSize, setPageSize] = useState(20)
   const [page, setPage] = useState(1)
   const [count, setCount] = useState(0)
+  const [hasNext, setHasNext] = useState(false)
+  const [hasPrevious, setHasPrevious] = useState(false)
 
   const [history, setHistory] = useState({
     open: false,
@@ -201,6 +201,8 @@ const PayrollPage = () => {
     if (!tenantSlug) {
       setRows([])
       setCount(0)
+      setHasNext(false)
+      setHasPrevious(false)
       return
     }
     setLoading(true)
@@ -213,9 +215,13 @@ const PayrollPage = () => {
       })
       setRows(data.results)
       setCount(data.count)
+      setHasNext(Boolean(data.next))
+      setHasPrevious(Boolean(data.previous) || page > 1)
     } catch (err) {
       setRows([])
       setCount(0)
+      setHasNext(false)
+      setHasPrevious(false)
       setLoadError(apiErrorMessage(err, 'Could not load employee payroll.'))
     } finally {
       setLoading(false)
@@ -441,14 +447,16 @@ const PayrollPage = () => {
       selected: {},
     })
     try {
-      await refreshSalaryReports(tenantSlug, employee.id)
+      const reports = await fetchSalaryReportById(tenantSlug, employee.id)
       const { startDate, endDate } = periodRange(months)
-      const reports = await fetchSalaryReports(tenantSlug, {
-        userId: employee.id,
-        startDate,
-        endDate,
+      const inRange = reports.filter((r) => {
+        const key = r.monthKey || (r.startDate || '').slice(0, 7)
+        if (!key) return true
+        return key >= startDate.slice(0, 7) && key <= endDate.slice(0, 7)
       })
-      const sorted = [...reports].sort((a, b) => String(b.monthKey).localeCompare(String(a.monthKey)))
+      const sorted = [...inRange].sort((a, b) =>
+        String(b.monthKey).localeCompare(String(a.monthKey)),
+      )
       setPayout({
         open: true,
         employee,
@@ -581,11 +589,7 @@ const PayrollPage = () => {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        eyebrow="Manage Staff"
-        title="Employee Payroll"
-        description={`Salary structures and payouts for ${access.tenant?.name || 'your organization'}.`}
-      />
+      <PageHeader title="Employee Payroll" />
 
       {!tenantSlug ? (
         <StatusBanner type="warning" message="Select a tenant to load payroll." />
@@ -593,190 +597,227 @@ const PayrollPage = () => {
 
       {status.message ? <StatusBanner type={status.type || 'info'} message={status.message} /> : null}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative min-w-0 flex-1 sm:max-w-sm">
-            <FiSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
-            <input
-              className={`${fieldClass} pl-9`}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  runSearch()
-                }
-              }}
-              placeholder="Search by name, ID, or mobile..."
-              aria-label="Search payroll"
+      <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-stone-100 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+          <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <div className="relative min-w-0 w-full sm:max-w-xs">
+              <FiSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+              <input
+                className={`${fieldClass} !py-1.5 pl-9`}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    runSearch()
+                  }
+                }}
+                placeholder="Search by name, ID, or mobile..."
+                aria-label="Search payroll"
+                disabled={!tenantSlug || loading}
+              />
+            </div>
+            <button
+              type="button"
+              className={`${btnPrimary} !min-h-0 !bg-violet-600 !px-3 !py-1.5 hover:!bg-violet-700 focus-visible:!ring-violet-600/30`}
+              onClick={runSearch}
               disabled={!tenantSlug || loading}
-            />
-          </div>
-          <button type="button" className={btnPrimary} onClick={runSearch} disabled={!tenantSlug || loading}>
-            Search
-          </button>
-          <label className="flex items-center gap-2 text-sm text-stone-600">
-            <span className="whitespace-nowrap">Rows</span>
-            <select
-              className={`${fieldClass} w-auto py-1.5`}
-              value={pageSize}
-              onChange={(e) => {
-                setPage(1)
-                setPageSize(Number(e.target.value))
-              }}
-              aria-label="Rows per page"
             >
-              {PAGE_SIZES.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
+              Search
+            </button>
+            <label className="flex items-center gap-2 text-sm text-stone-600">
+              <span className="whitespace-nowrap">Rows</span>
+              <select
+                className={`${fieldClass} w-auto !py-1.5`}
+                value={pageSize}
+                onChange={(e) => {
+                  setPage(1)
+                  setPageSize(Number(e.target.value))
+                }}
+                aria-label="Rows per page"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="sc-btn inline-flex min-h-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/35 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={exportOverview}
+              disabled={!rows.length}
+            >
+              Export Excel
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          className={`${btnSecondary} border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100`}
-          onClick={exportOverview}
-          disabled={!rows.length}
-        >
-          <FiDownload className="h-4 w-4" />
-          Export Excel
-        </button>
-      </div>
 
-      {loadError ? <ErrorState message={loadError} onRetry={load} /> : null}
-      {loading ? <LoadingState label="Loading payroll…" /> : null}
+        {loadError ? (
+          <div className="p-4">
+            <ErrorState bare message={loadError} onRetry={load} />
+          </div>
+        ) : null}
+        {loading ? (
+          <div className="p-6">
+            <LoadingState label="Loading payroll…" />
+          </div>
+        ) : null}
 
-      {!loading && !loadError && tenantSlug ? (
-        rows.length === 0 ? (
-          <EmptyState title="No employees found" hint="Try another search, or add staff first." />
-        ) : (
-          <div className={tableWrapClass}>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className={tableHeadClass}>
-                  <tr>
-                    <th className="px-3 py-3 w-10" />
-                    <th className="px-3 py-3">Employee name</th>
-                    <th className="px-3 py-3">Emp. ID</th>
-                    <th className="px-3 py-3">Email</th>
-                    <th className="px-3 py-3">Mobile</th>
-                    <th className="px-3 py-3">Category</th>
-                    <th className="px-3 py-3">Vendor</th>
-                    <th className="px-3 py-3">Basic</th>
-                    <th className="px-3 py-3">PF</th>
-                    <th className="px-3 py-3">ESI</th>
-                    <th className="px-3 py-3">Recent payment</th>
-                    <th className="px-3 py-3">Payout mode</th>
-                    <th className="px-3 py-3">Effective date</th>
-                    <th className="px-3 py-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id} className="border-t border-stone-100 hover:bg-stone-50/80">
-                      <td className="px-3 py-2.5">
-                        <button
-                          type="button"
-                          className={btnGhost}
-                          aria-label={`Salary structure history for ${row.name}`}
-                          onClick={() => openHistory(row)}
-                        >
-                          <FiPlus className="h-3.5 w-3.5" />
-                        </button>
-                      </td>
-                      <td className="px-3 py-2.5 font-medium text-stone-900">{row.name}</td>
-                      <td className="px-3 py-2.5 text-stone-600">{row.employeeId || '—'}</td>
-                      <td className="px-3 py-2.5">
-                        {row.email ? (
-                          <a className="text-accent-blue hover:underline" href={`mailto:${row.email}`}>
-                            {row.email}
-                          </a>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 text-stone-600">{row.mobile || '—'}</td>
-                      <td className="px-3 py-2.5 text-stone-600">{row.category || '—'}</td>
-                      <td className="px-3 py-2.5 text-stone-600">{row.vendorName || '—'}</td>
-                      <td className="px-3 py-2.5 tabular-nums">{money(row.basicSalary)}</td>
-                      <td className="px-3 py-2.5 tabular-nums">{money(row.pfAmount)}</td>
-                      <td className="px-3 py-2.5 tabular-nums">{money(row.esiAmount)}</td>
-                      <td className="px-3 py-2.5 tabular-nums">{money(row.recentPayment)}</td>
-                      <td className="px-3 py-2.5 text-stone-600">{formatLabel(row.payoutMode)}</td>
-                      <td className="px-3 py-2.5 text-stone-600">{formatDate(row.effectiveDate)}</td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex flex-wrap gap-1.5">
+        {!loading && !loadError && tenantSlug ? (
+          rows.length === 0 ? (
+            <div className="p-6">
+              <EmptyState bare title="No employees found" hint="Try another search, or add staff first." />
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left text-[13px] leading-tight">
+                  <thead className={tableHeadClass}>
+                    <tr>
+                      <th className="w-8 px-2 py-2" />
+                      <th className="px-2 py-2">Employee name</th>
+                      <th className="px-2 py-2">Emp. ID</th>
+                      <th className="px-2 py-2">Email</th>
+                      <th className="px-2 py-2">Mobile</th>
+                      <th className="px-2 py-2">Category</th>
+                      <th className="px-2 py-2">Vendor</th>
+                      <th className="px-2 py-2">Basic</th>
+                      <th className="px-2 py-2">PF</th>
+                      <th className="px-2 py-2">ESI</th>
+                      <th className="px-2 py-2">Recent payment</th>
+                      <th className="px-2 py-2">Payout mode</th>
+                      <th className="px-2 py-2">Effective date</th>
+                      <th className="px-2 py-2">Payout history</th>
+                      <th className="px-2 py-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {rows.map((row) => (
+                      <tr key={row.id} className="hover:bg-stone-50/80">
+                        <td className="px-2 py-1.5 align-middle">
                           <button
                             type="button"
-                            className={`${btnGhost} border-accent-blue/30 text-accent-blue`}
+                            className={`${btnGhost} !px-1 !py-0.5`}
+                            aria-label={`Salary structure history for ${row.name}`}
+                            onClick={() => openHistory(row)}
+                          >
+                            <FiPlus className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                        <td className="max-w-[9rem] truncate px-2 py-1.5 align-middle font-semibold uppercase tracking-wide text-stone-900">
+                          {row.name}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 align-middle text-stone-600">
+                          {row.employeeId || '—'}
+                        </td>
+                        <td className="max-w-[11rem] truncate px-2 py-1.5 align-middle">
+                          {row.email ? (
+                            <a className="text-sky-600 hover:underline" href={`mailto:${row.email}`}>
+                              {row.email}
+                            </a>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 align-middle text-stone-600">
+                          {row.mobile || '—'}
+                        </td>
+                        <td className="px-2 py-1.5 align-middle text-stone-600">{row.category || '—'}</td>
+                        <td className="px-2 py-1.5 align-middle text-stone-600">{row.vendorName || '—'}</td>
+                        <td className="whitespace-nowrap px-2 py-1.5 align-middle tabular-nums text-stone-800">
+                          {money(row.basicSalary)}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 align-middle tabular-nums text-stone-800">
+                          {money(row.pfAmount)}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 align-middle tabular-nums text-stone-800">
+                          {money(row.esiAmount)}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 align-middle tabular-nums text-stone-800">
+                          {money(row.recentPayment)}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 align-middle text-stone-600">
+                          {formatLabel(row.payoutMode)}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 align-middle text-stone-600">
+                          {formatDate(row.effectiveDate)}
+                        </td>
+                        <td className="px-2 py-1.5 align-middle">
+                          <button
+                            type="button"
+                            className="inline-flex w-full items-center justify-center rounded border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 transition-colors hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/30"
                             onClick={() => loadPayout(row, 6)}
                           >
                             Payroll History
                           </button>
+                        </td>
+                        <td className="px-2 py-1.5 align-middle">
                           {canWrite ? (
-                            <>
+                            <div className="flex min-w-[6.5rem] flex-col gap-1">
                               <button
                                 type="button"
-                                className={btnGhost}
+                                className="inline-flex w-full items-center justify-center rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 transition-colors hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30"
                                 onClick={() => openAddStructure(row)}
                               >
                                 Add Structure
                               </button>
                               <button
                                 type="button"
-                                className={btnGhost}
+                                className={`${btnGhost} !w-full !justify-center !px-2 !py-0.5 !text-[11px]`}
                                 onClick={() => openEditStructure(row)}
                                 aria-label={`Edit structure for ${row.name}`}
                               >
-                                <FiEdit2 className="h-3.5 w-3.5" />
+                                <FiEdit2 className="h-3 w-3" />
                                 Edit
                               </button>
                               <button
                                 type="button"
-                                className={`${btnGhost} text-rose-700`}
+                                className="inline-flex w-full items-center justify-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 transition-colors hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30"
                                 onClick={() => openDeleteStructure(row)}
                                 aria-label={`Delete structure for ${row.name}`}
                               >
-                                <FiTrash2 className="h-3.5 w-3.5" />
+                                <FiTrash2 className="h-3 w-3" />
                                 Delete
                               </button>
-                            </>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex items-center justify-between gap-3 border-t border-stone-100 px-4 py-3 text-sm text-stone-600">
-              <span>
-                {count} employee{count === 1 ? '' : 's'} · page {page} of {totalPages}
-              </span>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className={btnSecondary}
-                  disabled={page <= 1 || loading}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  className={btnSecondary}
-                  disabled={page >= totalPages || loading}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </button>
+                            </div>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </div>
-          </div>
-        )
-      ) : null}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 px-4 py-3 text-sm text-stone-600">
+                <span>
+                  {count} employee{count === 1 ? '' : 's'} · page {page} of {totalPages}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className={btnSecondary}
+                    disabled={!hasPrevious || loading}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    className={btnSecondary}
+                    disabled={!hasNext || loading}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </>
+          )
+        ) : null}
+      </div>
 
       <Modal
         open={history.open}

@@ -200,6 +200,22 @@ export const fetchSalaryReports = async (tenantSlug, params = {}) => {
   return asList(data).map(normalizeSalaryReport).filter((r) => r.id || r.monthKey)
 }
 
+/** GET /api/payroll/reports/{id}/ — path id is the user id for payout history. */
+export const fetchSalaryReportById = async (tenantSlug, userId) => {
+  const id = requireId(userId, 'Employee')
+  const { data } = await api.get(`api/payroll/reports/${id}/`, tenantOpts(tenantSlug))
+  const payload = unwrap(data)
+  const rows = asList(payload)
+  if (rows.length) {
+    return rows.map(normalizeSalaryReport).filter((r) => r.id || r.monthKey)
+  }
+  if (payload && typeof payload === 'object') {
+    const one = normalizeSalaryReport(payload)
+    return one.id || one.monthKey ? [one] : []
+  }
+  return []
+}
+
 export const finalizeSalaryReport = async (tenantSlug, reportId) => {
   const id = requireId(reportId, 'Salary report')
   const { data } = await api.post(
@@ -210,12 +226,40 @@ export const finalizeSalaryReport = async (tenantSlug, reportId) => {
   return unwrap(data)
 }
 
+export const normalizeSalaryTransaction = (row = {}) => {
+  const amount = num(row.amount_paid ?? row.amount ?? row.paid_amount)
+  return {
+    id: String(row.id ?? ''),
+    userId: String(row.user ?? row.user_id ?? ''),
+    salaryReportId: String(row.salary_report_id ?? row.salary_report ?? ''),
+    amountPaid: amount,
+    paymentMethod: String(row.payment_method || ''),
+    paymentReference: String(row.payment_reference || row.reference || ''),
+    note: String(row.note || row.remarks || ''),
+    paidAt: String(row.paid_at || row.payment_date || row.created_at || ''),
+    createdAt: String(row.created_at || ''),
+    raw: row,
+  }
+}
+
+/** GET /api/payroll/salary-transactions/?user= */
 export const fetchSalaryTransactions = async (tenantSlug, { userId } = {}) => {
+  const id = requireId(userId, 'Employee')
   const { data } = await api.get('api/payroll/salary-transactions/', {
     ...tenantOpts(tenantSlug),
-    params: cleanParams({ user: userId, user_id: userId }),
+    params: { user: id },
   })
-  return asList(data)
+  return asList(data).map(normalizeSalaryTransaction).filter((r) => r.id)
+}
+
+/** GET /api/payroll/salary-transactions/:id/ */
+export const fetchSalaryTransactionById = async (tenantSlug, transactionId) => {
+  const id = requireId(transactionId, 'Salary transaction')
+  const { data } = await api.get(
+    `api/payroll/salary-transactions/${id}/`,
+    tenantOpts(tenantSlug),
+  )
+  return normalizeSalaryTransaction(unwrap(data))
 }
 
 export const createSalaryTransaction = async (tenantSlug, payload) => {
@@ -224,5 +268,5 @@ export const createSalaryTransaction = async (tenantSlug, payload) => {
     payload,
     tenantOpts(tenantSlug),
   )
-  return unwrap(data)
+  return normalizeSalaryTransaction(unwrap(data))
 }

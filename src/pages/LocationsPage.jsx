@@ -19,11 +19,10 @@ import {
   tableWrapClass,
 } from '../utils/ui'
 
-const LOCATION_TYPES = ['OPD', 'IN_HOUSE', 'CLIENT_SIDE']
-
 const EMPTY = {
-  location_type: 'OPD',
-  building_name: '',
+  name: '',
+  phone: '',
+  email: '',
   address_line1: '',
   address_line2: '',
   locality: '',
@@ -31,16 +30,6 @@ const EMPTY = {
   state: '',
   postal_code: '',
 }
-
-const FIELDS = [
-  ['building_name', 'Building name', true],
-  ['address_line1', 'Address line 1', true],
-  ['address_line2', 'Address line 2', false],
-  ['locality', 'Locality', true],
-  ['city', 'City', true],
-  ['state', 'State', true],
-  ['postal_code', 'Postal code', true],
-]
 
 const LocationsPage = () => {
   const access = useAccess()
@@ -90,16 +79,37 @@ const LocationsPage = () => {
 
   const openEdit = (row) => {
     setEditing(row)
-    setForm(Object.fromEntries(Object.keys(EMPTY).map((k) => [k, row[k] || EMPTY[k]])))
+    setForm({
+      name: row.name || row.building_name || '',
+      phone: row.phone || '',
+      email: row.email || '',
+      address_line1: row.address_line1 || row.address?.line1 || '',
+      address_line2: row.address_line2 || row.address?.line2 || '',
+      locality: row.locality || row.address?.locality || '',
+      city: row.city || row.address?.city || '',
+      state: row.state || row.address?.state || '',
+      postal_code: row.postal_code || row.address?.pincode || '',
+    })
     setModalOpen(true)
   }
 
   const handleSave = async (e) => {
     e.preventDefault()
     if (!tenantSlug) return
-    const missing = FIELDS.find(([key, , req]) => req && !String(form[key] || '').trim())
-    if (missing) {
-      setStatus({ type: 'error', message: `${missing[1]} is required.` })
+    if (!form.name.trim()) {
+      setStatus({ type: 'error', message: 'Location name is required.' })
+      return
+    }
+    if (!form.phone.trim()) {
+      setStatus({ type: 'error', message: 'Phone is required.' })
+      return
+    }
+    if (!form.email.trim()) {
+      setStatus({ type: 'error', message: 'Email is required.' })
+      return
+    }
+    if (!form.address_line1.trim() || !form.city.trim() || !form.state.trim() || !form.postal_code.trim()) {
+      setStatus({ type: 'error', message: 'Address line 1, city, state, and pincode are required.' })
       return
     }
     setSaving(true)
@@ -131,16 +141,12 @@ const LocationsPage = () => {
     }
   }
 
-  const typeOptions = LOCATION_TYPES.includes(form.location_type)
-    ? LOCATION_TYPES
-    : [form.location_type, ...LOCATION_TYPES]
-
   return (
     <div className="space-y-4">
       <PageHeader
         eyebrow={access.tenant?.name || 'Organization'}
         title="Locations"
-        description="Billing locations (OPD, in-house, client side) for this tenant."
+        description="Care centers and branches for this tenant."
         actions={
           canWrite ? (
             <button type="button" className={btnPrimary} onClick={openCreate} disabled={!tenantSlug}>
@@ -155,12 +161,10 @@ const LocationsPage = () => {
         }
       />
 
-      {tenantSlug ? (
-        <StatusBanner type="info" message={`X-Tenant: ${tenantSlug}`} />
-      ) : (
+      {!tenantSlug ? (
         <StatusBanner type="warning" message="Select or activate a tenant first so X-Tenant can be sent." />
-      )}
-      <StatusBanner type={status.type} message={status.message} />
+      ) : null}
+      {status.message ? <StatusBanner type={status.type} message={status.message} /> : null}
 
       <div className={tableWrapClass}>
         {!tenantSlug ? (
@@ -173,7 +177,7 @@ const LocationsPage = () => {
           <EmptyState
             bare
             title="No locations yet"
-            hint={canWrite ? 'Add a location to use in billing.' : 'Nothing on file.'}
+            hint={canWrite ? 'Add a care location for this tenant.' : 'Nothing on file.'}
             actionLabel={canWrite ? 'Add location' : undefined}
             onAction={canWrite ? openCreate : undefined}
           />
@@ -182,29 +186,28 @@ const LocationsPage = () => {
             <table className="min-w-full text-left text-sm">
               <thead className={tableHeadClass}>
                 <tr>
-                  <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Building</th>
+                  <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Phone</th>
+                  <th className="px-4 py-3">Email</th>
                   <th className="px-4 py-3">Address</th>
                   <th className="px-4 py-3">City</th>
                   <th className="px-4 py-3">State</th>
-                  <th className="px-4 py-3">Postal code</th>
+                  <th className="px-4 py-3">Pincode</th>
                   {canWrite ? <th className="px-4 py-3 text-right">Actions</th> : null}
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
                 {rows.map((row) => (
                   <tr key={row.id} className="hover:bg-stone-50">
-                    <td className="px-4 py-3">
-                      <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-800">
-                        {row.location_type.replace(/_/g, ' ')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 font-semibold text-stone-900">{row.building_name || '—'}</td>
+                    <td className="px-4 py-3 font-semibold text-stone-900">{row.name || '—'}</td>
+                    <td className="px-4 py-3 text-slate-600">{row.phone || '—'}</td>
+                    <td className="px-4 py-3 text-slate-600">{row.email || '—'}</td>
                     <td className="px-4 py-3 text-slate-700">
                       <span className="inline-flex max-w-[280px] items-start gap-1.5">
                         <FiMapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
                         <span className="line-clamp-2">
-                          {[row.address_line1, row.address_line2, row.locality].filter(Boolean).join(', ') || '—'}
+                          {[row.address_line1, row.address_line2, row.locality].filter(Boolean).join(', ') ||
+                            '—'}
                         </span>
                       </span>
                     </td>
@@ -218,7 +221,7 @@ const LocationsPage = () => {
                             type="button"
                             className={btnGhost}
                             onClick={() => openEdit(row)}
-                            aria-label={`Edit ${row.building_name || 'location'}`}
+                            aria-label={`Edit ${row.name || 'location'}`}
                           >
                             <FiEdit2 className="h-3.5 w-3.5" aria-hidden />
                           </button>
@@ -226,7 +229,7 @@ const LocationsPage = () => {
                             type="button"
                             className={`${btnGhost} text-rose-600 hover:bg-rose-50`}
                             onClick={() => setDeleteTarget(row)}
-                            aria-label={`Delete ${row.building_name || 'location'}`}
+                            aria-label={`Delete ${row.name || 'location'}`}
                           >
                             <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
                           </button>
@@ -258,44 +261,121 @@ const LocationsPage = () => {
         }
       >
         <form id="location-form" className="grid gap-3 sm:grid-cols-2" onSubmit={handleSave}>
-          <div>
-            <label className={labelClass} htmlFor="loc-type">
-              Location type <span className="text-rose-600">*</span>
+          <div className="sm:col-span-2">
+            <label className={labelClass} htmlFor="loc-name">
+              Name <span className="text-rose-600">*</span>
             </label>
-            <select
-              id="loc-type"
+            <input
+              id="loc-name"
               className={fieldClass}
-              value={form.location_type}
-              onChange={(e) => set('location_type', e.target.value)}
-            >
-              {typeOptions.map((t) => (
-                <option key={t} value={t}>
-                  {t.replace(/_/g, ' ')}
-                </option>
-              ))}
-            </select>
+              value={form.name}
+              onChange={(e) => set('name', e.target.value)}
+              placeholder="e.g. Indiranagar Rehabilitation Center"
+              required
+            />
           </div>
-          {FIELDS.map(([key, label, required]) => (
-            <div key={key}>
-              <label className={labelClass} htmlFor={`loc-${key}`}>
-                {label} {required ? <span className="text-rose-600">*</span> : null}
-              </label>
-              <input
-                id={`loc-${key}`}
-                className={fieldClass}
-                value={form[key]}
-                onChange={(e) => set(key, e.target.value)}
-                required={required}
-              />
-            </div>
-          ))}
+          <div>
+            <label className={labelClass} htmlFor="loc-phone">
+              Phone <span className="text-rose-600">*</span>
+            </label>
+            <input
+              id="loc-phone"
+              className={fieldClass}
+              value={form.phone}
+              onChange={(e) => set('phone', e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="loc-email">
+              Email <span className="text-rose-600">*</span>
+            </label>
+            <input
+              id="loc-email"
+              type="email"
+              className={fieldClass}
+              value={form.email}
+              onChange={(e) => set('email', e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="loc-line1">
+              Address line 1 <span className="text-rose-600">*</span>
+            </label>
+            <input
+              id="loc-line1"
+              className={fieldClass}
+              value={form.address_line1}
+              onChange={(e) => set('address_line1', e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="loc-line2">
+              Address line 2
+            </label>
+            <input
+              id="loc-line2"
+              className={fieldClass}
+              value={form.address_line2}
+              onChange={(e) => set('address_line2', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="loc-locality">
+              Locality
+            </label>
+            <input
+              id="loc-locality"
+              className={fieldClass}
+              value={form.locality}
+              onChange={(e) => set('locality', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="loc-city">
+              City <span className="text-rose-600">*</span>
+            </label>
+            <input
+              id="loc-city"
+              className={fieldClass}
+              value={form.city}
+              onChange={(e) => set('city', e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="loc-state">
+              State <span className="text-rose-600">*</span>
+            </label>
+            <input
+              id="loc-state"
+              className={fieldClass}
+              value={form.state}
+              onChange={(e) => set('state', e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="loc-pin">
+              Pincode <span className="text-rose-600">*</span>
+            </label>
+            <input
+              id="loc-pin"
+              className={fieldClass}
+              value={form.postal_code}
+              onChange={(e) => set('postal_code', e.target.value)}
+              required
+            />
+          </div>
         </form>
       </Modal>
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="Delete location?"
-        message="This removes the billing location for this tenant."
+        message="This removes the care location for this tenant."
         confirmLabel="Delete"
         loading={deleting}
         onConfirm={handleDelete}

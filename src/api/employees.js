@@ -235,7 +235,12 @@ export const fetchEmployees = async (
     ...tenantOpts(tenantSlug),
   })
   const results = asList(data).map(normalizeEmployee)
-  return { count: Number(data?.count) || results.length, results }
+  return {
+    count: Number(data?.count) || results.length,
+    results,
+    next: data?.next || null,
+    previous: data?.previous || null,
+  }
 }
 
 /** GET /api/employees/:id/ */

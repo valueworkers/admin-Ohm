@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { FiCalendar, FiEdit2, FiPlus, FiTrash2 } from 'react-icons/fi'
+import { FiCalendar, FiDownload, FiEdit2, FiPlus, FiTrash2 } from 'react-icons/fi'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import Modal from '../components/ui/Modal'
 import PageHeader from '../components/ui/PageHeader'
@@ -7,6 +7,7 @@ import StatusBanner from '../components/ui/StatusBanner'
 import { EmptyState } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
 import { usePlatformCollection } from '../hooks/usePlatformCollection'
+import { downloadExcelTable } from '../utils/exportExcel'
 import {
   btnGhost,
   btnPrimary,
@@ -42,12 +43,10 @@ const EMPTY = {
   emergency_contact_phone: '',
 }
 
-const packageServiceLabel = (row) => {
-  const pkg = String(row?.package_name || '').trim()
-  const svc = String(row?.service_name || '').trim()
-  if (pkg && svc && pkg !== svc) return `${pkg} / ${svc}`
-  return pkg || svc || '—'
-}
+const partyName = (row) =>
+  row.patient_name || row.customer_name || row.tenant_name || '—'
+
+const partyId = (row) => row.patient_id || row.customer_id || row.tenant_id || '—'
 
 const statusChip = (status) => {
   const s = String(status || '').toUpperCase()
@@ -245,6 +244,66 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              className={btnSecondary}
+              disabled={!filtered.length}
+              onClick={() => {
+                try {
+                  downloadExcelTable(
+                    'bookings',
+                    [
+                      'Order ID',
+                      'Patient / tenant name',
+                      'Patient / tenant ID',
+                      'Phone number',
+                      'Age',
+                      'Package name',
+                      'Service name',
+                      'Location type',
+                      'Locality',
+                      'Location',
+                      'Starting date',
+                      'Ending date',
+                      'Status',
+                      'Auto renew',
+                      'Emergency contact',
+                      'Emergency phone',
+                    ],
+                    filtered.map((row) => [
+                      row.order_id || row.id,
+                      partyName(row) === '—' ? '' : partyName(row),
+                      partyId(row) === '—' ? '' : partyId(row),
+                      row.phone || row.phone_number || '',
+                      row.age ?? '',
+                      row.package_name || '',
+                      row.service_name || '',
+                      (row.location_type || '').toString().replace(/_/g, ' '),
+                      row.locality || '',
+                      row.location || '',
+                      row.starting_date || row.scheduled_at || '',
+                      row.ending_date || '',
+                      row.status || '',
+                      row.auto_renew ? 'Yes' : 'No',
+                      row.emergency_contact_name || '',
+                      row.emergency_contact_phone || '',
+                    ]),
+                  )
+                  setStatus({
+                    type: 'success',
+                    message: `Exported ${filtered.length} booking${filtered.length === 1 ? '' : 's'} to Excel.`,
+                  })
+                } catch (err) {
+                  setStatus({
+                    type: 'error',
+                    message: err?.message || 'Could not export bookings.',
+                  })
+                }
+              }}
+            >
+              <FiDownload className="h-4 w-4" aria-hidden />
+              Export to Excel
+            </button>
             {canWrite ? (
               <button type="button" className={btnPrimary} onClick={openCreate}>
                 <FiPlus className="h-4 w-4" aria-hidden />
@@ -263,15 +322,16 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
 
       <div className={tableWrapClass}>
         <div className="overflow-x-auto">
-          <table className="min-w-[1400px] w-full text-left text-sm">
+          <table className="min-w-[1600px] w-full text-left text-sm">
             <thead className={tableHeadClass}>
               <tr>
-                <th className="px-3 py-3 font-semibold">Patient / customer / tenant</th>
                 <th className="px-3 py-3 font-semibold">Order ID</th>
-                <th className="px-3 py-3 font-semibold">Patient / customer / tenant ID</th>
+                <th className="px-3 py-3 font-semibold">Patient / tenant name</th>
+                <th className="px-3 py-3 font-semibold">Patient / tenant ID</th>
                 <th className="px-3 py-3 font-semibold">Phone number</th>
-                <th className="px-3 py-3 font-semibold">Email</th>
-                <th className="px-3 py-3 font-semibold">Package / service</th>
+                <th className="px-3 py-3 font-semibold">Age</th>
+                <th className="px-3 py-3 font-semibold">Package name</th>
+                <th className="px-3 py-3 font-semibold">Service name</th>
                 <th className="px-3 py-3 font-semibold">Location type</th>
                 <th className="px-3 py-3 font-semibold">Locality</th>
                 <th className="px-3 py-3 font-semibold">Location</th>
@@ -288,7 +348,7 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
                   </span>
                 </th>
                 <th className="px-3 py-3 font-semibold">Status</th>
-                <th className="px-3 py-3 font-semibold">Auto-renew</th>
+                <th className="px-3 py-3 font-semibold">Auto renew</th>
                 <th className="px-3 py-3 font-semibold">Emergency contact</th>
                 {canWrite ? <th className="px-3 py-3 text-right font-semibold">Actions</th> : null}
               </tr>
@@ -296,7 +356,7 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={canWrite ? 15 : 14} className="px-3 py-10">
+                  <td colSpan={canWrite ? 16 : 15} className="px-3 py-10">
                     <EmptyState
                       bare
                       title="No bookings"
@@ -313,28 +373,24 @@ const BookingsPage = ({ tenantId: tenantIdProp, canWrite: canWriteProp, eyebrow 
               ) : (
                 filtered.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50">
-                    <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-900">
-                      {row.patient_name || row.customer_name || row.tenant_name || '—'}
-                    </td>
                     <td className="whitespace-nowrap px-3 py-3 font-medium tabular-nums text-slate-900">
                       {row.order_id || row.id}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-slate-600">
-                      {row.patient_id || row.customer_id || row.tenant_id || '—'}
+                    <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-900">
+                      {partyName(row)}
                     </td>
+                    <td className="whitespace-nowrap px-3 py-3 text-slate-600">{partyId(row)}</td>
                     <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-600">
                       {row.phone || row.phone_number || '—'}
                     </td>
-                    <td className="max-w-[12rem] px-3 py-3 text-slate-600">
-                      <span
-                        className="block truncate"
-                        title={row.email || row.patient_email || ''}
-                      >
-                        {row.email || row.patient_email || '—'}
-                      </span>
+                    <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-600">
+                      {row.age != null && row.age !== '' ? row.age : '—'}
                     </td>
-                    <td className="max-w-[180px] px-3 py-3 text-slate-700">
-                      <span className="line-clamp-2">{packageServiceLabel(row)}</span>
+                    <td className="max-w-[160px] px-3 py-3 text-slate-700">
+                      <span className="line-clamp-2">{row.package_name || '—'}</span>
+                    </td>
+                    <td className="max-w-[160px] px-3 py-3 text-slate-700">
+                      <span className="line-clamp-2">{row.service_name || '—'}</span>
                     </td>
                     <td className="whitespace-nowrap px-3 py-3 text-slate-600">
                       {(row.location_type || '—').toString().replace(/_/g, ' ')}

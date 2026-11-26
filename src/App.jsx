@@ -8,7 +8,6 @@ import RequireSuperAdmin from './components/RequireSuperAdmin'
 import RequireTenantOwner from './components/RequireTenantOwner'
 import AttendancePage from './pages/AttendancePage'
 import BookingsPage from './pages/BookingsPage'
-import PlatformBookingsPage from './pages/PlatformBookingsPage'
 import Dashboard from './pages/Dashboard'
 import EmployeesPage from './pages/EmployeesPage'
 import LocationsPage from './pages/LocationsPage'
@@ -19,7 +18,7 @@ import Login from './pages/Login'
 import DocumentManagerPage from './pages/DocumentManagerPage'
 import ModulePlaceholder from './pages/ModulePlaceholder'
 import MyTenants from './pages/MyTenants'
-import PatientsPage from './pages/PatientsPage'
+import CustomersPage from './pages/CustomersPage'
 import Profile from './pages/Profile'
 import QuoteEditorPage from './pages/QuoteEditorPage'
 import InvoiceCreatePage from './pages/InvoiceCreatePage'
@@ -35,6 +34,7 @@ import SettingsPage from './pages/SettingsPage'
 import ExpensesPage from './pages/ExpensesPage'
 import PaymentMasterPage from './pages/PaymentMasterPage'
 import PayrollPage from './pages/PayrollPage'
+import StaffForHirePage from './pages/StaffForHirePage'
 import StaffPayoutsPage from './pages/StaffPayoutsPage'
 import TenantDetail from './pages/TenantDetail'
 import Tenants from './pages/Tenants'
@@ -86,7 +86,10 @@ const App = () => (
             <Route path="ops/quotations/new" element={<SuperOnly to="/ops/quotations"><QuoteEditorPage /></SuperOnly>} />
             <Route path="ops/quotations/:quoteId" element={<SuperOnly to="/ops/quotations"><QuoteEditorPage /></SuperOnly>} />
             <Route path="ops/quotations" element={<ByRole sa={<QuotationsPage />} tenant={<TenantQuotesPage />} />} />
-            <Route path="ops/booking" element={<PlatformBookingsPage />} />
+            <Route
+              path="ops/booking"
+              element={<BookingsPage eyebrow="Operations" />}
+            />
             <Route path="ops/invoices/new" element={<SuperOnly to="/ops/invoices"><InvoiceCreatePage /></SuperOnly>} />
             <Route path="ops/invoices/:invoiceId/edit" element={<SuperOnly to="/ops/invoices"><InvoiceCreatePage /></SuperOnly>} />
             <Route path="ops/invoices/:invoiceId" element={<SuperOnly to="/ops/invoices"><InvoiceDetailPage /></SuperOnly>} />
@@ -113,8 +116,8 @@ const App = () => (
               <Route path="ops/staff/attendance" element={<AttendancePage />} />
               <Route path="ops/staff/payroll" element={<PayrollPage />} />
               <Route path="ops/staff/payouts" element={<StaffPayoutsPage />} />
-              <Route path="ops/staff/for-hire" element={<ModulePlaceholder />} />
-              <Route path="ops/customers" element={<PatientsPage />} />
+              <Route path="ops/staff/for-hire" element={<StaffForHirePage />} />
+              <Route path="ops/customers" element={<CustomersPage />} />
               <Route path="ops/bookings" element={<BookingsPage />} />
               <Route path="ops/customer-lobby" element={<ModulePlaceholder />} />
               <Route path="ops/locations" element={<LocationsPage />} />

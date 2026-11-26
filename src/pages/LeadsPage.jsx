@@ -3,6 +3,7 @@ import {
   FiCalendar,
   FiCheckCircle,
   FiClock,
+  FiDownload,
   FiExternalLink,
   FiInbox,
   FiMail,
@@ -20,6 +21,7 @@ import { TENANT_ROLES, normalizeTenantRole } from '../config/features'
 import { useAccess } from '../hooks/useAccess'
 import { useColumnOrder } from '../hooks/useColumnOrder'
 import { listCollection } from '../store/platformStore'
+import { downloadExcelTable } from '../utils/exportExcel'
 import {
   btnGhost,
   btnPrimary,
@@ -2743,28 +2745,94 @@ const LeadsPage = () => {
               : `${typeMeta.hint} ${counts[leadType] || 0} in this type, ${scopedLeads.length} total.`
         }
         actions={
-          canManageLeads && canWrite !== false ? (
-            <div className="flex flex-wrap gap-2">
-              {leadType === 'potential' ? (
-                <button
-                  type="button"
-                  className={btnSecondary}
-                  onClick={() => setScrapeOpen(true)}
-                  disabled={scraping}
-                >
-                  <FiRefreshCw
-                    className={`h-4 w-4 ${scraping ? 'motion-safe:animate-spin' : ''}`}
-                    aria-hidden
-                  />
-                  {scraping ? 'Scraping…' : 'Scrape now'}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={btnSecondary}
+              disabled={!visible.length}
+              onClick={() => {
+                try {
+                  downloadExcelTable(
+                    'leads',
+                    [
+                      'Lead ID',
+                      'Name',
+                      'Company',
+                      'Primary contact',
+                      'Primary phone',
+                      'Alt contact',
+                      'Alt phone',
+                      'Email',
+                      'Secondary email',
+                      'Address',
+                      'Website',
+                      'Identified',
+                      'Status',
+                      'Type',
+                      'Assigned to',
+                      'Affiliate',
+                      'Onboarded',
+                      'Pipeline',
+                    ],
+                    visible.map((l) => [
+                      l.leadId,
+                      displayName(l),
+                      l.companyName,
+                      l.primaryContactName,
+                      l.primaryContactNumber,
+                      l.alternateContactName,
+                      l.alternateContactNumber,
+                      l.primaryEmailId,
+                      l.secondaryEmailId,
+                      l.address,
+                      l.website,
+                      l.leadIdentifiedDate || l.createdAt || '',
+                      l.status,
+                      leadTypeLabel(l.leadType),
+                      l.assignedToName || l.assignedToEmail || '',
+                      l.affiliate,
+                      l.onboardingStatus,
+                      pipelineLabel(l.pipelineStatus),
+                    ]),
+                  )
+                  setStatus({
+                    type: 'success',
+                    message: `Exported ${visible.length} lead${visible.length === 1 ? '' : 's'} to Excel.`,
+                  })
+                } catch (err) {
+                  setStatus({
+                    type: 'error',
+                    message: err?.message || 'Could not export leads.',
+                  })
+                }
+              }}
+            >
+              <FiDownload className="h-4 w-4" aria-hidden />
+              Export to Excel
+            </button>
+            {canManageLeads && canWrite !== false ? (
+              <>
+                {leadType === 'potential' ? (
+                  <button
+                    type="button"
+                    className={btnSecondary}
+                    onClick={() => setScrapeOpen(true)}
+                    disabled={scraping}
+                  >
+                    <FiRefreshCw
+                      className={`h-4 w-4 ${scraping ? 'motion-safe:animate-spin' : ''}`}
+                      aria-hidden
+                    />
+                    {scraping ? 'Scraping…' : 'Scrape now'}
+                  </button>
+                ) : null}
+                <button type="button" className={btnPrimary} onClick={() => setCreateOpen(true)}>
+                  <FiPlus className="h-4 w-4" aria-hidden />
+                  Add lead
                 </button>
-              ) : null}
-              <button type="button" className={btnPrimary} onClick={() => setCreateOpen(true)}>
-                <FiPlus className="h-4 w-4" aria-hidden />
-                Add lead
-              </button>
-            </div>
-          ) : null
+              </>
+            ) : null}
+          </div>
         }
       />
 

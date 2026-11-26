@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FiPlus } from 'react-icons/fi'
+import { FiDownload, FiPlus } from 'react-icons/fi'
 import { fetchInvoices } from '../api/invoices'
 import {
   createPlatformPayment,
@@ -22,6 +22,7 @@ import {
 import { useAccess } from '../hooks/useAccess'
 import { useColumnOrder } from '../hooks/useColumnOrder'
 import { apiErrorMessage } from '../utils/errors'
+import { downloadExcelTable } from '../utils/exportExcel'
 import {
   btnPrimary,
   btnSecondary,
@@ -405,12 +406,60 @@ const PaymentsPage = () => {
           filtered.length === 1 ? '' : 's'
         } · ${fmtMoney(successTotal)} succeeded in this view.`}
         actions={
-          canWrite !== false ? (
-            <button type="button" className={btnPrimary} onClick={openCreate}>
-              <FiPlus className="h-4 w-4" aria-hidden />
-              Add payment
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={btnSecondary}
+              disabled={!filtered.length}
+              onClick={() => {
+                try {
+                  downloadExcelTable(
+                    'collections',
+                    [
+                      'Payment',
+                      'ID',
+                      'Tenant',
+                      'Invoice',
+                      'Method',
+                      'Status',
+                      'Paid at',
+                      'Amount',
+                      'Reference',
+                    ],
+                    filtered.map((p) => [
+                      p.ref || `PAY-${p.id}`,
+                      p.id,
+                      p.tenantName || p.tenantId,
+                      p.invoiceNumber || p.invoiceId,
+                      p.mode || p.method,
+                      p.status,
+                      fmtDateTime(p.paidAt),
+                      p.amount ?? '',
+                      p.reference,
+                    ]),
+                  )
+                  setBanner({
+                    type: 'success',
+                    message: `Exported ${filtered.length} payment${filtered.length === 1 ? '' : 's'} to Excel.`,
+                  })
+                } catch (err) {
+                  setBanner({
+                    type: 'error',
+                    message: err?.message || 'Could not export collections.',
+                  })
+                }
+              }}
+            >
+              <FiDownload className="h-4 w-4" aria-hidden />
+              Export to Excel
             </button>
-          ) : null
+            {canWrite !== false ? (
+              <button type="button" className={btnPrimary} onClick={openCreate}>
+                <FiPlus className="h-4 w-4" aria-hidden />
+                Add payment
+              </button>
+            ) : null}
+          </div>
         }
       />
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   FiCheckCircle,
   FiCreditCard,
+  FiDownload,
   FiEdit2,
   FiMail,
   FiPlus,
@@ -43,6 +44,7 @@ import {
 } from '../../features/billing/TenantBillingShared'
 import { useAccess } from '../../hooks/useAccess'
 import { apiErrorMessage } from '../../utils/errors'
+import { downloadExcelTable } from '../../utils/exportExcel'
 import { resolveCatalogTenantSlug } from '../../utils/tenantHeader'
 import {
   btnGhost,
@@ -247,12 +249,58 @@ const TenantInvoicesPage = () => {
         title="Invoices"
         description="Patient invoices with itemized GST for this tenant."
         actions={
-          canWrite ? (
-            <button type="button" className={btnPrimary} onClick={openCreate} disabled={!tenantSlug}>
-              <FiPlus className="h-4 w-4" aria-hidden />
-              New invoice
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={btnSecondary}
+              disabled={!rows.length}
+              onClick={() => {
+                try {
+                  downloadExcelTable(
+                    'tenant-invoices',
+                    [
+                      'Number',
+                      'Customer',
+                      'Status',
+                      'Issue date',
+                      'Due date',
+                      'Total',
+                      'Paid',
+                      'Balance',
+                    ],
+                    rows.map((row) => [
+                      row.number,
+                      row.customer_name || row.patient_name || '',
+                      row.status,
+                      shortDate(row.issue_date || row.issued_at),
+                      shortDate(row.due_date),
+                      row.total ?? row.grand_total ?? '',
+                      row.amount_paid ?? row.paid_amount ?? '',
+                      row.balance_due ?? '',
+                    ]),
+                  )
+                  setStatus({
+                    type: 'success',
+                    message: `Exported ${rows.length} invoice${rows.length === 1 ? '' : 's'} to Excel.`,
+                  })
+                } catch (err) {
+                  setStatus({
+                    type: 'error',
+                    message: err?.message || 'Could not export invoices.',
+                  })
+                }
+              }}
+            >
+              <FiDownload className="h-4 w-4" aria-hidden />
+              Export to Excel
             </button>
-          ) : null
+            {canWrite ? (
+              <button type="button" className={btnPrimary} onClick={openCreate} disabled={!tenantSlug}>
+                <FiPlus className="h-4 w-4" aria-hidden />
+                New invoice
+              </button>
+            ) : null}
+          </div>
         }
       />
 

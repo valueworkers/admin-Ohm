@@ -393,6 +393,10 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [pageSize, setPageSize] = useState(20)
+  const [page, setPage] = useState(1)
+  const [count, setCount] = useState(0)
+  const [hasNext, setHasNext] = useState(false)
+  const [hasPrevious, setHasPrevious] = useState(false)
   const [activeFilter, setActiveFilter] = useState('ALL')
   const [status, setStatus] = useState({ type: '', message: '' })
   const [selectedIds, setSelectedIds] = useState([])
@@ -480,9 +484,14 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
       skills: f.skills.length <= 1 ? [{ ...EMPTY_SKILL }] : f.skills.filter((_, i) => i !== index),
     }))
 
+  const totalPages = Math.max(1, Math.ceil((count || 0) / pageSize) || 1)
+
   const load = useCallback(async () => {
     if (!tenantSlug) {
       setRows([])
+      setCount(0)
+      setHasNext(false)
+      setHasPrevious(false)
       setSelectedIds([])
       setLoadError('')
       return
@@ -492,22 +501,31 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
     try {
       const isActive =
         activeFilter === 'ACTIVE' ? 'true' : activeFilter === 'INACTIVE' ? 'false' : undefined
-      const { results } = await fetchEmployees(tenantSlug, {
+      const data = await fetchEmployees(tenantSlug, {
         search: search || undefined,
         q: search || undefined,
         isActive,
         ordering: 'last_name',
+        page,
         pageSize,
       })
-      setRows(results)
-      setSelectedIds((prev) => prev.filter((id) => results.some((r) => String(r.id) === String(id))))
+      setRows(data.results)
+      setCount(data.count)
+      setHasNext(Boolean(data.next))
+      setHasPrevious(Boolean(data.previous) || page > 1)
+      setSelectedIds((prev) =>
+        prev.filter((id) => data.results.some((r) => String(r.id) === String(id))),
+      )
     } catch (err) {
       setRows([])
+      setCount(0)
+      setHasNext(false)
+      setHasPrevious(false)
       setLoadError(apiErrorMessage(err, 'Could not load employees.'))
     } finally {
       setLoading(false)
     }
-  }, [tenantSlug, search, activeFilter, pageSize])
+  }, [tenantSlug, search, activeFilter, page, pageSize])
 
   useEffect(() => {
     load()
@@ -941,13 +959,19 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') setSearch(searchInput.trim())
+                if (e.key === 'Enter') {
+                  setPage(1)
+                  setSearch(searchInput.trim())
+                }
               }}
             />
             <button
               type="button"
               className={btnPrimary}
-              onClick={() => setSearch(searchInput.trim())}
+              onClick={() => {
+                setPage(1)
+                setSearch(searchInput.trim())
+              }}
               disabled={!tenantSlug}
             >
               <FiSearch className="h-4 w-4" aria-hidden />
@@ -959,7 +983,10 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
             <select
               className={`${fieldClass} w-auto min-w-[72px]`}
               value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value) || 20)}
+              onChange={(e) => {
+                setPage(1)
+                setPageSize(Number(e.target.value) || 20)
+              }}
               aria-label="Rows per page"
             >
               {[10, 20, 50, 100].map((n) => (
@@ -972,7 +999,10 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
           <select
             className={`${fieldClass} w-auto min-w-[120px]`}
             value={activeFilter}
-            onChange={(e) => setActiveFilter(e.target.value)}
+            onChange={(e) => {
+              setPage(1)
+              setActiveFilter(e.target.value)
+            }}
             aria-label="Filter employees"
           >
             <option value="ALL">All</option>
@@ -1179,6 +1209,29 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
                 ))}
               </tbody>
             </table>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 px-4 py-3 text-sm text-stone-600">
+              <span>
+                {count} employee{count === 1 ? '' : 's'} · page {page} of {totalPages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled={!hasPrevious || loading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled={!hasNext || loading}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -200,6 +200,26 @@ export const deleteVenue = async (tenantSlug, venueId) => {
   return { id }
 }
 
+/** GET /api/catalog/services/dropdown/?service_type= */
+export const fetchServicesDropdown = async (tenantSlug, { serviceType } = {}) => {
+  const params = {}
+  const type = String(serviceType || '').trim()
+  if (type) params.service_type = type
+  const { data } = await api.get('api/catalog/services/dropdown/', {
+    params,
+    ...tenantOpts(tenantSlug),
+  })
+  return asList(data)
+    .map((row) =>
+      normalizeService({
+        ...row,
+        id: row.id ?? row.value ?? row.service_id,
+        name: row.name || row.label || row.title || '',
+      }),
+    )
+    .filter((s) => s.id)
+}
+
 /** GET /api/catalog/services/ */
 export const fetchServices = async (
   tenantSlug,
@@ -297,4 +317,35 @@ export const deleteCatalogPhoto = async (tenantSlug, photoId) => {
   if (!id) throw new Error('Photo id is required.')
   await api.delete(`api/catalog/photos/${id}/`, tenantOpts(tenantSlug))
   return { id }
+}
+
+export const normalizeCatalogResource = (row = {}) => ({
+  id: String(row.id ?? row.value ?? ''),
+  name: String(row.name || row.label || row.title || '').trim(),
+  label: String(row.label || row.name || row.title || '').trim(),
+  raw: row,
+})
+
+/** GET /api/catalog/resources/dropdown/ */
+export const fetchResourcesDropdown = async (tenantSlug) => {
+  const { data } = await api.get(
+    'api/catalog/resources/dropdown/',
+    tenantOpts(tenantSlug),
+  )
+  return asList(data).map(normalizeCatalogResource).filter((r) => r.id)
+}
+
+/** GET /api/catalog/resources/ */
+export const fetchCatalogResources = async (
+  tenantSlug,
+  { page = 1, pageSize = 100, search } = {},
+) => {
+  const params = { page, page_size: pageSize }
+  if (search) params.search = search
+  const { data } = await api.get('api/catalog/resources/', {
+    params,
+    ...tenantOpts(tenantSlug),
+  })
+  const results = asList(data).map(normalizeCatalogResource).filter((r) => r.id)
+  return { count: Number(data?.count) || results.length, results }
 }

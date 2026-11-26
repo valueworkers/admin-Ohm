@@ -44,13 +44,17 @@ export const normalizePatientDocument = (row = {}) => {
         ''
       : '')
   const files = asList(row.files || row.attachments || row.documents)
+  const name = String(row.name || row.title || '').trim()
+  const documentType = String(row.document_type || row.remarks || '').trim()
   return {
     ...row,
     id: String(row.id ?? ''),
     patient: idOf(patient),
     patient_name: patientName,
-    title: String(row.title || ''),
-    remarks: String(row.remarks || ''),
+    name,
+    title: name,
+    document_type: documentType,
+    remarks: documentType,
     files,
     file_count: Number(row.file_count) || files.length,
     created_at: row.created_at || '',
@@ -58,26 +62,23 @@ export const normalizePatientDocument = (row = {}) => {
   }
 }
 
-/** multipart/form-data: patient, title, remarks, files (one or more) */
+/** multipart/form-data: patient, name, document_type, files */
 export const buildPatientDocumentFormData = (form = {}, { requireFiles = false } = {}) => {
   const files = asFiles(form.files)
   if (requireFiles && !files.length) throw new Error('At least one file is required.')
 
   const fd = new FormData()
   fd.append('patient', String(form.patient || ''))
-  fd.append('title', String(form.title || '').trim())
-  fd.append('remarks', String(form.remarks || '').trim())
+  fd.append('name', String(form.name || form.title || '').trim())
+  fd.append(
+    'document_type',
+    String(form.document_type || form.remarks || '').trim(),
+  )
   files.forEach((file) => fd.append('files', file))
   return fd
 }
 
-export const buildPatientDocumentBody = (form = {}) => ({
-  patient: String(form.patient || ''),
-  title: String(form.title || '').trim(),
-  remarks: String(form.remarks || '').trim(),
-})
-
-/** GET /api/billing/patient-documents/ */
+/** GET /api/care/patient-documents/ */
 export const fetchPatientDocuments = async (
   tenantSlug,
   { page = 1, pageSize = 100, patient, search } = {},
@@ -85,7 +86,7 @@ export const fetchPatientDocuments = async (
   const params = { page, page_size: pageSize }
   if (patient) params.patient = patient
   if (search) params.search = search
-  const { data } = await api.get('api/billing/patient-documents/', {
+  const { data } = await api.get('api/care/patient-documents/', {
     params,
     ...tenantOpts(tenantSlug),
   })
@@ -93,48 +94,30 @@ export const fetchPatientDocuments = async (
   return { count: Number(data?.count) || results.length, results }
 }
 
-/** GET /api/billing/patient-documents/:id/ */
+/** GET /api/care/patient-documents/:id/ */
 export const fetchPatientDocument = async (tenantSlug, documentId) => {
   const id = requireId(documentId, 'Document')
   const { data } = await api.get(
-    `api/billing/patient-documents/${id}/`,
+    `api/care/patient-documents/${id}/`,
     tenantOpts(tenantSlug),
   )
   return normalizePatientDocument(unwrap(data))
 }
 
-/** POST /api/billing/patient-documents/ — multipart form-data */
+/** POST /api/care/patient-documents/ — multipart form-data */
 export const createPatientDocument = async (tenantSlug, form) => {
   const body = buildPatientDocumentFormData(form, { requireFiles: true })
   const { data } = await api.post(
-    'api/billing/patient-documents/',
+    'api/care/patient-documents/',
     body,
     tenantOpts(tenantSlug),
   )
   return normalizePatientDocument(unwrap(data))
 }
 
-/**
- * PUT /api/billing/patient-documents/:id/
- * Uses multipart when new files are attached; otherwise JSON metadata.
- */
-export const updatePatientDocument = async (tenantSlug, documentId, form) => {
-  const id = requireId(documentId, 'Document')
-  const files = asFiles(form.files)
-  const body = files.length
-    ? buildPatientDocumentFormData(form)
-    : buildPatientDocumentBody(form)
-  const { data } = await api.put(
-    `api/billing/patient-documents/${id}/`,
-    body,
-    tenantOpts(tenantSlug),
-  )
-  return normalizePatientDocument(unwrap(data))
-}
-
-/** DELETE /api/billing/patient-documents/:id/ */
+/** DELETE /api/care/patient-documents/:id/ */
 export const deletePatientDocument = async (tenantSlug, documentId) => {
   const id = requireId(documentId, 'Document')
-  await api.delete(`api/billing/patient-documents/${id}/`, tenantOpts(tenantSlug))
+  await api.delete(`api/care/patient-documents/${id}/`, tenantOpts(tenantSlug))
   return { id }
 }

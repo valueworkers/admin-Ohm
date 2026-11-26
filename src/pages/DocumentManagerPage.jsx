@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   FiArrowLeft,
-  FiEdit2,
   FiFileText,
   FiFolder,
   FiPlus,
@@ -14,7 +13,6 @@ import {
   createPatientDocument,
   deletePatientDocument,
   fetchPatientDocuments,
-  updatePatientDocument,
 } from '../api/patientDocuments'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import Modal from '../components/ui/Modal'
@@ -34,7 +32,7 @@ import {
   tableWrapClass,
 } from '../utils/ui'
 
-const EMPTY = { patient: '', title: '', remarks: '', files: [] }
+const EMPTY = { patient: '', name: '', document_type: '', files: [] }
 
 const shortDate = (v) => {
   if (!v) return '—'
@@ -80,7 +78,6 @@ const DocumentManagerPage = () => {
 
   const [status, setStatus] = useState({ type: '', message: '' })
   const [modalOpen, setModalOpen] = useState(false)
-  const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
@@ -184,19 +181,7 @@ const DocumentManagerPage = () => {
   }
 
   const openCreate = (patientId) => {
-    setEditing(null)
     setForm({ ...EMPTY, patient: String(patientId || activePatient?.id || '') })
-    setModalOpen(true)
-  }
-
-  const openEdit = (row) => {
-    setEditing(row)
-    setForm({
-      patient: row.patient || '',
-      title: row.title || '',
-      remarks: row.remarks || '',
-      files: [],
-    })
     setModalOpen(true)
   }
 
@@ -207,26 +192,22 @@ const DocumentManagerPage = () => {
       setStatus({ type: 'error', message: 'Patient is required.' })
       return
     }
-    if (!form.title.trim()) {
-      setStatus({ type: 'error', message: 'Title is required.' })
+    if (!form.name.trim()) {
+      setStatus({ type: 'error', message: 'Document name is required.' })
       return
     }
-    if (!form.remarks.trim()) {
-      setStatus({ type: 'error', message: 'Remarks are required.' })
+    if (!form.document_type.trim()) {
+      setStatus({ type: 'error', message: 'Document type is required.' })
       return
     }
-    if (!editing && !form.files?.length) {
+    if (!form.files?.length) {
       setStatus({ type: 'error', message: 'Upload at least one file.' })
       return
     }
     setSaving(true)
     try {
-      if (editing) await updatePatientDocument(tenantSlug, editing.id, form)
-      else await createPatientDocument(tenantSlug, form)
-      setStatus({
-        type: 'success',
-        message: editing ? 'Document updated.' : 'Document uploaded.',
-      })
+      await createPatientDocument(tenantSlug, form)
+      setStatus({ type: 'success', message: 'Document uploaded.' })
       setModalOpen(false)
       if (activePatient?.id) await loadFolderDocs(activePatient.id)
       if (titleSearch.trim()) {
@@ -425,9 +406,9 @@ const DocumentManagerPage = () => {
               <table className="min-w-full text-left text-sm">
                 <thead className={tableHeadClass}>
                   <tr>
-                    <th className="px-4 py-3">Title</th>
+                    <th className="px-4 py-3">Name</th>
+                    <th className="px-4 py-3">Type</th>
                     <th className="px-4 py-3">Files</th>
-                    <th className="px-4 py-3">Remarks</th>
                     <th className="px-4 py-3">Updated</th>
                     {canWrite ? <th className="px-4 py-3 text-right">Actions</th> : null}
                   </tr>
@@ -438,16 +419,18 @@ const DocumentManagerPage = () => {
                       <td className="px-4 py-3">
                         <span className="inline-flex items-center gap-2 font-semibold text-stone-900">
                           <FiFileText className="h-3.5 w-3.5 text-stone-400" aria-hidden />
-                          {row.title || '—'}
+                          {row.name || row.title || '—'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-stone-600">
+                        <span className="line-clamp-2 max-w-[240px]">
+                          {row.document_type || row.remarks || '—'}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-stone-600">
                         {row.file_count
                           ? `${row.file_count} file${row.file_count === 1 ? '' : 's'}`
                           : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-stone-600">
-                        <span className="line-clamp-2 max-w-[320px]">{row.remarks || '—'}</span>
                       </td>
                       <td className="px-4 py-3 text-stone-600">
                         {shortDate(row.updated_at || row.created_at)}
@@ -457,17 +440,9 @@ const DocumentManagerPage = () => {
                           <div className="flex justify-end gap-1">
                             <button
                               type="button"
-                              className={btnGhost}
-                              onClick={() => openEdit(row)}
-                              aria-label={`Edit ${row.title || 'document'}`}
-                            >
-                              <FiEdit2 className="h-3.5 w-3.5" aria-hidden />
-                            </button>
-                            <button
-                              type="button"
                               className={`${btnGhost} text-rose-600 hover:bg-rose-50`}
                               onClick={() => setDeleteTarget(row)}
-                              aria-label={`Delete ${row.title || 'document'}`}
+                              aria-label={`Delete ${row.name || row.title || 'document'}`}
                             >
                               <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
                             </button>
@@ -509,9 +484,9 @@ const DocumentManagerPage = () => {
                 <table className="min-w-full text-left text-sm">
                   <thead className={tableHeadClass}>
                     <tr>
-                      <th className="px-4 py-3">Title</th>
+                      <th className="px-4 py-3">Name</th>
                       <th className="px-4 py-3">Patient</th>
-                      <th className="px-4 py-3">Files</th>
+                      <th className="px-4 py-3">Type</th>
                       <th className="px-4 py-3">Updated</th>
                       <th className="px-4 py-3 text-right">Open</th>
                     </tr>
@@ -520,15 +495,13 @@ const DocumentManagerPage = () => {
                     {titleHits.map((row) => (
                       <tr key={row.id} className="hover:bg-stone-50">
                         <td className="px-4 py-3 font-semibold text-stone-900">
-                          {row.title || '—'}
+                          {row.name || row.title || '—'}
                         </td>
                         <td className="px-4 py-3 text-stone-700">
                           {row.patient_name || (row.patient ? `Patient #${row.patient}` : '—')}
                         </td>
                         <td className="px-4 py-3 text-stone-600">
-                          {row.file_count
-                            ? `${row.file_count} file${row.file_count === 1 ? '' : 's'}`
-                            : '—'}
+                          {row.document_type || row.remarks || '—'}
                         </td>
                         <td className="px-4 py-3 text-stone-600">
                           {shortDate(row.updated_at || row.created_at)}
@@ -560,7 +533,7 @@ const DocumentManagerPage = () => {
           hint={
             patientSearch
               ? 'Try another name or patient ID.'
-              : 'Patients from Customer Master appear here as folders.'
+              : 'Care patients appear here as folders.'
           }
         />
       ) : (
@@ -588,7 +561,7 @@ const DocumentManagerPage = () => {
 
       <Modal
         open={modalOpen}
-        title={editing ? 'Edit document' : 'Upload document'}
+        title="Upload document"
         onClose={() => setModalOpen(false)}
         wide
         footer={
@@ -597,7 +570,7 @@ const DocumentManagerPage = () => {
               Cancel
             </button>
             <button type="submit" form="document-form" className={btnPrimary} disabled={saving}>
-              {saving ? 'Saving…' : editing ? 'Save changes' : 'Upload document'}
+              {saving ? 'Saving…' : 'Upload document'}
             </button>
           </div>
         }
@@ -622,35 +595,34 @@ const DocumentManagerPage = () => {
             />
           </div>
           <div>
-            <label className={labelClass} htmlFor="doc-title">
-              Title <span className="text-rose-600">*</span>
+            <label className={labelClass} htmlFor="doc-name">
+              Name <span className="text-rose-600">*</span>
             </label>
             <input
-              id="doc-title"
+              id="doc-name"
               className={fieldClass}
-              placeholder="e.g. Blood Test Report"
-              value={form.title}
-              onChange={(e) => set('title', e.target.value)}
+              placeholder="e.g. Post-Op Knee X-Ray Report"
+              value={form.name}
+              onChange={(e) => set('name', e.target.value)}
               required
             />
           </div>
           <div>
-            <label className={labelClass} htmlFor="doc-remarks">
-              Remarks <span className="text-rose-600">*</span>
+            <label className={labelClass} htmlFor="doc-type">
+              Document type <span className="text-rose-600">*</span>
             </label>
-            <textarea
-              id="doc-remarks"
-              rows={3}
+            <input
+              id="doc-type"
               className={fieldClass}
-              placeholder="e.g. Annual checkup results"
-              value={form.remarks}
-              onChange={(e) => set('remarks', e.target.value)}
+              placeholder="e.g. Radiology"
+              value={form.document_type}
+              onChange={(e) => set('document_type', e.target.value)}
               required
             />
           </div>
           <div>
             <label className={labelClass} htmlFor="doc-files">
-              Files {!editing ? <span className="text-rose-600">*</span> : null}
+              Files <span className="text-rose-600">*</span>
             </label>
             <input
               id="doc-files"
@@ -658,12 +630,10 @@ const DocumentManagerPage = () => {
               multiple
               className={`${fieldClass} file:mr-3 file:rounded-md file:border-0 file:bg-stone-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-stone-700`}
               onChange={(e) => set('files', Array.from(e.target.files || []))}
-              required={!editing}
+              required
             />
             <p className="mt-1 text-xs text-stone-500">
-              {editing
-                ? fileLabel(form.files) || 'Optional — leave empty to keep existing files.'
-                : fileLabel(form.files) || 'Upload one or more files (multipart form-data).'}
+              {fileLabel(form.files) || 'Upload one or more files (multipart form-data).'}
             </p>
           </div>
         </form>
@@ -672,7 +642,7 @@ const DocumentManagerPage = () => {
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="Delete document?"
-        message={`${deleteTarget?.title || 'This document'} will be permanently removed.`}
+        message={`${deleteTarget?.name || deleteTarget?.title || 'This document'} will be permanently removed.`}
         confirmLabel="Delete"
         loading={deleting}
         onConfirm={handleDelete}

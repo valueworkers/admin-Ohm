@@ -367,25 +367,14 @@ const lineKindForApi = (line = {}) => {
   return 'custom'
 }
 
-/**
- * Build POST/PATCH /api/platform/quotes/ body from editor form.
- * Matches platform create contract:
- * company, attention, address, state, buyer_email, cc/bcc_emails,
- * ship_to, your_ref, valid_days, notes, terms, freight, packing,
- * charges_gst_rate, lines[{ kind, item, specification, hsn_sac, uom,
- * qty, unit_price, discount_percent, gst_rate }]
- */
-export const buildPlatformQuotePayload = (
-  form = {},
-  { freight = 0, packing = 0, chargesGstRate = 18 } = {},
-) => {
-  const stateCode = String(form.stateCode || '').trim()
-  const stateName =
-    IN_STATES.find((s) => s.code === stateCode)?.name ||
-    (stateCode && !/^\d{2}$/.test(stateCode) ? stateCode : '') ||
-    ''
+const parseEmails = (raw) =>
+  String(raw || '')
+    .split(/[,;\s]+/)
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
 
-  const lines = (Array.isArray(form.lines) ? form.lines : []).map((ln) => {
+const buildQuoteLines = (form = {}) =>
+  (Array.isArray(form.lines) ? form.lines : []).map((ln) => {
     const onReq =
       Boolean(ln.onRequest) || lineKindForApi(ln) === 'manpower'
     const qty = Number(ln.qty)
@@ -415,11 +404,41 @@ export const buildPlatformQuotePayload = (
     }
   })
 
-  const parseEmails = (raw) =>
-    String(raw || '')
-      .split(/[,;\s]+/)
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean)
+/** Resolve buyer GSTIN + state name/code for create/send. */
+export const resolveBuyerTaxPlace = (form = {}) => {
+  const gstin = String(form.gstin || '').trim().toUpperCase()
+  let stateCode = resolveStateCode(form.stateCode || form.state || '')
+  if (!/^\d{2}$/.test(stateCode) && /^\d{2}/.test(gstin)) {
+    stateCode = gstin.slice(0, 2)
+  }
+  const stateName =
+    IN_STATES.find((s) => s.code === stateCode)?.name ||
+    (stateCode && !/^\d{2}$/.test(stateCode) ? stateCode : '') ||
+    ''
+  return { gstin, stateCode, stateName }
+}
+
+/** True when a loaded quote already has buyer GSTIN or state on the server. */
+export const quoteHasBuyerTaxPlace = (quote) => {
+  if (!quote) return false
+  const gstin = String(quote.gstin || quote.payload?.gstin || '').trim()
+  const state =
+    String(quote.state || '').trim() ||
+    String(quote.stateCode || quote.payload?.stateCode || '').trim()
+  return Boolean(gstin || state)
+}
+
+/**
+ * Build POST /api/platform/quotes/ body.
+ * Apidog create: company, attention, address, state (required), buyer_email,
+ * cc/bcc, ship_to, your_ref, valid_days, notes, terms, freight, packing,
+ * charges_gst_rate, lines, tenant. gstin/state_code stored on model (list filters).
+ */
+export const buildPlatformQuotePayload = (
+  form = {},
+  { freight = 0, packing = 0, chargesGstRate = 18 } = {},
+) => {
+  const { gstin, stateCode, stateName } = resolveBuyerTaxPlace(form)
 
   const freightVal =
     form.freight != null && form.freight !== '' ? form.freight : freight
@@ -483,49 +502,99 @@ export const buildPlatformQuotePayload = (
     tertiary_contact_email: form.showTertiaryContact
       ? String(form.tertiaryContactEmail || '').trim()
       : '',
-    lines,
+    lines: buildQuoteLines(form),
   }
+  if (gstin) body.gstin = gstin
+  if (/^\d{2}$/.test(stateCode)) body.state_code = stateCode
   if (number) body.number = number
+  const tenant = String(form.tenantId || form.tenant || '').trim()
+  if (tenant) body.tenant = tenant
   return body
+}
+
+/**
+ * Apidog PATCH only: terms, freight, packing, lines.
+ * Buyer state/gstin are create-only — PATCH cannot persist them.
+ */
+export const buildPlatformQuotePatchPayload = (
+  form = {},
+  { freight = 0, packing = 0 } = {},
+) => {
+  const freightVal =
+    form.freight != null && form.freight !== '' ? form.freight : freight
+  const packingVal =
+    form.packing != null && form.packing !== '' ? form.packing : packing
+  return {
+    terms: String(form.terms || '').trim(),
+    freight: money2(freightVal, 0),
+    packing: money2(packingVal, 0),
+    lines: buildQuoteLines(form),
+  }
+}
+
+/** GET /api/platform/quotes/tax-settings/ */
+export const fetchQuoteTaxSettings = async () => {
+  const { data } = await api.get('api/platform/quotes/tax-settings/')
+  return data?.data || data || {}
+}
+
+/** PATCH /api/platform/quotes/tax-settings/ — { gstin } */
+export const updateQuoteTaxSettings = async (gstin) => {
+  const value = String(gstin || '').trim().toUpperCase()
+  if (!value) throw new Error('Seller GSTIN is required.')
+  const { data } = await api.patch('api/platform/quotes/tax-settings/', {
+    gstin: value,
+  })
+  return data?.data || data || {}
+}
+
+/** Ensure seller tax-settings has GSTIN or state before send. */
+export const ensureQuoteSellerTaxSettings = async (sellerGstin) => {
+  const gstin = String(sellerGstin || '').trim().toUpperCase()
+  let row = {}
+  try {
+    row = await fetchQuoteTaxSettings()
+  } catch {
+    row = {}
+  }
+  const has =
+    String(row.gstin || '').trim() ||
+    String(row.state || row.state_code || '').trim()
+  if (has) return row
+  if (!gstin) {
+    throw new Error(
+      'Set a valid seller GSTIN in quote tax settings before sending.',
+    )
+  }
+  return updateQuoteTaxSettings(gstin)
 }
 
 /** POST /api/platform/quotes/ — create platform quote. */
 export const createPlatformQuote = async (form, options = {}) => {
   const body = buildPlatformQuotePayload(form, options)
+  if (!String(body.state || '').trim() && !String(body.gstin || '').trim()) {
+    throw new Error('Set a valid GSTIN or state before creating this quote.')
+  }
   const { data } = await api.post('api/platform/quotes/', body)
   const row = data?.data || data?.quote || data
   return normalizePlatformQuote(row)
 }
 
-/** PATCH /api/platform/quotes/:id/ — update draft platform quote. */
+/** PATCH /api/platform/quotes/:id/ — lines/terms/freight/packing only. */
 export const updatePlatformQuote = async (quoteId, form, options = {}) => {
   const id = String(quoteId || '').trim()
   if (!id) throw new Error('Quote id is required.')
-  const body = buildPlatformQuotePayload(form, options)
+  const body = buildPlatformQuotePatchPayload(form, options)
   const { data } = await api.patch(`api/platform/quotes/${id}/`, body)
   const row = data?.data || data?.quote || data
   return normalizePlatformQuote(row)
 }
 
-const parseEmailList = (raw) => {
-  if (Array.isArray(raw)) {
-    return raw.map((e) => String(e || '').trim().toLowerCase()).filter(Boolean)
-  }
-  return String(raw || '')
-    .split(/[,;\s]+/)
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean)
-}
-
-/** POST /api/platform/quotes/:id/send/ — send quote email (optional cc / bcc). */
-export const sendPlatformQuote = async (quoteId, { cc, bcc } = {}) => {
+/** POST /api/platform/quotes/:id/send/ — Apidog body is {}. */
+export const sendPlatformQuote = async (quoteId) => {
   const id = String(quoteId || '').trim()
   if (!id) throw new Error('Quote id is required.')
-  const body = {
-    cc_emails: parseEmailList(cc),
-    bcc_emails: parseEmailList(bcc),
-  }
-  const { data } = await api.post(`api/platform/quotes/${id}/send/`, body)
+  const { data } = await api.post(`api/platform/quotes/${id}/send/`, {})
   const row = data?.data || data?.quote || data
   if (row && (row.id != null || row.number)) {
     return normalizePlatformQuote(row)
@@ -535,7 +604,7 @@ export const sendPlatformQuote = async (quoteId, { cc, bcc } = {}) => {
 
 /**
  * POST /api/platform/quotes/:id/revise/
- * Same body as create/update via buildPlatformQuotePayload.
+ * Same body as create via buildPlatformQuotePayload.
  */
 export const revisePlatformQuote = async (quoteId, form = {}, options = {}) => {
   const id = String(quoteId || '').trim()
