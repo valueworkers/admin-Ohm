@@ -58,9 +58,11 @@ export const useAccess = () => {
     }
   }, [superAdmin, user?.id, user?.user_type, user?.role, user?.primary_role])
 
+  // Prefer explicit header selection for SA and multi-org tenant owners.
+  const selectedId = getSelectedTenantId() || null
   const tenantId = superAdmin
-    ? getSelectedTenantId() || null
-    : user?.tenant_id || null
+    ? selectedId
+    : selectedId || user?.tenant_id || null
   const tenant = tenantId
     ? getSelectedTenant() ||
       getStoredTenants().find((t) => String(t.id) === String(tenantId)) ||

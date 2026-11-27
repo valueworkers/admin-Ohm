@@ -35,12 +35,19 @@ const num = (v) => {
 
 export const normalizeEmployeePayroll = (row = {}) => {
   const fullName = [row.first_name, row.middle_name, row.last_name].filter(Boolean).join(' ')
+  const active =
+    typeof row.is_active === 'boolean'
+      ? row.is_active
+      : row.is_active == null
+        ? null
+        : Boolean(row.is_active)
   return {
     id: String(row.id ?? ''),
     name: fullName || row.name || 'Employee',
     employeeId: String(row.employee_id || row.employee_profile?.employee_id || ''),
     email: String(row.email || ''),
-    mobile: String(row.mobile_number || row.phone || ''),
+    mobile: String(row.phone_number || row.mobile_number || row.phone || ''),
+    isActive: active,
     category: String(row.employee_category || row.employee_profile?.category || ''),
     vendorName: String(row.vendor_name || ''),
     basicSalary: num(row.basic_salary),

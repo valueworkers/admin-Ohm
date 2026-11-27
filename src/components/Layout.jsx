@@ -115,7 +115,10 @@ const Layout = () => {
     hasFeature,
   } = useAccess()
   const { tenants, selectedId, selectTenant } = usePlatformTenants()
-  const showTenantSwitcher = isSuperAdmin && isTenantInfoPath(location.pathname)
+  // SA: switcher on Tenant Info paths. Tenant owners: always switch among their orgs.
+  const showTenantSwitcher =
+    (isSuperAdmin && isTenantInfoPath(location.pathname)) ||
+    (!isSuperAdmin && isTenantOwner && tenants.length > 0)
   const displayName =
     user?.full_name ||
     [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() ||
@@ -525,10 +528,10 @@ const Layout = () => {
                 <select
                   id="tenant-switcher"
                   className={`${fieldClass} max-w-[10rem] py-1.5 text-sm sm:max-w-[14rem]`}
-                  value={selectedId}
+                  value={selectedId || ''}
                   onChange={(e) => selectTenant(e.target.value)}
                 >
-                  <option value="">Select tenant…</option>
+                  {isSuperAdmin ? <option value="">Select tenant…</option> : null}
                   {tenants.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name}

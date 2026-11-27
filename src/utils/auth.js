@@ -86,7 +86,9 @@ export const canManagePlatform = (userOrType) => isSuperAdmin(userOrType)
 /** @deprecated use canManagePlatform */
 export const canManageAllTenants = canManagePlatform
 export const canCreateOwner = canManagePlatform
-export const canSwitchTenants = (userOrType) => isSuperAdmin(userOrType)
+/** Super Admin: any platform tenant. Tenant owners: switch among their orgs from my/tenants. */
+export const canSwitchTenants = (userOrType) =>
+  isSuperAdmin(userOrType) || isTenantOwner(userOrType)
 
 /** Tenant owners and Super Admin may mutate org ops data (venues, services, etc.). */
 export const canWriteTenantData = (userOrType) =>
@@ -294,19 +296,47 @@ const loginApiError = (error, fallback) => {
   return { ok: false, error: apiErrorMessage(error, fallback) }
 }
 
+const loginRequestOpts = (tenantSlug) => {
+  const slug = String(tenantSlug || '').trim()
+  // Root / platform admin: omit X-Tenant. Tenant workspace: send slug in header.
+  return slug ? { xTenant: slug } : {}
+}
+
+const withLoginSlug = (result, tenantSlug) => {
+  if (!result?.ok) return result
+  const slug = String(tenantSlug || '').trim()
+  if (!slug || !result.user) return result
+  const user = {
+    ...result.user,
+    tenant_slug: result.user.tenant_slug || slug,
+    schema_name: result.user.schema_name || slug,
+  }
+  try {
+    localStorage.setItem('authUser', JSON.stringify(user))
+  } catch {
+    // ignore
+  }
+  return { ...result, user }
+}
+
 /**
  * Live admin login — POST /api/auth/login/
  * Body: { username, method: "password", password }
+ * Optional X-Tenant header when Workspace Name is provided.
  */
-export const loginWithPasswordApi = async (username, password) => {
+export const loginWithPasswordApi = async (username, password, tenantSlug = '') => {
   const user = String(username || '').trim()
   try {
-    const { data } = await api.post('api/auth/login/', {
-      username: user,
-      method: 'password',
-      password,
-    })
-    return finishApiLogin(data, user)
+    const { data } = await api.post(
+      'api/auth/login/',
+      {
+        username: user,
+        method: 'password',
+        password,
+      },
+      loginRequestOpts(tenantSlug),
+    )
+    return withLoginSlug(finishApiLogin(data, user), tenantSlug)
   } catch (error) {
     return loginApiError(error, 'Login failed. Please try again.')
   }
@@ -315,13 +345,18 @@ export const loginWithPasswordApi = async (username, password) => {
 /**
  * Step 1 — request OTP for login.
  * POST /api/auth/otp/  { username, purpose: "login" }
+ * Optional X-Tenant header when Workspace Name is provided.
  */
-export const sendLoginOtpApi = async (username) => {
+export const sendLoginOtpApi = async (username, tenantSlug = '') => {
   try {
-    const { data } = await api.post('api/auth/otp/', {
-      username: String(username || '').trim(),
-      purpose: 'login',
-    })
+    const { data } = await api.post(
+      'api/auth/otp/',
+      {
+        username: String(username || '').trim(),
+        purpose: 'login',
+      },
+      loginRequestOpts(tenantSlug),
+    )
     const payload = data?.data || data || {}
     const message =
       payload.message ||
@@ -336,16 +371,21 @@ export const sendLoginOtpApi = async (username) => {
 /**
  * Step 2 — verify OTP and sign in.
  * POST /api/auth/login/  { username, method: "otp", otp }
+ * Optional X-Tenant header when Workspace Name is provided.
  */
-export const loginWithOtpApi = async (username, otp) => {
+export const loginWithOtpApi = async (username, otp, tenantSlug = '') => {
   const user = String(username || '').trim()
   try {
-    const { data } = await api.post('api/auth/login/', {
-      username: user,
-      method: 'otp',
-      otp: String(otp || '').trim(),
-    })
-    return finishApiLogin(data, user)
+    const { data } = await api.post(
+      'api/auth/login/',
+      {
+        username: user,
+        method: 'otp',
+        otp: String(otp || '').trim(),
+      },
+      loginRequestOpts(tenantSlug),
+    )
+    return withLoginSlug(finishApiLogin(data, user), tenantSlug)
   } catch (error) {
     return loginApiError(error, 'OTP login failed. Please try again.')
   }

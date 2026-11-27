@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  FiColumns,
   FiEdit2,
   FiEye,
   FiEyeOff,
@@ -24,12 +23,16 @@ import {
 } from '../api/employees'
 import { fetchShifts } from '../api/shifts'
 import ShiftsManagerModal from '../components/ShiftsManagerModal'
+import ColumnChooser from '../components/ui/ColumnChooser'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
+import DraggableTh from '../components/ui/DraggableTh'
 import Modal from '../components/ui/Modal'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
+import { useColumnOrder } from '../hooks/useColumnOrder'
+import { useColumnVisibility } from '../hooks/useColumnVisibility'
 import { apiErrorMessage } from '../utils/errors'
 import { resolveCatalogTenantSlug } from '../utils/tenantHeader'
 import {
@@ -103,8 +106,6 @@ const EMPTY_TERM = {
 const isPhone10 = (v) => /^\d{10}$/.test(String(v || '').trim())
 const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim())
 
-const COL_STORAGE_KEY = 'sc_ops_employees_visible_cols_v1'
-
 const EMPLOYEE_COLUMNS = [
   { id: 'employee_id', label: 'Employee ID', defaultOn: true },
   { id: 'name', label: 'Name', defaultOn: true },
@@ -135,21 +136,8 @@ const EMPLOYEE_COLUMNS = [
   { id: 'status', label: 'Status', defaultOn: true },
 ]
 
+const EMPLOYEE_COLUMN_IDS = EMPLOYEE_COLUMNS.map((c) => c.id)
 const DEFAULT_VISIBLE = EMPLOYEE_COLUMNS.filter((c) => c.defaultOn).map((c) => c.id)
-
-const loadVisibleCols = () => {
-  try {
-    const raw = localStorage.getItem(COL_STORAGE_KEY)
-    if (!raw) return DEFAULT_VISIBLE
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed) || !parsed.length) return DEFAULT_VISIBLE
-    const allowed = new Set(EMPLOYEE_COLUMNS.map((c) => c.id))
-    const next = parsed.filter((id) => allowed.has(id))
-    return next.length ? next : DEFAULT_VISIBLE
-  } catch {
-    return DEFAULT_VISIBLE
-  }
-}
 
 const shortDate = (v) => {
   if (!v) return '—'
@@ -420,41 +408,24 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
   const [bulkSaving, setBulkSaving] = useState(false)
   const bulkRef = useRef(null)
   const [shiftsOpen, setShiftsOpen] = useState(false)
-  const [visibleColIds, setVisibleColIds] = useState(loadVisibleCols)
-  const [chooserOpen, setChooserOpen] = useState(false)
-  const chooserRef = useRef(null)
 
-  const visibleColumns = useMemo(
-    () => EMPLOYEE_COLUMNS.filter((c) => visibleColIds.includes(c.id)),
-    [visibleColIds],
+  const { columnOrder, moveColumn } = useColumnOrder(
+    'sc_ops_employees_col_order_v1',
+    EMPLOYEE_COLUMN_IDS,
   )
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(COL_STORAGE_KEY, JSON.stringify(visibleColIds))
-    } catch {
-      /* ignore */
-    }
-  }, [visibleColIds])
-
-  useEffect(() => {
-    if (!chooserOpen) return undefined
-    const onDoc = (e) => {
-      if (chooserRef.current && !chooserRef.current.contains(e.target)) setChooserOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [chooserOpen])
-
-  const toggleColumn = (id) => {
-    setVisibleColIds((prev) => {
-      if (prev.includes(id)) {
-        if (prev.length <= 2) return prev
-        return prev.filter((x) => x !== id)
-      }
-      return EMPLOYEE_COLUMNS.map((c) => c.id).filter((cid) => prev.includes(cid) || cid === id)
-    })
-  }
+  const { visibleIds, toggleColumn, showAll, showDefault } = useColumnVisibility(
+    'sc_ops_employees_visible_cols_v1',
+    EMPLOYEE_COLUMN_IDS,
+    DEFAULT_VISIBLE,
+  )
+  const visibleColumns = useMemo(
+    () =>
+      columnOrder
+        .filter((id) => visibleIds.includes(id))
+        .map((id) => EMPLOYEE_COLUMNS.find((c) => c.id === id))
+        .filter(Boolean),
+    [columnOrder, visibleIds],
+  )
 
   const reloadShifts = useCallback(async () => {
     if (!tenantSlug) {
@@ -1026,60 +997,13 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
           >
             Export Excel
           </button>
-          <div className="relative" ref={chooserRef}>
-            <button
-              type="button"
-              className={btnSecondary}
-              onClick={() => setChooserOpen((v) => !v)}
-              aria-expanded={chooserOpen}
-              aria-haspopup="true"
-            >
-              <FiColumns className="h-4 w-4" aria-hidden />
-              Column chooser
-            </button>
-            {chooserOpen ? (
-              <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-stone-200 bg-white p-3 shadow-lg sm:left-auto">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">
-                    Visible columns
-                  </p>
-                  <div className="flex gap-1">
-                    <button
-                      type="button"
-                      className="text-[11px] font-semibold text-brand-700 hover:underline"
-                      onClick={() => setVisibleColIds(EMPLOYEE_COLUMNS.map((c) => c.id))}
-                    >
-                      All
-                    </button>
-                    <span className="text-stone-300">·</span>
-                    <button
-                      type="button"
-                      className="text-[11px] font-semibold text-brand-700 hover:underline"
-                      onClick={() => setVisibleColIds(DEFAULT_VISIBLE)}
-                    >
-                      Default
-                    </button>
-                  </div>
-                </div>
-                <div className="max-h-72 space-y-1 overflow-y-auto">
-                  {EMPLOYEE_COLUMNS.map((col) => (
-                    <label
-                      key={col.id}
-                      className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-stone-700 hover:bg-stone-50"
-                    >
-                      <input
-                        type="checkbox"
-                        className="rounded border-stone-300 text-brand-600 focus:ring-brand-500"
-                        checked={visibleColIds.includes(col.id)}
-                        onChange={() => toggleColumn(col.id)}
-                      />
-                      {col.label}
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
+          <ColumnChooser
+            columns={EMPLOYEE_COLUMNS}
+            visibleIds={visibleIds}
+            onToggle={(id) => toggleColumn(id, { minVisible: 2 })}
+            onShowAll={showAll}
+            onShowDefault={showDefault}
+          />
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-stone-100 pt-3">
@@ -1146,9 +1070,14 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
                     />
                   </th>
                   {visibleColumns.map((col) => (
-                    <th key={col.id} className="whitespace-nowrap px-3 py-3">
+                    <DraggableTh
+                      key={col.id}
+                      id={col.id}
+                      onReorder={moveColumn}
+                      className="whitespace-nowrap px-3 py-3"
+                    >
                       {col.label}
-                    </th>
+                    </DraggableTh>
                   ))}
                   {canWrite ? <th className="px-3 py-3 text-right">Actions</th> : null}
                 </tr>

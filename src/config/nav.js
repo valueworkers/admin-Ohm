@@ -49,7 +49,6 @@ export const NAV_ITEMS = [
     title: 'Roles',
     icon: FiShield,
     needsTenant: false,
-    superOnly: true,
   },
   {
     type: 'group',
@@ -137,7 +136,7 @@ export const NAV_ITEMS = [
           {
             type: 'link',
             to: '/ops/analytics/attendance-master',
-            title: 'Attendance Master',
+            title: 'Attendance Analysis',
             icon: FiClipboard,
             needsTenant: true,
             featureKey: 'analytics',

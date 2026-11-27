@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { FiEdit2, FiLoader, FiPlus, FiRefreshCw, FiTrash2 } from 'react-icons/fi'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FiEdit2, FiLoader, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUsers } from 'react-icons/fi'
 import {
-  createRole,
-  createRoleAssignment,
-  deleteRole,
-  deleteRoleAssignment,
-  fetchRoleAssignments,
-  fetchRolePermissions,
-  fetchRoles,
-  updateRole,
-} from '../api/roles'
+  addGroupMembers,
+  createGroup,
+  deleteGroup,
+  fetchGroupById,
+  fetchGroupMembers,
+  fetchGroups,
+  fetchPermissions,
+  fetchPermissionsGrouped,
+  groupPermissionsByApp,
+  removeGroupMember,
+  updateGroup,
+} from '../api/groups'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import Modal from '../components/ui/Modal'
 import PageHeader from '../components/ui/PageHeader'
@@ -33,41 +36,17 @@ import {
 
 const TABS = [
   { id: 'roles', label: 'Roles' },
-  { id: 'assignments', label: 'Assignments' },
+  { id: 'members', label: 'Members' },
 ]
 
-const emptyRoleForm = () => ({
-  code: '',
+const emptyForm = () => ({
   name: '',
-  rank: '50',
   permissions: [],
 })
 
-const permissionIdsFromRole = (role = {}) => {
-  const list = role.permissions || role.permission_details || []
-  if (!Array.isArray(list)) return []
-  return list
-    .map((p) => {
-      if (typeof p === 'number') return p
-      if (typeof p === 'string' && /^\d+$/.test(p)) return Number(p)
-      const id = p?.id ?? p?.pk
-      return id != null && id !== '' ? Number(id) : null
-    })
-    .filter((id) => Number.isFinite(id))
-}
-
-const toRoleForm = (role = {}) => ({
-  code: role.code || '',
-  name: role.name || '',
-  rank: role.rank != null ? String(role.rank) : '50',
-  permissions: permissionIdsFromRole(role),
-})
-
-const emptyAssignForm = () => ({
-  user_id: '',
-  role_id: '',
-  object_type: 'booking.venue',
-  object_id: '1',
+const toForm = (group = {}) => ({
+  name: group.name || '',
+  permissions: (group.permissionIds || []).map(Number).filter((n) => Number.isFinite(n)),
 })
 
 const Roles = () => {
@@ -78,8 +57,10 @@ const Roles = () => {
   useEffect(() => {
     if (superAdmin && tab !== 'roles') setTab('roles')
   }, [superAdmin, tab])
-  const [roles, setRoles] = useState([])
+
+  const [groups, setGroups] = useState([])
   const [permissions, setPermissions] = useState([])
+  const [permSearch, setPermSearch] = useState('')
   const [permsLoading, setPermsLoading] = useState(false)
   const [permsError, setPermsError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -89,16 +70,15 @@ const Roles = () => {
 
   const [modalMode, setModalMode] = useState(null)
   const [editTarget, setEditTarget] = useState(null)
-  const [roleForm, setRoleForm] = useState(null)
+  const [form, setForm] = useState(null)
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
 
-  const [lookupUserId, setLookupUserId] = useState('')
-  const [assignments, setAssignments] = useState([])
-  const [assignLoading, setAssignLoading] = useState(false)
-  const [assignForm, setAssignForm] = useState(emptyAssignForm)
-  const [assignOpen, setAssignOpen] = useState(false)
-  const [revokeTarget, setRevokeTarget] = useState(null)
+  const [memberGroupId, setMemberGroupId] = useState('')
+  const [members, setMembers] = useState([])
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [addUserId, setAddUserId] = useState('')
+  const [removeTarget, setRemoveTarget] = useState(null)
 
   const tenantSlug =
     resolveRolesTenantSlug() ||
@@ -108,127 +88,164 @@ const Roles = () => {
     user?.schema_name ||
     ''
 
-  const canUseRolesApi = superAdmin || Boolean(tenantSlug)
+  const canUseApi = superAdmin || Boolean(tenantSlug)
 
-  const loadRoles = useCallback(async () => {
+  const ensureTenantSlug = useCallback(async () => {
+    if (isSuperAdmin(getAuthUser())) return true
+    if (resolveRolesTenantSlug()) return true
+    try {
+      const auth = getAuthUser()
+      const list = await fetchMyTenants()
+      saveStoredTenants(list)
+      const preferred =
+        list.find((t) => String(t.id) === String(auth?.tenant_id)) ||
+        list.find((t) => String(t.status).toLowerCase() === 'active') ||
+        list[0] ||
+        null
+      if (preferred?.id != null) {
+        setSelectedTenantId(preferred.id)
+        const slug = preferred.schema_name || preferred.slug || ''
+        if (slug && auth) {
+          localStorage.setItem(
+            'authUser',
+            JSON.stringify({
+              ...auth,
+              tenant_id: preferred.id,
+              tenant_slug: slug,
+              schema_name: slug,
+            }),
+          )
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return Boolean(resolveRolesTenantSlug())
+  }, [])
+
+  const loadGroups = useCallback(async () => {
     const gen = ++loadGen.current
     setLoading(true)
     setError('')
     try {
-      // Prefer JWT / stored slug — do NOT persistAuthSession here (that caused the loop).
-      if (!isSuperAdmin(getAuthUser()) && !resolveRolesTenantSlug()) {
-        try {
-          const auth = getAuthUser()
-          const list = await fetchMyTenants()
-          if (gen !== loadGen.current) return
-          saveStoredTenants(list)
-          const preferred =
-            list.find((t) => String(t.id) === String(auth?.tenant_id)) ||
-            list.find((t) => String(t.status).toLowerCase() === 'active') ||
-            list[0] ||
-            null
-          if (preferred?.id != null) {
-            setSelectedTenantId(preferred.id)
-            const slug = preferred.schema_name || preferred.slug || ''
-            if (slug && auth) {
-              // Quiet write — no auth-changed event
-              localStorage.setItem(
-                'authUser',
-                JSON.stringify({
-                  ...auth,
-                  tenant_id: preferred.id,
-                  tenant_slug: slug,
-                  schema_name: slug,
-                }),
-              )
-            }
-          }
-        } catch {
-          // ignore — roles call may still work via JWT schema
+      const asSuper = isSuperAdmin(getAuthUser())
+      if (!asSuper) {
+        const ok = await ensureTenantSlug()
+        if (gen !== loadGen.current) return
+        if (!ok) {
+          setGroups([])
+          setError('Select or activate a tenant first so X-Tenant (slug) can be sent.')
+          return
         }
       }
 
+      const list = await fetchGroups()
       if (gen !== loadGen.current) return
-
-      const asSuper = isSuperAdmin(getAuthUser())
-      if (!asSuper && !resolveRolesTenantSlug()) {
-        setRoles([])
-        setError('Select or activate a tenant first so X-Tenant (slug) can be sent.')
-        return
-      }
-
-      // List page: roles only. Permissions load when opening create/edit.
-      const roleList = await fetchRoles()
-      if (gen !== loadGen.current) return
-      setRoles(roleList)
+      setGroups(list)
+      setMemberGroupId((prev) => prev || (list[0]?.id != null ? String(list[0].id) : ''))
     } catch (err) {
       if (gen !== loadGen.current) return
-      setRoles([])
-      setError(apiErrorMessage(err, 'Could not load roles.'))
+      setGroups([])
+      setError(apiErrorMessage(err, 'Could not load roles (permission groups).'))
     } finally {
       if (gen === loadGen.current) setLoading(false)
     }
-  }, [])
+  }, [ensureTenantSlug])
 
   useEffect(() => {
-    loadRoles()
+    loadGroups()
     return () => {
-      // Invalidate in-flight work so StrictMode remount can fetch cleanly.
       loadGen.current += 1
     }
-  }, [loadRoles])
+  }, [loadGroups])
 
-  /** Only what GET /api/roles/permissions/ returns — no static catalog. */
-  const permissionOptions = permissions
-
-  /** Load permission list from API when opening create/edit. */
   const loadPermissionCatalog = useCallback(async () => {
     setPermsLoading(true)
     setPermsError('')
     setPermissions([])
     try {
-      const list = await fetchRolePermissions()
-      setPermissions(list)
-      if (!list.length) {
-        setPermsError('Permissions API returned an empty list.')
+      // Flat list follows pagination so we get the full catalog.
+      let list = await fetchPermissions()
+      if (!list.length) list = await fetchPermissionsGrouped()
+      // Merge grouped in case it includes extras the flat list missed.
+      try {
+        const grouped = await fetchPermissionsGrouped()
+        if (grouped.length) {
+          const byId = new Map()
+          for (const p of [...list, ...grouped]) {
+            const key = p.id != null ? `id:${p.id}` : `code:${p.code}`
+            if (!byId.has(key)) byId.set(key, p)
+          }
+          list = [...byId.values()]
+        }
+      } catch {
+        // keep flat list
       }
+      setPermissions(list)
+      if (!list.length) setPermsError('Permissions API returned an empty list.')
     } catch (err) {
-      setPermissions([])
-      setPermsError(apiErrorMessage(err, 'Could not load permissions from API.'))
+      try {
+        const list = await fetchPermissionsGrouped()
+        setPermissions(list)
+        if (!list.length) setPermsError('Permissions API returned an empty list.')
+      } catch (err2) {
+        setPermissions([])
+        setPermsError(apiErrorMessage(err2, 'Could not load permissions.'))
+      }
     } finally {
       setPermsLoading(false)
     }
   }, [])
 
+  const filteredPermissionGroups = useMemo(() => {
+    const q = permSearch.trim().toLowerCase()
+    const list = !q
+      ? permissions
+      : permissions.filter((p) => {
+          const hay = `${p.name || ''} ${p.code || ''} ${p.contentType || ''} ${p.description || ''}`.toLowerCase()
+          return hay.includes(q)
+        })
+    return groupPermissionsByApp(list)
+  }, [permissions, permSearch])
+
   const openCreate = () => {
     setStatus({ type: '', message: '' })
     setPermsError('')
+    setPermSearch('')
     setModalMode('create')
     setEditTarget(null)
-    setRoleForm(emptyRoleForm())
+    setForm(emptyForm())
     loadPermissionCatalog()
   }
 
-  const openEdit = (role) => {
+  const openEdit = async (group) => {
     setStatus({ type: '', message: '' })
     setPermsError('')
+    setPermSearch('')
     setModalMode('edit')
-    setEditTarget(role)
-    setRoleForm(toRoleForm(role))
+    setEditTarget(group)
+    setForm(toForm(group))
     loadPermissionCatalog()
+    try {
+      const full = await fetchGroupById(group.id)
+      setEditTarget(full)
+      setForm(toForm(full))
+    } catch {
+      // keep list row data
+    }
   }
 
   const closeModal = () => {
     if (saving) return
     setModalMode(null)
     setEditTarget(null)
-    setRoleForm(null)
+    setForm(null)
   }
 
   const togglePermission = (permId) => {
     const id = Number(permId)
     if (!Number.isFinite(id)) return
-    setRoleForm((prev) => {
+    setForm((prev) => {
       const set = new Set((prev.permissions || []).map(Number))
       if (set.has(id)) set.delete(id)
       else set.add(id)
@@ -236,35 +253,27 @@ const Roles = () => {
     })
   }
 
-  const saveRole = async (event) => {
+  const saveGroup = async (event) => {
     event.preventDefault()
-    if (!roleForm) return
-    const code = String(roleForm.code || '').trim().toUpperCase()
-    const name = String(roleForm.name || '').trim()
-    const rank = Number(roleForm.rank)
-    const permissions = (roleForm.permissions || [])
-      .map(Number)
-      .filter((id) => Number.isFinite(id))
-    if (!code || !name || !Number.isFinite(rank)) {
-      setStatus({ type: 'error', message: 'Code, name, and rank are required.' })
+    if (!form) return
+    const name = String(form.name || '').trim()
+    const permissions = (form.permissions || []).map(Number).filter((id) => Number.isFinite(id))
+    if (!name) {
+      setStatus({ type: 'error', message: 'Role name is required.' })
       return
     }
     setSaving(true)
     setStatus({ type: '', message: '' })
     try {
       if (modalMode === 'create') {
-        await createRole({ code, name, rank, permissions })
+        await createGroup({ name, permissions })
         setStatus({ type: 'success', message: `${name} created.` })
       } else {
-        await updateRole(editTarget.id, {
-          name,
-          rank,
-          permissions,
-        })
+        await updateGroup(editTarget.id, { name, permissions })
         setStatus({ type: 'success', message: `${name} updated.` })
       }
       closeModal()
-      await loadRoles()
+      await loadGroups()
     } catch (err) {
       setStatus({ type: 'error', message: apiErrorMessage(err, 'Could not save role.') })
     } finally {
@@ -272,132 +281,112 @@ const Roles = () => {
     }
   }
 
-  const confirmDeleteRole = async () => {
+  const confirmDelete = async () => {
     if (!deleteTarget?.id) return
     setSaving(true)
     setStatus({ type: '', message: '' })
     try {
-      await deleteRole(deleteTarget.id)
+      await deleteGroup(deleteTarget.id)
       setStatus({ type: 'success', message: `${deleteTarget.name || 'Role'} deleted.` })
       setDeleteTarget(null)
-      await loadRoles()
+      await loadGroups()
     } catch (err) {
       setStatus({
         type: 'error',
-        message: apiErrorMessage(err, 'Could not delete role. Remove assignments first.'),
+        message: apiErrorMessage(err, 'Could not delete role. Remove members first.'),
       })
     } finally {
       setSaving(false)
     }
   }
 
-  const loadAssignments = async (event) => {
-    event?.preventDefault?.()
-    const userId = String(lookupUserId || '').trim()
-    if (!userId) {
-      setStatus({ type: 'error', message: 'Enter a user id to load assignments.' })
+  const loadMembers = useCallback(async () => {
+    const gid = String(memberGroupId || '').trim()
+    if (!gid) {
+      setMembers([])
       return
     }
-    setAssignLoading(true)
+    setMembersLoading(true)
     setStatus({ type: '', message: '' })
     try {
-      const list = await fetchRoleAssignments(userId)
-      setAssignments(list)
+      const list = await fetchGroupMembers(gid)
+      setMembers(list)
       if (!list.length) {
-        setStatus({ type: 'info', message: 'No role assignments for this user.' })
+        setStatus({ type: 'info', message: 'No members in this role yet.' })
       }
     } catch (err) {
-      setAssignments([])
+      setMembers([])
       setStatus({
         type: 'error',
-        message: apiErrorMessage(err, 'Could not load role assignments.'),
+        message: apiErrorMessage(err, 'Could not load group members.'),
       })
     } finally {
-      setAssignLoading(false)
+      setMembersLoading(false)
     }
-  }
+  }, [memberGroupId])
 
-  const openAssign = () => {
-    setStatus({ type: '', message: '' })
-    setAssignForm({
-      ...emptyAssignForm(),
-      user_id: String(lookupUserId || '').trim(),
-      role_id: roles[0]?.id != null ? String(roles[0].id) : '',
-    })
-    setAssignOpen(true)
-  }
+  useEffect(() => {
+    if (tab === 'members' && memberGroupId) loadMembers()
+  }, [tab, memberGroupId, loadMembers])
 
-  const saveAssignment = async (event) => {
+  const addMember = async (event) => {
     event.preventDefault()
-    const user_id = String(assignForm.user_id || '').trim()
-    const role_id = String(assignForm.role_id || '').trim()
-    const object_type = String(assignForm.object_type || '').trim()
-    const object_id = Number(assignForm.object_id)
-    if (!user_id || !role_id || !object_type || !Number.isFinite(object_id)) {
-      setStatus({
-        type: 'error',
-        message: 'user_id, role_id, object_type, and object_id are required.',
-      })
+    const gid = String(memberGroupId || '').trim()
+    const uid = String(addUserId || '').trim()
+    if (!gid || !uid) {
+      setStatus({ type: 'error', message: 'Select a role and enter a user id.' })
       return
     }
     setSaving(true)
     setStatus({ type: '', message: '' })
     try {
-      await createRoleAssignment({ user_id, role_id, object_type, object_id })
-      setAssignOpen(false)
-      setLookupUserId(user_id)
-      setStatus({ type: 'success', message: 'Role assigned.' })
-      setAssignments(await fetchRoleAssignments(user_id))
+      await addGroupMembers(gid, [uid])
+      setAddUserId('')
+      setStatus({ type: 'success', message: 'Member added.' })
+      await loadMembers()
     } catch (err) {
-      setStatus({ type: 'error', message: apiErrorMessage(err, 'Could not assign role.') })
+      setStatus({ type: 'error', message: apiErrorMessage(err, 'Could not add member.') })
     } finally {
       setSaving(false)
     }
   }
 
-  const confirmRevoke = async () => {
-    if (!revokeTarget?.id) return
+  const confirmRemoveMember = async () => {
+    if (!removeTarget?.id || !memberGroupId) return
     setSaving(true)
     setStatus({ type: '', message: '' })
     try {
-      await deleteRoleAssignment(revokeTarget.id)
-      setRevokeTarget(null)
-      setStatus({ type: 'success', message: 'Assignment revoked.' })
-      if (lookupUserId.trim()) {
-        setAssignments(await fetchRoleAssignments(lookupUserId.trim()))
-      }
+      await removeGroupMember(memberGroupId, removeTarget.id)
+      setRemoveTarget(null)
+      setStatus({ type: 'success', message: 'Member removed.' })
+      await loadMembers()
     } catch (err) {
       setStatus({
         type: 'error',
-        message: apiErrorMessage(err, 'Could not revoke assignment.'),
+        message: apiErrorMessage(err, 'Could not remove member.'),
       })
     } finally {
       setSaving(false)
     }
-  }
-
-  const roleNameById = (id) => {
-    const found = roles.find((r) => String(r.id) === String(id))
-    return found?.name || found?.code || id || '—'
   }
 
   return (
     <div className="space-y-4">
       <PageHeader
         eyebrow={superAdmin ? 'Platform' : 'Organization'}
-        title={superAdmin ? 'Roles' : 'Roles & assignments'}
+        title="Roles"
         description={
           superAdmin
-            ? 'Create and manage platform roles.'
-            : `Workspace roles and assignments for ${tenantSlug || 'your tenant'} (X-Tenant = tenant slug).`
+            ? 'Permission groups for the platform (no X-Tenant).'
+            : `Permission groups for ${tenantSlug || 'your tenant'} (X-Tenant required).`
         }
         actions={
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               className={btnSecondary}
-              onClick={loadRoles}
-              disabled={loading || !canUseRolesApi}
+              onClick={loadGroups}
+              disabled={loading || !canUseApi}
             >
               <FiRefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden />
               Refresh
@@ -407,27 +396,17 @@ const Roles = () => {
                 type="button"
                 className={btnPrimary}
                 onClick={openCreate}
-                disabled={!canUseRolesApi}
+                disabled={!canUseApi}
               >
                 <FiPlus className="h-4 w-4" aria-hidden />
                 Create role
               </button>
-            ) : (
-              <button
-                type="button"
-                className={btnPrimary}
-                onClick={openAssign}
-                disabled={!canUseRolesApi || !roles.length}
-              >
-                <FiPlus className="h-4 w-4" aria-hidden />
-                Assign role
-              </button>
-            )}
+            ) : null}
           </div>
         }
       />
 
-      {!superAdmin && !canUseRolesApi ? (
+      {!superAdmin && !canUseApi ? (
         <StatusBanner
           type="warning"
           message="Select or activate a tenant first so requests can include X-Tenant (slug)."
@@ -438,7 +417,11 @@ const Roles = () => {
         <StatusBanner type="info" message={`X-Tenant: ${tenantSlug}`} />
       ) : null}
 
-      <StatusBanner type={status.type} message={status.message} />
+      {superAdmin ? (
+        <StatusBanner type="info" message="Super Admin — Groups & Permissions APIs without X-Tenant." />
+      ) : null}
+
+      {status.message ? <StatusBanner type={status.type} message={status.message} /> : null}
 
       {!superAdmin ? (
         <div className="inline-flex rounded-xl border border-stone-200 bg-white p-1">
@@ -461,90 +444,81 @@ const Roles = () => {
 
       {tab === 'roles' || superAdmin ? (
         <>
-          {error ? <ErrorState message={error} onRetry={loadRoles} /> : null}
+          {error ? <ErrorState message={error} onRetry={loadGroups} /> : null}
           {!error && loading ? <LoadingState label="Loading roles…" /> : null}
-          {!error && !loading && !canUseRolesApi ? (
+          {!error && !loading && !canUseApi ? (
             <EmptyState
               title="Tenant required"
               hint="Activate a tenant so the X-Tenant slug can be sent."
             />
           ) : null}
-          {!error && !loading && canUseRolesApi && roles.length === 0 ? (
+          {!error && !loading && canUseApi && groups.length === 0 ? (
             <EmptyState
               title="No roles"
-              hint="Create a custom role with a unique code."
+              hint="Create a permission group."
               actionLabel="Create role"
               onAction={openCreate}
             />
           ) : null}
-          {!error && !loading && roles.length > 0 ? (
+          {!error && !loading && groups.length > 0 ? (
             <div className={tableWrapClass}>
               <div className="overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
                   <thead className={tableHeadClass}>
                     <tr>
                       <th className="px-4 py-3">Name</th>
-                      <th className="px-4 py-3">Code</th>
-                      <th className="px-4 py-3">Rank</th>
                       <th className="px-4 py-3">Permissions</th>
                       <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
-                    {roles.map((row) => (
-                      <tr key={row.id} className="hover:bg-stone-50">
-                        <td className="px-4 py-3 font-medium text-stone-900">{row.name || '—'}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-stone-600">
-                          {row.code || '—'}
-                        </td>
-                        <td className="px-4 py-3 text-stone-600">{row.rank}</td>
-                        <td className="px-4 py-3 text-stone-600">
-                          {(() => {
-                            const perms = row.permissions || row.permission_details || []
-                            if (!perms.length) {
-                              return <span className="text-stone-400">0</span>
-                            }
-                            const preview = perms
-                              .slice(0, 2)
-                              .map((p) => (typeof p === 'string' ? p : p.name || p.code || ''))
-                              .filter(Boolean)
-                              .join(', ')
-                            const extra = perms.length > 2 ? ` +${perms.length - 2}` : ''
-                            return (
-                              <div className="min-w-0">
-                                <p className="font-medium text-stone-800">{perms.length}</p>
-                                {preview ? (
-                                  <p className="truncate text-xs text-stone-400" title={perms
-                                    .map((p) => (typeof p === 'string' ? p : p.name || p.code || ''))
-                                    .filter(Boolean)
-                                    .join(', ')}>
-                                    {preview}
-                                    {extra}
-                                  </p>
-                                ) : null}
-                              </div>
-                            )
-                          })()}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex justify-end gap-1.5">
-                            <button type="button" className={btnGhost} onClick={() => openEdit(row)}>
-                              <FiEdit2 className="h-3.5 w-3.5" aria-hidden />
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              className={btnGhost}
-                              onClick={() => setDeleteTarget(row)}
-                              disabled={row.is_system}
-                              aria-label={`Delete ${row.name}`}
-                            >
-                              <FiTrash2 className="h-3.5 w-3.5 text-rose-600" aria-hidden />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {groups.map((row) => {
+                      const count =
+                        row.permissionIds?.length ||
+                        row.permissions?.length ||
+                        0
+                      return (
+                        <tr key={row.id} className="hover:bg-stone-50">
+                          <td className="px-4 py-3 font-medium text-stone-900">{row.name || '—'}</td>
+                          <td className="px-4 py-3 text-stone-600">
+                            <p className="font-medium text-stone-800">
+                              {count} {count === 1 ? 'permission' : 'permissions'}
+                            </p>
+                            <p className="text-xs text-stone-400">Assigned to this role</p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex justify-end gap-1.5">
+                              {!superAdmin ? (
+                                <button
+                                  type="button"
+                                  className={btnGhost}
+                                  onClick={() => {
+                                    setMemberGroupId(String(row.id))
+                                    setTab('members')
+                                  }}
+                                  aria-label={`Members of ${row.name}`}
+                                >
+                                  <FiUsers className="h-3.5 w-3.5" aria-hidden />
+                                  Members
+                                </button>
+                              ) : null}
+                              <button type="button" className={btnGhost} onClick={() => openEdit(row)}>
+                                <FiEdit2 className="h-3.5 w-3.5" aria-hidden />
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className={btnGhost}
+                                onClick={() => setDeleteTarget(row)}
+                                aria-label={`Delete ${row.name}`}
+                              >
+                                <FiTrash2 className="h-3.5 w-3.5 text-rose-600" aria-hidden />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -554,69 +528,99 @@ const Roles = () => {
       ) : (
         <div className="space-y-4">
           <Panel>
-            <form className="flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={loadAssignments}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <label className="block min-w-0 flex-1">
-                <span className={labelClass}>User id</span>
-                <input
+                <span className={labelClass}>Role (permission group)</span>
+                <select
                   className={fieldClass}
-                  value={lookupUserId}
-                  onChange={(e) => setLookupUserId(e.target.value)}
-                  placeholder="User id"
-                  disabled={!canUseRolesApi || assignLoading}
-                />
+                  value={memberGroupId}
+                  onChange={(e) => setMemberGroupId(e.target.value)}
+                  disabled={!canUseApi || membersLoading}
+                >
+                  <option value="">Select role…</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </select>
               </label>
-              <button type="submit" className={btnPrimary} disabled={!canUseRolesApi || assignLoading}>
-                {assignLoading ? (
+              <button
+                type="button"
+                className={btnSecondary}
+                onClick={loadMembers}
+                disabled={!canUseApi || !memberGroupId || membersLoading}
+              >
+                {membersLoading ? (
                   <>
                     <FiLoader className="h-4 w-4 animate-spin" aria-hidden />
                     Loading…
                   </>
                 ) : (
-                  'Load assignments'
+                  'Refresh members'
                 )}
+              </button>
+            </div>
+          </Panel>
+
+          <Panel>
+            <form className="flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={addMember}>
+              <label className="block min-w-0 flex-1">
+                <span className={labelClass}>Add user id</span>
+                <input
+                  className={fieldClass}
+                  value={addUserId}
+                  onChange={(e) => setAddUserId(e.target.value)}
+                  placeholder="User id"
+                  disabled={!canUseApi || !memberGroupId || saving}
+                />
+              </label>
+              <button
+                type="submit"
+                className={btnPrimary}
+                disabled={!canUseApi || !memberGroupId || saving}
+              >
+                <FiPlus className="h-4 w-4" aria-hidden />
+                Add member
               </button>
             </form>
           </Panel>
 
-          {!canUseRolesApi ? (
-            <EmptyState title="Tenant required" hint="Activate a tenant to manage assignments." />
-          ) : assignments.length === 0 ? (
-            <EmptyState
-              title="No assignments loaded"
-              hint="Enter a user id and load, or assign a role."
-              actionLabel="Assign role"
-              onAction={openAssign}
-            />
+          {!canUseApi ? (
+            <EmptyState title="Tenant required" hint="Activate a tenant to manage members." />
+          ) : !memberGroupId ? (
+            <EmptyState title="Select a role" hint="Choose a permission group to view members." />
+          ) : membersLoading ? (
+            <LoadingState label="Loading members…" />
+          ) : members.length === 0 ? (
+            <EmptyState title="No members" hint="Add a user id to this role." />
           ) : (
             <div className={tableWrapClass}>
               <div className="overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
                   <thead className={tableHeadClass}>
                     <tr>
-                      <th className="px-4 py-3">Assignment</th>
-                      <th className="px-4 py-3">Role</th>
-                      <th className="px-4 py-3">Object</th>
+                      <th className="px-4 py-3">User</th>
+                      <th className="px-4 py-3">Email</th>
                       <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
-                    {assignments.map((row) => (
+                    {members.map((row) => (
                       <tr key={row.id} className="hover:bg-stone-50">
-                        <td className="px-4 py-3 font-mono text-xs text-stone-600">{row.id}</td>
-                        <td className="px-4 py-3 text-stone-800">
-                          {row.role_name || roleNameById(row.role_id)}
+                        <td className="px-4 py-3">
+                          <p className="font-medium text-stone-900">{row.name || row.id}</p>
+                          <p className="font-mono text-xs text-stone-400">{row.id}</p>
                         </td>
-                        <td className="px-4 py-3 text-stone-600">
-                          {row.object_type}:{row.object_id}
-                        </td>
+                        <td className="px-4 py-3 text-stone-600">{row.email || '—'}</td>
                         <td className="px-4 py-3 text-right">
                           <button
                             type="button"
                             className={btnGhost}
-                            onClick={() => setRevokeTarget(row)}
+                            onClick={() => setRemoveTarget(row)}
                           >
                             <FiTrash2 className="h-3.5 w-3.5 text-rose-600" aria-hidden />
-                            Revoke
+                            Remove
                           </button>
                         </td>
                       </tr>
@@ -635,54 +639,33 @@ const Roles = () => {
         title={modalMode === 'create' ? 'Create role' : 'Edit role'}
         wide
       >
-        {roleForm ? (
-          <form className="space-y-4" onSubmit={saveRole}>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className={labelClass}>Code</span>
-                <input
-                  className={fieldClass}
-                  value={roleForm.code}
-                  onChange={(e) =>
-                    setRoleForm((f) => ({
-                      ...f,
-                      code: e.target.value.toUpperCase().replace(/\s+/g, '_'),
-                    }))
-                  }
-                  disabled={saving || modalMode === 'edit'}
-                  required
-                  placeholder="AUDITOR"
-                />
-              </label>
-              <label className="block">
-                <span className={labelClass}>Rank</span>
-                <input
-                  type="number"
-                  className={fieldClass}
-                  value={roleForm.rank}
-                  onChange={(e) => setRoleForm((f) => ({ ...f, rank: e.target.value }))}
-                  disabled={saving}
-                  required
-                />
-              </label>
-              <label className="block sm:col-span-2">
-                <span className={labelClass}>Name</span>
-                <input
-                  className={fieldClass}
-                  value={roleForm.name}
-                  onChange={(e) => setRoleForm((f) => ({ ...f, name: e.target.value }))}
-                  disabled={saving}
-                  required
-                />
-              </label>
-            </div>
+        {form ? (
+          <form className="space-y-4" onSubmit={saveGroup}>
+            <label className="block">
+              <span className={labelClass}>Name</span>
+              <input
+                className={fieldClass}
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                disabled={saving}
+                required
+                placeholder="e.g. Billing Manager"
+              />
+            </label>
 
             <div>
-              <p className={labelClass}>Permissions</p>
+              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                <p className={labelClass + ' mb-0'}>Permissions</p>
+                {!permsLoading && permissions.length > 0 ? (
+                  <p className="text-xs text-stone-500">
+                    {(form.permissions || []).length} selected · {permissions.length} total
+                  </p>
+                ) : null}
+              </div>
               {permsLoading ? (
                 <p className="inline-flex items-center gap-2 text-sm text-stone-500">
                   <FiLoader className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                  Loading from /api/roles/permissions/…
+                  Loading all permissions…
                 </p>
               ) : null}
               {!permsLoading && permsError ? (
@@ -700,44 +683,68 @@ const Roles = () => {
                   </button>
                 </div>
               ) : null}
-              {!permsLoading && !permsError && permissionOptions.length === 0 ? (
+              {!permsLoading && !permsError && permissions.length === 0 ? (
                 <p className="text-sm text-stone-500">No permissions in API response.</p>
               ) : null}
-              {!permsLoading && !permsError && permissionOptions.length > 0 ? (
-                <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-stone-200 p-3">
-                  {permissionOptions.map((perm) => {
-                    const permId = Number(perm.id)
-                    const checked =
-                      Number.isFinite(permId) &&
-                      (roleForm.permissions || []).map(Number).includes(permId)
-                    return (
-                      <label
-                        key={perm.id ?? perm.code}
-                        className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover:bg-stone-50"
-                      >
-                        <input
-                          type="checkbox"
-                          className="mt-0.5 accent-brand-500"
-                          checked={checked}
-                          disabled={saving || !Number.isFinite(permId)}
-                          onChange={() => togglePermission(permId)}
-                        />
-                        <span className="min-w-0">
-                          <span className="block text-sm font-medium text-stone-800">
-                            {perm.name || perm.code}
-                          </span>
-                          <span className="block font-mono text-[11px] text-stone-400">
-                            {perm.code}
-                          </span>
-                          {perm.description ? (
-                            <span className="mt-0.5 block text-xs text-stone-500">
-                              {perm.description}
-                            </span>
-                          ) : null}
-                        </span>
-                      </label>
-                    )
-                  })}
+              {!permsLoading && !permsError && permissions.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <FiSearch
+                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400"
+                      aria-hidden
+                    />
+                    <input
+                      className={`${fieldClass} pl-9`}
+                      value={permSearch}
+                      onChange={(e) => setPermSearch(e.target.value)}
+                      placeholder="Search permissions…"
+                      aria-label="Search permissions"
+                      disabled={saving}
+                    />
+                  </div>
+                  <div className="max-h-[28rem] space-y-3 overflow-y-auto rounded-lg border border-stone-200 p-3">
+                    {filteredPermissionGroups.length === 0 ? (
+                      <p className="text-sm text-stone-500">No permissions match this search.</p>
+                    ) : (
+                      filteredPermissionGroups.map((group) => (
+                        <div key={group.app}>
+                          <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-stone-400">
+                            {group.app} · {group.permissions.length}
+                          </p>
+                          <div className="space-y-0.5">
+                            {group.permissions.map((perm) => {
+                              const permId = Number(perm.id)
+                              const checked =
+                                Number.isFinite(permId) &&
+                                (form.permissions || []).map(Number).includes(permId)
+                              return (
+                                <label
+                                  key={perm.id ?? perm.code}
+                                  className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover:bg-stone-50"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="mt-0.5 accent-brand-500"
+                                    checked={checked}
+                                    disabled={saving || !Number.isFinite(permId)}
+                                    onChange={() => togglePermission(permId)}
+                                  />
+                                  <span className="min-w-0">
+                                    <span className="block text-sm font-medium text-stone-800">
+                                      {perm.name || perm.code}
+                                    </span>
+                                    <span className="block font-mono text-[11px] text-stone-400">
+                                      {perm.code}
+                                    </span>
+                                  </span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -763,102 +770,32 @@ const Roles = () => {
         ) : null}
       </Modal>
 
-      <Modal open={assignOpen} onClose={() => !saving && setAssignOpen(false)} title="Assign role">
-        <form className="space-y-4" onSubmit={saveAssignment}>
-          <label className="block">
-            <span className={labelClass}>User id</span>
-            <input
-              className={fieldClass}
-              value={assignForm.user_id}
-              onChange={(e) => setAssignForm((f) => ({ ...f, user_id: e.target.value }))}
-              disabled={saving}
-              required
-            />
-          </label>
-          <label className="block">
-            <span className={labelClass}>Role</span>
-            <select
-              className={fieldClass}
-              value={assignForm.role_id}
-              onChange={(e) => setAssignForm((f) => ({ ...f, role_id: e.target.value }))}
-              disabled={saving}
-              required
-            >
-              <option value="">Select role…</option>
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name} ({r.code})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className={labelClass}>Object type</span>
-            <input
-              className={fieldClass}
-              value={assignForm.object_type}
-              onChange={(e) => setAssignForm((f) => ({ ...f, object_type: e.target.value }))}
-              disabled={saving}
-              required
-              placeholder="booking.venue"
-            />
-          </label>
-          <label className="block">
-            <span className={labelClass}>Object id</span>
-            <input
-              type="number"
-              className={fieldClass}
-              value={assignForm.object_id}
-              onChange={(e) => setAssignForm((f) => ({ ...f, object_id: e.target.value }))}
-              disabled={saving}
-              required
-            />
-          </label>
-          <div className="flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              className={btnSecondary}
-              onClick={() => setAssignOpen(false)}
-              disabled={saving}
-            >
-              Cancel
-            </button>
-            <button type="submit" className={btnPrimary} disabled={saving}>
-              {saving ? (
-                <>
-                  <FiLoader className="h-4 w-4 animate-spin" aria-hidden />
-                  Assigning…
-                </>
-              ) : (
-                'Assign role'
-              )}
-            </button>
-          </div>
-        </form>
-      </Modal>
-
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="Delete role?"
         message={
           deleteTarget
-            ? `Delete “${deleteTarget.name || deleteTarget.code}”? Remove all assignments first.`
+            ? `Delete “${deleteTarget.name}”? Remove members first if the API requires it.`
             : ''
         }
         confirmLabel="Delete"
         loading={saving}
-        onConfirm={confirmDeleteRole}
+        onConfirm={confirmDelete}
         onClose={() => !saving && setDeleteTarget(null)}
       />
 
       <ConfirmDialog
-        open={Boolean(revokeTarget)}
-        title="Revoke assignment?"
-        message="Remove this role grant? The last active Tenant Admin grant cannot be removed."
-        confirmLabel="Revoke"
+        open={Boolean(removeTarget)}
+        title="Remove member?"
+        message={
+          removeTarget
+            ? `Remove ${removeTarget.name || removeTarget.id} from this role?`
+            : ''
+        }
+        confirmLabel="Remove"
         loading={saving}
-        onConfirm={confirmRevoke}
-        onClose={() => !saving && setRevokeTarget(null)}
+        onConfirm={confirmRemoveMember}
+        onClose={() => !saving && setRemoveTarget(null)}
       />
     </div>
   )

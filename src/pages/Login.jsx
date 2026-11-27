@@ -41,6 +41,7 @@ const Login = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const [mode, setMode] = useState('password')
+  const [workspaceSlug, setWorkspaceSlug] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [otp, setOtp] = useState('')
@@ -52,6 +53,9 @@ const Login = () => {
   const [forgotOpen, setForgotOpen] = useState(false)
   const [forgot, setForgot] = useState(emptyForgot)
   const [forgotLoading, setForgotLoading] = useState(false)
+
+  const slugNormalized = workspaceSlug.trim().toLowerCase().replace(/\s+/g, '-')
+  const isPlatformLogin = !slugNormalized
 
   if (isAuthenticated() && canAccessAdminPanel(getAuthUser())) {
     return <Navigate to={location.state?.from || '/'} replace />
@@ -83,7 +87,7 @@ const Login = () => {
     }
     setIsLoading(true)
     try {
-      const result = await loginWithPasswordApi(email, password)
+      const result = await loginWithPasswordApi(email, password, slugNormalized)
       if (!result.ok) {
         setError(result.error)
         return
@@ -107,7 +111,7 @@ const Login = () => {
     }
     setIsLoading(true)
     try {
-      const result = await sendLoginOtpApi(email)
+      const result = await sendLoginOtpApi(email, slugNormalized)
       if (!result.ok) {
         setError(result.error)
         return
@@ -136,7 +140,7 @@ const Login = () => {
     }
     setIsLoading(true)
     try {
-      const result = await loginWithOtpApi(email, otp)
+      const result = await loginWithOtpApi(email, otp, slugNormalized)
       if (!result.ok) {
         setError(result.error)
         return
@@ -232,7 +236,12 @@ const Login = () => {
     <div className="sc-login-bg flex h-dvh max-h-dvh items-center justify-center overflow-y-auto px-4 py-6 sm:py-10">
       <div className="sc-page-enter w-full max-w-md">
         <div className="rounded-xl border border-stone-200 bg-white p-6 sm:p-8">
-          <h1 className="text-2xl font-bold tracking-tight text-stone-900">Ohm Admin</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight text-stone-900">Ohm Admin</h1>
+            <span className="rounded-full bg-stone-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-stone-600">
+              {isPlatformLogin ? 'Platform / Root' : slugNormalized}
+            </span>
+          </div>
 
           <div
             className="mt-5 flex rounded-lg border border-stone-200 bg-stone-50 p-1"
@@ -259,6 +268,24 @@ const Login = () => {
 
           {mode === 'password' ? (
             <form className="mt-5 space-y-4" onSubmit={handlePasswordSubmit}>
+              <div>
+                <label className={labelClass} htmlFor="workspace-slug">
+                  Workspace Name
+                </label>
+                <input
+                  id="workspace-slug"
+                  type="text"
+                  autoComplete="organization"
+                  className={`${fieldClass} text-base sm:text-sm`}
+                  placeholder="Workspace Name (leave empty for Platform Admin)"
+                  value={workspaceSlug}
+                  onChange={(e) => setWorkspaceSlug(e.target.value)}
+                />
+                <p className="mt-1.5 text-xs text-stone-500">
+                  Enter your tenant Workspace Name (e.g. acme-clinic), or leave empty for Platform /
+                  Root Admin.
+                </p>
+              </div>
               <div>
                 <label className={labelClass} htmlFor="email">
                   Email or phone
@@ -333,6 +360,28 @@ const Login = () => {
             </form>
           ) : (
             <form className="mt-5 space-y-4" onSubmit={handleOtpSubmit}>
+              <div>
+                <label className={labelClass} htmlFor="otp-workspace-slug">
+                  Workspace Name
+                </label>
+                <input
+                  id="otp-workspace-slug"
+                  type="text"
+                  autoComplete="organization"
+                  className={`${fieldClass} text-base sm:text-sm`}
+                  placeholder="Workspace Name (leave empty for Platform Admin)"
+                  value={workspaceSlug}
+                  onChange={(e) => {
+                    setWorkspaceSlug(e.target.value)
+                    setOtpSent(false)
+                    setInfo('')
+                  }}
+                />
+                <p className="mt-1.5 text-xs text-stone-500">
+                  Enter your tenant Workspace Name (e.g. acme-clinic), or leave empty for Platform /
+                  Root Admin.
+                </p>
+              </div>
               <div>
                 <label className={labelClass} htmlFor="otp-identifier">
                   Email or phone

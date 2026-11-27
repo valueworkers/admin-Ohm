@@ -6,6 +6,7 @@ import RequireOpsAccess from './components/RequireOpsAccess'
 import RequireSelectedTenant from './components/RequireSelectedTenant'
 import RequireSuperAdmin from './components/RequireSuperAdmin'
 import RequireTenantOwner from './components/RequireTenantOwner'
+import AttendanceMasterPage from './pages/AttendanceMasterPage'
 import AttendancePage from './pages/AttendancePage'
 import BookingsPage from './pages/BookingsPage'
 import Dashboard from './pages/Dashboard'
@@ -66,15 +67,16 @@ const App = () => (
             <Route path="profile" element={<Profile />} />
           </Route>
 
+          <Route path="roles" element={<Roles />} />
+          <Route path="platform/roles" element={<Navigate to="/roles" replace />} />
+
           <Route element={<RequireSuperAdmin />}>
-            <Route path="roles" element={<Roles />} />
             <Route path="lobby" element={<Lobby />} />
             <Route path="tenants" element={<Tenants />} />
             <Route path="tenants/offboarded" element={<PlatformOffboarded />} />
             <Route path="tenants/:tenantId" element={<TenantDetail />} />
             <Route path="platform/analytics" element={<PlatformAnalytics />} />
             <Route path="platform/permissions" element={<PlatformPermissions />} />
-            <Route path="platform/roles" element={<Navigate to="/roles" replace />} />
             <Route path="platform/subscription-plans" element={<SubscriptionPlans />} />
             <Route path="platform/tenant-subscriptions" element={<TenantSubscriptions />} />
           </Route>
@@ -108,7 +110,7 @@ const App = () => (
               <Route path="ops/services" element={<ServicesPage />} />
               <Route path="ops/resources" element={<ResourcesPage />} />
               <Route path="ops/emr" element={<DocumentManagerPage />} />
-              <Route path="ops/analytics/attendance-master" element={<ModulePlaceholder />} />
+              <Route path="ops/analytics/attendance-master" element={<AttendanceMasterPage />} />
               <Route path="ops/analytics/reminders" element={<ModulePlaceholder />} />
               <Route path="ops/analytics/payment-master" element={<PaymentMasterPage />} />
               <Route path="ops/analytics/unmapped-payments" element={<ModulePlaceholder />} />

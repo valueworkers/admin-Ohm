@@ -28,7 +28,13 @@ const setHeader = (headers, key, value) => {
 
 const isRolesApiRequest = (config) => {
   const url = String(config?.url || '')
-  return url.includes('api/roles') || url.includes('api/role-assignments')
+  // Groups/permissions = Roles UI. Super Admin: no X-Tenant. Tenant Admin: auto X-Tenant.
+  return (
+    url.includes('api/roles') ||
+    url.includes('api/role-assignments') ||
+    url.includes('api/groups') ||
+    url.includes('api/permissions')
+  )
 }
 
 api.interceptors.request.use((config) => {
@@ -109,6 +115,8 @@ const isSessionSafeUrl = (url) => {
   return (
     u.includes('api/roles') ||
     u.includes('api/role-assignments') ||
+    u.includes('api/groups') ||
+    u.includes('api/permissions') ||
     u.includes('api/settings/') ||
     u.includes('api/catalog/') ||
     u.includes('api/billing/')

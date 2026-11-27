@@ -6,20 +6,43 @@ import {
   fetchPaymentModeAnalytics,
   monthKeyToYearMonth,
 } from '../api/paymentMaster'
+import ColumnChooser from '../components/ui/ColumnChooser'
+import DraggableTh from '../components/ui/DraggableTh'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
 import { EmptyState, ErrorState, LoadingState, Panel } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
+import { useColumnOrder } from '../hooks/useColumnOrder'
+import { useColumnVisibility } from '../hooks/useColumnVisibility'
 import { apiErrorMessage } from '../utils/errors'
+import { downloadExcelTable } from '../utils/exportExcel'
 import { resolveCatalogTenantSlug } from '../utils/tenantHeader'
 import {
   btnGhost,
+  btnPrimary,
   btnSecondary,
   fieldClass,
   labelClass,
   tableHeadClass,
   tableWrapClass,
 } from '../utils/ui'
+
+const MONTHLY_COLUMNS = [
+  { id: 'month', label: 'Month' },
+  { id: 'bookingsStart', label: 'Bookings start' },
+  { id: 'bookingsEnd', label: 'Bookings end' },
+  { id: 'invoiceValue', label: 'Invoice value' },
+  { id: 'collected', label: 'Collected' },
+  { id: 'balance', label: 'Balance' },
+  { id: 'generated', label: 'Generated' },
+  { id: 'paid', label: 'Paid' },
+  { id: 'partial', label: 'Partial' },
+  { id: 'unpaid', label: 'Unpaid' },
+  { id: 'unmapped', label: 'Unmapped' },
+  { id: 'collectionPct', label: 'Collection %' },
+]
+
+const MONTHLY_COLUMN_IDS = MONTHLY_COLUMNS.map((c) => c.id)
 
 const TABS = [
   { id: 'monthly', label: 'Month-wise' },
@@ -49,22 +72,6 @@ const pct = (v) => {
   const n = Number(v)
   if (!Number.isFinite(n)) return '—'
   return `${n.toFixed(1)}%`
-}
-
-const downloadCsv = (filename, headers, rows) => {
-  const esc = (v) => {
-    const s = String(v ?? '')
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-  }
-  const blob = new Blob([[headers, ...rows].map((r) => r.map(esc).join(',')).join('\n')], {
-    type: 'text/csv;charset=utf-8',
-  })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 const monthRange = (year, month) => {
@@ -105,6 +112,23 @@ const PaymentMasterPage = () => {
   const [modes, setModes] = useState(null)
   const [modesLoading, setModesLoading] = useState(false)
   const [modesError, setModesError] = useState('')
+
+  const { columnOrder, moveColumn } = useColumnOrder(
+    'sc_payment_master_col_order_v1',
+    MONTHLY_COLUMN_IDS,
+  )
+  const { visibleIds, toggleColumn, showAll, showDefault } = useColumnVisibility(
+    'sc_payment_master_col_visible_v1',
+    MONTHLY_COLUMN_IDS,
+  )
+  const visibleColumns = useMemo(
+    () =>
+      columnOrder
+        .filter((id) => visibleIds.includes(id))
+        .map((id) => MONTHLY_COLUMNS.find((c) => c.id === id))
+        .filter(Boolean),
+    [columnOrder, visibleIds],
+  )
 
   const selectedYear = Number(year) || new Date().getFullYear()
   const apiYear = yearType === 'FY' ? selectedYear + 1 : selectedYear
@@ -236,40 +260,94 @@ const PaymentMasterPage = () => {
   const modeTrend = Array.isArray(modes?.monthly_trend) ? modes.monthly_trend : []
   const cards = modes?.summary_cards || {}
 
+  const monthlyCellRaw = (colId, r) => {
+    switch (colId) {
+      case 'month':
+        return r.month
+      case 'bookingsStart':
+        return r.bookingsStarting
+      case 'bookingsEnd':
+        return r.bookingsEnding
+      case 'invoiceValue':
+        return r.invoiceValue
+      case 'collected':
+        return r.amtCollected
+      case 'balance':
+        return r.balance ?? ''
+      case 'generated':
+        return r.generatedInvoices
+      case 'paid':
+        return r.paidInvoices
+      case 'partial':
+        return r.partiallyPaidInvoices
+      case 'unpaid':
+        return r.unpaidInvoices
+      case 'unmapped':
+        return `${r.unmappedCount} · ${r.unmappedAmount ?? 0}`
+      case 'collectionPct':
+        return r.collectionPct ?? ''
+      default:
+        return ''
+    }
+  }
+
+  const renderMonthlyCell = (colId, r) => {
+    switch (colId) {
+      case 'month':
+        return (
+          <td key={colId} className="px-3 py-2.5 font-medium text-stone-900">
+            {r.month}
+          </td>
+        )
+      case 'bookingsStart':
+        return <td key={colId} className="px-3 py-2.5">{r.bookingsStarting}</td>
+      case 'bookingsEnd':
+        return <td key={colId} className="px-3 py-2.5">{r.bookingsEnding}</td>
+      case 'invoiceValue':
+        return (
+          <td key={colId} className="px-3 py-2.5 tabular-nums">
+            {money(r.invoiceValue)}
+          </td>
+        )
+      case 'collected':
+        return (
+          <td key={colId} className="px-3 py-2.5 tabular-nums">
+            {money(r.amtCollected)}
+          </td>
+        )
+      case 'balance':
+        return (
+          <td key={colId} className="px-3 py-2.5 tabular-nums">
+            {money(r.balance)}
+          </td>
+        )
+      case 'generated':
+        return <td key={colId} className="px-3 py-2.5">{r.generatedInvoices}</td>
+      case 'paid':
+        return <td key={colId} className="px-3 py-2.5">{r.paidInvoices}</td>
+      case 'partial':
+        return <td key={colId} className="px-3 py-2.5">{r.partiallyPaidInvoices}</td>
+      case 'unpaid':
+        return <td key={colId} className="px-3 py-2.5">{r.unpaidInvoices}</td>
+      case 'unmapped':
+        return (
+          <td key={colId} className="px-3 py-2.5">
+            {r.unmappedCount} · {money(r.unmappedAmount)}
+          </td>
+        )
+      case 'collectionPct':
+        return <td key={colId} className="px-3 py-2.5">{pct(r.collectionPct)}</td>
+      default:
+        return null
+    }
+  }
+
   const exportMonthly = () => {
-    if (!visibleRows.length) return
-    downloadCsv(
-      `payment-master-monthly-${yearLabel.replace(/\s+/g, '-')}.csv`,
-      [
-        'Month',
-        'Bookings start',
-        'Bookings end',
-        'Invoice value',
-        'Collected',
-        'Balance',
-        'Generated inv',
-        'Paid',
-        'Partial',
-        'Unpaid',
-        'Unmapped count',
-        'Unmapped amount',
-        'Collection %',
-      ],
-      visibleRows.map((r) => [
-        r.month,
-        r.bookingsStarting,
-        r.bookingsEnding,
-        r.invoiceValue,
-        r.amtCollected,
-        r.balance ?? '',
-        r.generatedInvoices,
-        r.paidInvoices,
-        r.partiallyPaidInvoices,
-        r.unpaidInvoices,
-        r.unmappedCount,
-        r.unmappedAmount,
-        r.collectionPct ?? '',
-      ]),
+    if (!visibleRows.length || !visibleColumns.length) return
+    downloadExcelTable(
+      `payment-master-monthly-${yearLabel.replace(/\s+/g, '-')}`,
+      visibleColumns.map((c) => c.label),
+      visibleRows.map((r) => visibleColumns.map((c) => monthlyCellRaw(c.id, r))),
     )
   }
 
@@ -318,7 +396,16 @@ const PaymentMasterPage = () => {
               ))}
             </select>
           </div>
-          <div className="flex items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2">
+            {tab === 'monthly' ? (
+              <ColumnChooser
+                columns={MONTHLY_COLUMNS}
+                visibleIds={visibleIds}
+                onToggle={(id) => toggleColumn(id, { minVisible: 2 })}
+                onShowAll={showAll}
+                onShowDefault={showDefault}
+              />
+            ) : null}
             <button type="button" className={btnSecondary} onClick={loadMonthly} disabled={!tenantSlug}>
               <FiRefreshCw className="h-4 w-4" />
               Refresh
@@ -326,12 +413,12 @@ const PaymentMasterPage = () => {
             {tab === 'monthly' ? (
               <button
                 type="button"
-                className={btnSecondary}
+                className={btnPrimary}
                 onClick={exportMonthly}
                 disabled={!visibleRows.length}
               >
                 <FiDownload className="h-4 w-4" />
-                Export
+                Export to Excel
               </button>
             ) : null}
           </div>
@@ -414,37 +501,17 @@ const PaymentMasterPage = () => {
                   <table className="min-w-full text-left text-sm">
                     <thead className={tableHeadClass}>
                       <tr>
-                        <th className="px-3 py-3">Month</th>
-                        <th className="px-3 py-3">Bookings start</th>
-                        <th className="px-3 py-3">Bookings end</th>
-                        <th className="px-3 py-3">Invoice value</th>
-                        <th className="px-3 py-3">Collected</th>
-                        <th className="px-3 py-3">Balance</th>
-                        <th className="px-3 py-3">Generated</th>
-                        <th className="px-3 py-3">Paid</th>
-                        <th className="px-3 py-3">Partial</th>
-                        <th className="px-3 py-3">Unpaid</th>
-                        <th className="px-3 py-3">Unmapped</th>
-                        <th className="px-3 py-3">Collection %</th>
+                        {visibleColumns.map((col) => (
+                          <DraggableTh key={col.id} id={col.id} onReorder={moveColumn}>
+                            {col.label}
+                          </DraggableTh>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
                       {visibleRows.map((r) => (
                         <tr key={r.month} className="border-t border-stone-100 hover:bg-stone-50/80">
-                          <td className="px-3 py-2.5 font-medium text-stone-900">{r.month}</td>
-                          <td className="px-3 py-2.5">{r.bookingsStarting}</td>
-                          <td className="px-3 py-2.5">{r.bookingsEnding}</td>
-                          <td className="px-3 py-2.5 tabular-nums">{money(r.invoiceValue)}</td>
-                          <td className="px-3 py-2.5 tabular-nums">{money(r.amtCollected)}</td>
-                          <td className="px-3 py-2.5 tabular-nums">{money(r.balance)}</td>
-                          <td className="px-3 py-2.5">{r.generatedInvoices}</td>
-                          <td className="px-3 py-2.5">{r.paidInvoices}</td>
-                          <td className="px-3 py-2.5">{r.partiallyPaidInvoices}</td>
-                          <td className="px-3 py-2.5">{r.unpaidInvoices}</td>
-                          <td className="px-3 py-2.5">
-                            {r.unmappedCount} · {money(r.unmappedAmount)}
-                          </td>
-                          <td className="px-3 py-2.5">{pct(r.collectionPct)}</td>
+                          {visibleColumns.map((col) => renderMonthlyCell(col.id, r))}
                         </tr>
                       ))}
                     </tbody>

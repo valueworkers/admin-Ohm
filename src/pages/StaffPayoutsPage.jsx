@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FiLoader, FiSearch } from 'react-icons/fi'
 import { fetchEmployeePayroll, fetchSalaryTransactions } from '../api/payroll'
+import ColumnChooser from '../components/ui/ColumnChooser'
+import DraggableTh from '../components/ui/DraggableTh'
 import Modal from '../components/ui/Modal'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
 import { EmptyState, ErrorState, LoadingState, Panel } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
+import { useColumnOrder } from '../hooks/useColumnOrder'
+import { useColumnVisibility } from '../hooks/useColumnVisibility'
 import { apiErrorMessage } from '../utils/errors'
 import { resolveCatalogTenantSlug } from '../utils/tenantHeader'
 import {
@@ -18,11 +22,39 @@ import {
 
 const PAGE_SIZES = [10, 20, 50]
 
+const PAYOUT_COLUMNS = [
+  { id: 'name', label: 'Name' },
+  { id: 'empId', label: 'Emp ID' },
+  { id: 'email', label: 'Email' },
+  { id: 'phone', label: 'Phone' },
+  { id: 'status', label: 'Status' },
+  { id: 'category', label: 'Category' },
+  { id: 'vendor', label: 'Vendor' },
+  { id: 'basic', label: 'Basic' },
+  { id: 'pf', label: 'PF' },
+  { id: 'esi', label: 'ESI' },
+  { id: 'recentPayment', label: 'Recent payment' },
+  { id: 'payoutMode', label: 'Payout mode' },
+  { id: 'effectiveDate', label: 'Effective date' },
+]
+
+const PAYOUT_COLUMN_IDS = PAYOUT_COLUMNS.map((c) => c.id)
+
 const money = (value) => {
   if (value == null || value === '') return '—'
   const n = Number(value)
   if (!Number.isFinite(n)) return '—'
   return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+const formatDate = (value) => {
+  if (!value) return '—'
+  const raw = String(value).trim()
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) return `${iso[3]}-${iso[2]}-${iso[1]}`
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return raw
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 const formatDateTime = (value) => {
@@ -43,6 +75,109 @@ const formatLabel = (value) => {
   return String(value).replace(/_/g, ' ')
 }
 
+const renderPayoutCell = (colId, row) => {
+  switch (colId) {
+    case 'name':
+      return (
+        <td key={colId} className="px-3 py-2.5 font-medium text-stone-900">
+          {row.name}
+        </td>
+      )
+    case 'empId':
+      return (
+        <td key={colId} className="whitespace-nowrap px-3 py-2.5 text-stone-600">
+          {row.employeeId || '—'}
+        </td>
+      )
+    case 'email':
+      return (
+        <td key={colId} className="max-w-[14rem] truncate px-3 py-2.5 text-stone-600">
+          {row.email ? (
+            <a className="text-sky-600 hover:underline" href={`mailto:${row.email}`}>
+              {row.email}
+            </a>
+          ) : (
+            '—'
+          )}
+        </td>
+      )
+    case 'phone':
+      return (
+        <td key={colId} className="whitespace-nowrap px-3 py-2.5 text-stone-600">
+          {row.mobile || '—'}
+        </td>
+      )
+    case 'status':
+      return (
+        <td key={colId} className="px-3 py-2.5">
+          {row.isActive == null ? (
+            '—'
+          ) : (
+            <span
+              className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                row.isActive
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : 'bg-stone-100 text-stone-500'
+              }`}
+            >
+              {row.isActive ? 'Active' : 'Inactive'}
+            </span>
+          )}
+        </td>
+      )
+    case 'category':
+      return (
+        <td key={colId} className="px-3 py-2.5 text-stone-600">
+          {row.category || '—'}
+        </td>
+      )
+    case 'vendor':
+      return (
+        <td key={colId} className="px-3 py-2.5 text-stone-600">
+          {row.vendorName || '—'}
+        </td>
+      )
+    case 'basic':
+      return (
+        <td key={colId} className="whitespace-nowrap px-3 py-2.5 tabular-nums text-stone-700">
+          {money(row.basicSalary)}
+        </td>
+      )
+    case 'pf':
+      return (
+        <td key={colId} className="whitespace-nowrap px-3 py-2.5 tabular-nums text-stone-700">
+          {money(row.pfAmount)}
+        </td>
+      )
+    case 'esi':
+      return (
+        <td key={colId} className="whitespace-nowrap px-3 py-2.5 tabular-nums text-stone-700">
+          {money(row.esiAmount)}
+        </td>
+      )
+    case 'recentPayment':
+      return (
+        <td key={colId} className="whitespace-nowrap px-3 py-2.5 tabular-nums text-stone-700">
+          {money(row.recentPayment)}
+        </td>
+      )
+    case 'payoutMode':
+      return (
+        <td key={colId} className="px-3 py-2.5 text-stone-600">
+          {formatLabel(row.payoutMode)}
+        </td>
+      )
+    case 'effectiveDate':
+      return (
+        <td key={colId} className="whitespace-nowrap px-3 py-2.5 text-stone-600">
+          {formatDate(row.effectiveDate)}
+        </td>
+      )
+    default:
+      return null
+  }
+}
+
 const StaffPayoutsPage = () => {
   const access = useAccess()
   const tenantSlug = resolveCatalogTenantSlug(access.tenant)
@@ -57,6 +192,23 @@ const StaffPayoutsPage = () => {
   const [count, setCount] = useState(0)
   const [hasNext, setHasNext] = useState(false)
   const [hasPrevious, setHasPrevious] = useState(false)
+
+  const { columnOrder, moveColumn } = useColumnOrder(
+    'sc_ops_staff_payouts_col_order_v2',
+    PAYOUT_COLUMN_IDS,
+  )
+  const { visibleIds, toggleColumn, showAll, showDefault } = useColumnVisibility(
+    'sc_ops_staff_payouts_col_visible_v2',
+    PAYOUT_COLUMN_IDS,
+  )
+  const visibleColumns = useMemo(
+    () =>
+      columnOrder
+        .filter((id) => visibleIds.includes(id))
+        .map((id) => PAYOUT_COLUMNS.find((c) => c.id === id))
+        .filter(Boolean),
+    [columnOrder, visibleIds],
+  )
 
   const [ledger, setLedger] = useState({
     open: false,
@@ -178,6 +330,13 @@ const StaffPayoutsPage = () => {
                 Search
               </button>
             </form>
+            <ColumnChooser
+              columns={PAYOUT_COLUMNS}
+              visibleIds={visibleIds}
+              onToggle={(id) => toggleColumn(id, { minVisible: 1 })}
+              onShowAll={showAll}
+              onShowDefault={showDefault}
+            />
             <label className="flex items-center gap-2 text-sm text-stone-600">
               <span className="sr-only">Rows per page</span>
               <select
@@ -215,26 +374,18 @@ const StaffPayoutsPage = () => {
                 <table className="min-w-full text-left text-sm">
                   <thead className={tableHeadClass}>
                     <tr>
-                      <th className="px-3 py-2.5">Name</th>
-                      <th className="px-3 py-2.5">Emp ID</th>
-                      <th className="px-3 py-2.5">Category</th>
-                      <th className="px-3 py-2.5">Basic</th>
-                      <th className="px-3 py-2.5">Payout mode</th>
+                      {visibleColumns.map((col) => (
+                        <DraggableTh key={col.id} id={col.id} onReorder={moveColumn}>
+                          {col.label}
+                        </DraggableTh>
+                      ))}
                       <th className="px-3 py-2.5">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
                     {rows.map((row) => (
                       <tr key={row.id} className="hover:bg-stone-50">
-                        <td className="px-3 py-2.5 font-medium text-stone-900">{row.name}</td>
-                        <td className="px-3 py-2.5 text-stone-600">{row.employeeId || '—'}</td>
-                        <td className="px-3 py-2.5 text-stone-600">{row.category || '—'}</td>
-                        <td className="px-3 py-2.5 tabular-nums text-stone-700">
-                          {money(row.basicSalary)}
-                        </td>
-                        <td className="px-3 py-2.5 text-stone-600">
-                          {formatLabel(row.payoutMode)}
-                        </td>
+                        {visibleColumns.map((col) => renderPayoutCell(col.id, row))}
                         <td className="px-3 py-2.5">
                           <button
                             type="button"

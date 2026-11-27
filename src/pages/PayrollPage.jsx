@@ -16,12 +16,16 @@ import {
   fetchSalaryStructures,
   updateSalaryStructure,
 } from '../api/payroll'
+import ColumnChooser from '../components/ui/ColumnChooser'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
+import DraggableTh from '../components/ui/DraggableTh'
 import Modal from '../components/ui/Modal'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/PageState'
 import { useAccess } from '../hooks/useAccess'
+import { useColumnOrder } from '../hooks/useColumnOrder'
+import { useColumnVisibility } from '../hooks/useColumnVisibility'
 import { apiErrorMessage } from '../utils/errors'
 import { resolveCatalogTenantSlug } from '../utils/tenantHeader'
 import {
@@ -34,6 +38,24 @@ import {
 } from '../utils/ui'
 
 const PAGE_SIZES = [10, 20, 50, 100]
+
+const PAYROLL_COLUMNS = [
+  { id: 'name', label: 'Employee name' },
+  { id: 'empId', label: 'Emp. ID' },
+  { id: 'email', label: 'Email' },
+  { id: 'mobile', label: 'Mobile' },
+  { id: 'category', label: 'Category' },
+  { id: 'vendor', label: 'Vendor' },
+  { id: 'basic', label: 'Basic' },
+  { id: 'pf', label: 'PF' },
+  { id: 'esi', label: 'ESI' },
+  { id: 'recentPayment', label: 'Recent payment' },
+  { id: 'payoutMode', label: 'Payout mode' },
+  { id: 'effectiveDate', label: 'Effective date' },
+  { id: 'payoutHistory', label: 'Payout history' },
+]
+
+const PAYROLL_COLUMN_IDS = PAYROLL_COLUMNS.map((c) => c.id)
 
 const SALARY_TYPES = [
   { value: 'MONTHLY', label: 'Monthly' },
@@ -176,6 +198,23 @@ const PayrollPage = () => {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
+  const { columnOrder, moveColumn } = useColumnOrder(
+    'sc_ops_payroll_col_order_v1',
+    PAYROLL_COLUMN_IDS,
+  )
+  const { visibleIds, toggleColumn, showAll, showDefault } = useColumnVisibility(
+    'sc_ops_payroll_col_visible_v1',
+    PAYROLL_COLUMN_IDS,
+  )
+  const visibleColumns = useMemo(
+    () =>
+      columnOrder
+        .filter((id) => visibleIds.includes(id))
+        .map((id) => PAYROLL_COLUMNS.find((c) => c.id === id))
+        .filter(Boolean),
+    [columnOrder, visibleIds],
+  )
+
   const [payout, setPayout] = useState({
     open: false,
     employee: null,
@@ -237,41 +276,149 @@ const PayrollPage = () => {
     setSearchApplied(search.trim())
   }
 
+  const payrollExportRaw = (colId, r) => {
+    switch (colId) {
+      case 'name':
+        return r.name
+      case 'empId':
+        return r.employeeId
+      case 'email':
+        return r.email
+      case 'mobile':
+        return r.mobile
+      case 'category':
+        return r.category
+      case 'vendor':
+        return r.vendorName
+      case 'basic':
+        return r.basicSalary ?? ''
+      case 'pf':
+        return r.pfAmount ?? ''
+      case 'esi':
+        return r.esiAmount ?? ''
+      case 'recentPayment':
+        return r.recentPayment ?? ''
+      case 'payoutMode':
+        return formatLabel(r.payoutMode)
+      case 'effectiveDate':
+        return formatDate(r.effectiveDate)
+      case 'payoutHistory':
+        return 'Payroll History'
+      default:
+        return ''
+    }
+  }
+
+  const renderPayrollCell = (colId, row) => {
+    switch (colId) {
+      case 'name':
+        return (
+          <td
+            key={colId}
+            className="max-w-[9rem] truncate px-2 py-1.5 align-middle font-semibold uppercase tracking-wide text-stone-900"
+          >
+            {row.name}
+          </td>
+        )
+      case 'empId':
+        return (
+          <td key={colId} className="whitespace-nowrap px-2 py-1.5 align-middle text-stone-600">
+            {row.employeeId || '—'}
+          </td>
+        )
+      case 'email':
+        return (
+          <td key={colId} className="max-w-[11rem] truncate px-2 py-1.5 align-middle">
+            {row.email ? (
+              <a className="text-sky-600 hover:underline" href={`mailto:${row.email}`}>
+                {row.email}
+              </a>
+            ) : (
+              '—'
+            )}
+          </td>
+        )
+      case 'mobile':
+        return (
+          <td key={colId} className="whitespace-nowrap px-2 py-1.5 align-middle text-stone-600">
+            {row.mobile || '—'}
+          </td>
+        )
+      case 'category':
+        return (
+          <td key={colId} className="px-2 py-1.5 align-middle text-stone-600">
+            {row.category || '—'}
+          </td>
+        )
+      case 'vendor':
+        return (
+          <td key={colId} className="px-2 py-1.5 align-middle text-stone-600">
+            {row.vendorName || '—'}
+          </td>
+        )
+      case 'basic':
+        return (
+          <td key={colId} className="whitespace-nowrap px-2 py-1.5 align-middle tabular-nums text-stone-800">
+            {money(row.basicSalary)}
+          </td>
+        )
+      case 'pf':
+        return (
+          <td key={colId} className="whitespace-nowrap px-2 py-1.5 align-middle tabular-nums text-stone-800">
+            {money(row.pfAmount)}
+          </td>
+        )
+      case 'esi':
+        return (
+          <td key={colId} className="whitespace-nowrap px-2 py-1.5 align-middle tabular-nums text-stone-800">
+            {money(row.esiAmount)}
+          </td>
+        )
+      case 'recentPayment':
+        return (
+          <td key={colId} className="whitespace-nowrap px-2 py-1.5 align-middle tabular-nums text-stone-800">
+            {money(row.recentPayment)}
+          </td>
+        )
+      case 'payoutMode':
+        return (
+          <td key={colId} className="whitespace-nowrap px-2 py-1.5 align-middle text-stone-600">
+            {formatLabel(row.payoutMode)}
+          </td>
+        )
+      case 'effectiveDate':
+        return (
+          <td key={colId} className="whitespace-nowrap px-2 py-1.5 align-middle text-stone-600">
+            {formatDate(row.effectiveDate)}
+          </td>
+        )
+      case 'payoutHistory':
+        return (
+          <td key={colId} className="px-2 py-1.5 align-middle">
+            <button
+              type="button"
+              className="inline-flex w-full items-center justify-center rounded border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 transition-colors hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/30"
+              onClick={() => loadPayout(row, 6)}
+            >
+              Payroll History
+            </button>
+          </td>
+        )
+      default:
+        return null
+    }
+  }
+
   const exportOverview = () => {
     if (!rows.length) {
       setStatus({ type: 'error', message: 'No employees to export on this page.' })
       return
     }
+    const cols = visibleColumns.filter((c) => c.id !== 'payoutHistory')
     downloadCsv(
       `employee-payroll-${new Date().toISOString().slice(0, 10)}.csv`,
-      [
-        'Employee Name',
-        'Emp. ID',
-        'Email',
-        'Mobile',
-        'Category',
-        'Vendor',
-        'Basic',
-        'PF',
-        'ESI',
-        'Recent Payment',
-        'Payout Mode',
-        'Effective Date',
-      ],
-      rows.map((r) => [
-        r.name,
-        r.employeeId,
-        r.email,
-        r.mobile,
-        r.category,
-        r.vendorName,
-        r.basicSalary ?? '',
-        r.pfAmount ?? '',
-        r.esiAmount ?? '',
-        r.recentPayment ?? '',
-        formatLabel(r.payoutMode),
-        formatDate(r.effectiveDate),
-      ]),
+      cols.map((c) => c.label),
+      rows.map((r) => cols.map((c) => payrollExportRaw(c.id, r))),
     )
   }
 
@@ -643,6 +790,13 @@ const PayrollPage = () => {
                 ))}
               </select>
             </label>
+            <ColumnChooser
+              columns={PAYROLL_COLUMNS}
+              visibleIds={visibleIds}
+              onToggle={(id) => toggleColumn(id, { minVisible: 2 })}
+              onShowAll={showAll}
+              onShowDefault={showDefault}
+            />
             <button
               type="button"
               className="sc-btn inline-flex min-h-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/35 disabled:cursor-not-allowed disabled:opacity-60"
@@ -677,19 +831,16 @@ const PayrollPage = () => {
                   <thead className={tableHeadClass}>
                     <tr>
                       <th className="w-8 px-2 py-2" />
-                      <th className="px-2 py-2">Employee name</th>
-                      <th className="px-2 py-2">Emp. ID</th>
-                      <th className="px-2 py-2">Email</th>
-                      <th className="px-2 py-2">Mobile</th>
-                      <th className="px-2 py-2">Category</th>
-                      <th className="px-2 py-2">Vendor</th>
-                      <th className="px-2 py-2">Basic</th>
-                      <th className="px-2 py-2">PF</th>
-                      <th className="px-2 py-2">ESI</th>
-                      <th className="px-2 py-2">Recent payment</th>
-                      <th className="px-2 py-2">Payout mode</th>
-                      <th className="px-2 py-2">Effective date</th>
-                      <th className="px-2 py-2">Payout history</th>
+                      {visibleColumns.map((col) => (
+                        <DraggableTh
+                          key={col.id}
+                          id={col.id}
+                          onReorder={moveColumn}
+                          className="px-2 py-2"
+                        >
+                          {col.label}
+                        </DraggableTh>
+                      ))}
                       <th className="px-2 py-2">Actions</th>
                     </tr>
                   </thead>
@@ -706,53 +857,7 @@ const PayrollPage = () => {
                             <FiPlus className="h-3.5 w-3.5" />
                           </button>
                         </td>
-                        <td className="max-w-[9rem] truncate px-2 py-1.5 align-middle font-semibold uppercase tracking-wide text-stone-900">
-                          {row.name}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-1.5 align-middle text-stone-600">
-                          {row.employeeId || '—'}
-                        </td>
-                        <td className="max-w-[11rem] truncate px-2 py-1.5 align-middle">
-                          {row.email ? (
-                            <a className="text-sky-600 hover:underline" href={`mailto:${row.email}`}>
-                              {row.email}
-                            </a>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-1.5 align-middle text-stone-600">
-                          {row.mobile || '—'}
-                        </td>
-                        <td className="px-2 py-1.5 align-middle text-stone-600">{row.category || '—'}</td>
-                        <td className="px-2 py-1.5 align-middle text-stone-600">{row.vendorName || '—'}</td>
-                        <td className="whitespace-nowrap px-2 py-1.5 align-middle tabular-nums text-stone-800">
-                          {money(row.basicSalary)}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-1.5 align-middle tabular-nums text-stone-800">
-                          {money(row.pfAmount)}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-1.5 align-middle tabular-nums text-stone-800">
-                          {money(row.esiAmount)}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-1.5 align-middle tabular-nums text-stone-800">
-                          {money(row.recentPayment)}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-1.5 align-middle text-stone-600">
-                          {formatLabel(row.payoutMode)}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-1.5 align-middle text-stone-600">
-                          {formatDate(row.effectiveDate)}
-                        </td>
-                        <td className="px-2 py-1.5 align-middle">
-                          <button
-                            type="button"
-                            className="inline-flex w-full items-center justify-center rounded border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 transition-colors hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/30"
-                            onClick={() => loadPayout(row, 6)}
-                          >
-                            Payroll History
-                          </button>
-                        </td>
+                        {visibleColumns.map((col) => renderPayrollCell(col.id, row))}
                         <td className="px-2 py-1.5 align-middle">
                           {canWrite ? (
                             <div className="flex min-w-[6.5rem] flex-col gap-1">
