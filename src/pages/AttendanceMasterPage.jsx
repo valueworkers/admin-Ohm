@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FiChevronLeft, FiChevronRight, FiDownload, FiLoader, FiRefreshCw } from 'react-icons/fi'
 import {
+  FiChevronLeft,
+  FiChevronRight,
+  FiDownload,
+  FiLoader,
+  FiRefreshCw,
+  FiSearch,
+} from 'react-icons/fi'
+import {
+  ATTENDANCE_PAGE_SIZES,
   fetchAttendanceAnalysis,
   fetchSalaryAnalysis,
   mergeAttendanceSalaryRows,
@@ -17,7 +25,55 @@ import { useColumnVisibility } from '../hooks/useColumnVisibility'
 import { apiErrorMessage } from '../utils/errors'
 import { downloadExcelTable } from '../utils/exportExcel'
 import { resolveCatalogTenantSlug } from '../utils/tenantHeader'
-import { btnPrimary, btnSecondary, tableHeadClass } from '../utils/ui'
+import { btnPrimary, btnSecondary, fieldClass, tableHeadClass } from '../utils/ui'
+
+const STATUS_FILTERS = [
+  { value: 'ALL', label: 'All statuses' },
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'TERMINATED', label: 'Terminated' },
+]
+
+const ORDERING_OPTIONS = [
+  { value: 'name', label: 'Name A–Z' },
+  { value: '-name', label: 'Name Z–A' },
+  { value: 'empId', label: 'Emp ID A–Z' },
+  { value: '-empId', label: 'Emp ID Z–A' },
+  { value: 'present', label: 'Present (low→high)' },
+  { value: '-present', label: 'Present (high→low)' },
+  { value: 'absent', label: 'Absent (low→high)' },
+  { value: '-absent', label: 'Absent (high→low)' },
+  { value: 'baseSalary', label: 'Base salary (low→high)' },
+  { value: '-baseSalary', label: 'Base salary (high→low)' },
+  { value: 'salary', label: 'Salary (low→high)' },
+  { value: '-salary', label: 'Salary (high→low)' },
+  { value: 'paid', label: 'Paid (low→high)' },
+  { value: '-paid', label: 'Paid (high→low)' },
+  { value: 'balance', label: 'Balance (low→high)' },
+  { value: '-balance', label: 'Balance (high→low)' },
+]
+
+const sortValue = (row, key) => {
+  switch (key) {
+    case 'name':
+      return String(row.name || '').toLowerCase()
+    case 'empId':
+      return String(row.employeeId || '').toLowerCase()
+    case 'present':
+      return Number(row.presentDays) || 0
+    case 'absent':
+      return Number(row.absentDays) || 0
+    case 'baseSalary':
+      return Number(row.baseSalary) || 0
+    case 'salary':
+      return Number(row.salary) || 0
+    case 'paid':
+      return Number(row.paid) || 0
+    case 'balance':
+      return Number(row.balance) || 0
+    default:
+      return ''
+  }
+}
 
 const ATT_COLUMNS = [
   { id: 'empId', label: 'Emp ID' },
@@ -203,9 +259,15 @@ const AttendanceMasterPage = () => {
   const [error, setError] = useState('')
   const [selected, setSelected] = useState({})
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   const [count, setCount] = useState(0)
   const [hasNext, setHasNext] = useState(false)
   const [hasPrevious, setHasPrevious] = useState(false)
+  const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [ordering, setOrdering] = useState('name')
+  const showPager = pageSize !== 'all'
 
   const { columnOrder, moveColumn } = useColumnOrder(
     'sc_att_analysis_col_order_v1',
@@ -227,6 +289,23 @@ const AttendanceMasterPage = () => {
 
   const monthTabs = useMemo(() => buildMonthWindow(windowAnchor, 8), [windowAnchor])
 
+  const isActiveParam =
+    statusFilter === 'ACTIVE' ? true : statusFilter === 'TERMINATED' ? false : undefined
+
+  const matchesStatusFilter = useCallback(
+    (row) => {
+      if (statusFilter === 'ALL') return true
+      const terminated =
+        row.isActive === false ||
+        String(row.status || '').toLowerCase().includes('termin') ||
+        String(row.status || '').toLowerCase().includes('inactive')
+      if (statusFilter === 'ACTIVE') return !terminated
+      if (statusFilter === 'TERMINATED') return terminated
+      return true
+    },
+    [statusFilter],
+  )
+
   const load = useCallback(async () => {
     if (!tenantSlug) {
       setRows([])
@@ -239,20 +318,43 @@ const AttendanceMasterPage = () => {
     setLoading(true)
     setError('')
     try {
+      const opts = {
+        month: monthKey,
+        page: pageSize === 'all' ? 1 : page,
+        pageSize,
+        isActive: isActiveParam,
+      }
       const [attendance, salary] = await Promise.all([
-        fetchAttendanceAnalysis(tenantSlug, { month: monthKey, page }),
-        fetchSalaryAnalysis(tenantSlug, { month: monthKey, page }),
+        fetchAttendanceAnalysis(tenantSlug, opts),
+        fetchSalaryAnalysis(tenantSlug, opts),
       ])
-      const merged = mergeAttendanceSalaryRows(
+      let merged = mergeAttendanceSalaryRows(
         attendance.rows,
         salary.rows,
         attendance.daysInMonth || salary.daysInMonth,
       )
+      // Enforce Active / Terminated against Current status even if API ignores is_active.
+      if (statusFilter !== 'ALL') {
+        merged = merged.filter((row) => {
+          const terminated =
+            row.isActive === false ||
+            String(row.status || '').toLowerCase().includes('termin') ||
+            String(row.status || '').toLowerCase().includes('inactive')
+          return statusFilter === 'ACTIVE' ? !terminated : terminated
+        })
+      }
       setDaysInMonth(attendance.daysInMonth || salary.daysInMonth)
       setRows(merged)
-      setCount(salary.count || attendance.count || merged.length)
-      setHasNext(Boolean(salary.next || attendance.next))
-      setHasPrevious(Boolean(salary.previous || attendance.previous) || page > 1)
+      setCount(
+        statusFilter === 'ALL'
+          ? salary.count || attendance.count || merged.length
+          : merged.length,
+      )
+      setHasNext(pageSize !== 'all' && Boolean(salary.next || attendance.next))
+      setHasPrevious(
+        pageSize !== 'all' &&
+          (Boolean(salary.previous || attendance.previous) || page > 1),
+      )
       setSelected({})
     } catch (err) {
       setRows([])
@@ -263,7 +365,7 @@ const AttendanceMasterPage = () => {
     } finally {
       setLoading(false)
     }
-  }, [tenantSlug, monthKey, page])
+  }, [tenantSlug, monthKey, page, pageSize, isActiveParam, statusFilter])
 
   useEffect(() => {
     load()
@@ -271,16 +373,40 @@ const AttendanceMasterPage = () => {
 
   useEffect(() => {
     setPage(1)
-  }, [monthKey, tenantSlug])
+  }, [monthKey, tenantSlug, statusFilter, pageSize])
 
-  const allChecked = rows.length > 0 && rows.every((r) => selected[r.id || r.employeeId])
+  const displayRows = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    let list = rows.filter(matchesStatusFilter)
+    if (q) {
+      list = list.filter((r) => {
+        const hay = `${r.name || ''} ${r.employeeId || ''} ${r.mobile || ''}`.toLowerCase()
+        return hay.includes(q)
+      })
+    }
+
+    const desc = ordering.startsWith('-')
+    const key = desc ? ordering.slice(1) : ordering
+    return [...list].sort((a, b) => {
+      const av = sortValue(a, key)
+      const bv = sortValue(b, key)
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return desc ? bv - av : av - bv
+      }
+      const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true })
+      return desc ? -cmp : cmp
+    })
+  }, [rows, search, ordering, matchesStatusFilter])
+
+  const allChecked =
+    displayRows.length > 0 && displayRows.every((r) => selected[r.id || r.employeeId])
   const toggleAll = () => {
     if (allChecked) {
       setSelected({})
       return
     }
     const next = {}
-    for (const r of rows) next[r.id || r.employeeId] = true
+    for (const r of displayRows) next[r.id || r.employeeId] = true
     setSelected(next)
   }
 
@@ -290,14 +416,16 @@ const AttendanceMasterPage = () => {
     setPage(1)
   }
 
+  const applySearch = () => setSearch(searchInput.trim())
+
   const dayCols = useMemo(
     () => Array.from({ length: daysInMonth }, (_, i) => i + 1),
     [daysInMonth],
   )
 
   const selectedRows = useMemo(
-    () => rows.filter((r) => selected[r.id || r.employeeId]),
-    [rows, selected],
+    () => displayRows.filter((r) => selected[r.id || r.employeeId]),
+    [displayRows, selected],
   )
   const selectedCount = selectedRows.length
 
@@ -414,6 +542,78 @@ const AttendanceMasterPage = () => {
             <FiChevronRight className="h-4 w-4" aria-hidden />
           </button>
         </div>
+
+        <div className="mt-3 flex flex-nowrap items-center gap-2 overflow-x-auto border-t border-stone-100 pt-3">
+          <input
+            className={`${fieldClass} !w-[220px] shrink-0 sm:!w-[240px]`}
+            placeholder="Search name, emp ID, or mobile…"
+            aria-label="Search attendance rows"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') applySearch()
+            }}
+            disabled={!tenantSlug || loading}
+          />
+          <button
+            type="button"
+            className={`${btnPrimary} shrink-0`}
+            onClick={applySearch}
+            disabled={!tenantSlug || loading}
+          >
+            <FiSearch className="h-4 w-4" aria-hidden />
+            Search
+          </button>
+          <select
+            className={`${fieldClass} !w-auto min-w-[140px] shrink-0`}
+            value={statusFilter}
+            onChange={(e) => {
+              setPage(1)
+              setStatusFilter(e.target.value)
+            }}
+            aria-label="Filter by status"
+            disabled={!tenantSlug || loading}
+          >
+            {STATUS_FILTERS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <select
+            className={`${fieldClass} !w-auto min-w-[180px] shrink-0`}
+            value={ordering}
+            onChange={(e) => setOrdering(e.target.value)}
+            aria-label="Sort attendance rows"
+            disabled={!tenantSlug || loading}
+          >
+            {ORDERING_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                Sort · {opt.label}
+              </option>
+            ))}
+          </select>
+          <label className="inline-flex shrink-0 items-center gap-2 text-sm text-stone-600">
+            <span className="whitespace-nowrap">Rows</span>
+            <select
+              className={`${fieldClass} !w-auto min-w-[72px]`}
+              value={pageSize}
+              onChange={(e) => {
+                const v = e.target.value
+                setPage(1)
+                setPageSize(v === 'all' ? 'all' : Number(v) || 20)
+              }}
+              aria-label="Rows per page"
+              disabled={!tenantSlug || loading}
+            >
+              {ATTENDANCE_PAGE_SIZES.map((n) => (
+                <option key={String(n)} value={n}>
+                  {n === 'all' ? 'All' : n}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </Panel>
 
       {!tenantSlug ? (
@@ -434,6 +634,14 @@ const AttendanceMasterPage = () => {
             bare
             title="No attendance data"
             hint={`Nothing returned for ${monthLabel(monthKey)}.`}
+          />
+        </Panel>
+      ) : displayRows.length === 0 ? (
+        <Panel>
+          <EmptyState
+            bare
+            title="No matches"
+            hint="Try a different search, status filter, or clear filters."
           />
         </Panel>
       ) : (
@@ -488,7 +696,7 @@ const AttendanceMasterPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {rows.map((row) => {
+                {displayRows.map((row) => {
                   const key = row.id || row.employeeId
                   const terminated = String(row.status || '').toLowerCase().includes('termin')
                   return (
@@ -521,30 +729,35 @@ const AttendanceMasterPage = () => {
                 </span>
               ) : (
                 <>
-                  {count ? `${count} employees` : `${rows.length} on this page`}
-                  {` · Page ${page}`}
+                  {pageSize === 'all'
+                    ? `${displayRows.length} employees`
+                    : `Showing ${displayRows.length} of ${rows.length} on this page`}
+                  {count && pageSize !== 'all' ? ` · ${count} total` : ''}
+                  {showPager ? ` · Page ${page}` : ' · All rows'}
                   {` · ${monthLabel(monthKey)}`}
                 </>
               )}
             </span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={btnSecondary}
-                disabled={!hasPrevious || loading}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                className={btnSecondary}
-                disabled={!hasNext || loading}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next
-              </button>
-            </div>
+            {showPager ? (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled={!hasPrevious || loading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled={!hasNext || loading}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       )}

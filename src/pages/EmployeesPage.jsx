@@ -48,6 +48,18 @@ import {
 const CATEGORIES = ['REGULAR', 'CLINICAL', 'ADMIN', 'CONTRACT']
 const ROLES = ['STAFF', 'NURSE', 'CARE_AIDE', 'MANAGER', 'ADMIN']
 const STATUSES = ['ACTIVE', 'INACTIVE']
+const ORDERING_OPTIONS = [
+  { value: 'last_name', label: 'Last name A–Z' },
+  { value: '-last_name', label: 'Last name Z–A' },
+  { value: 'first_name', label: 'First name A–Z' },
+  { value: '-first_name', label: 'First name Z–A' },
+  { value: 'email', label: 'Email A–Z' },
+  { value: '-email', label: 'Email Z–A' },
+  { value: 'date_joined', label: 'Joined (oldest)' },
+  { value: '-date_joined', label: 'Joined (newest)' },
+  { value: 'employee_profile__employee_id', label: 'Employee ID A–Z' },
+  { value: '-employee_profile__employee_id', label: 'Employee ID Z–A' },
+]
 const GENDERS = [
   { value: 'M', label: 'Male' },
   { value: 'F', label: 'Female' },
@@ -386,6 +398,8 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
   const [hasNext, setHasNext] = useState(false)
   const [hasPrevious, setHasPrevious] = useState(false)
   const [activeFilter, setActiveFilter] = useState('ALL')
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [ordering, setOrdering] = useState('last_name')
   const [status, setStatus] = useState({ type: '', message: '' })
   const [selectedIds, setSelectedIds] = useState([])
 
@@ -476,7 +490,8 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
         search: search || undefined,
         q: search || undefined,
         isActive,
-        ordering: 'last_name',
+        category: categoryFilter || undefined,
+        ordering: ordering || 'last_name',
         page,
         pageSize,
       })
@@ -496,7 +511,7 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
     } finally {
       setLoading(false)
     }
-  }, [tenantSlug, search, activeFilter, page, pageSize])
+  }, [tenantSlug, search, activeFilter, categoryFilter, ordering, page, pageSize])
 
   useEffect(() => {
     load()
@@ -896,11 +911,11 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
       <StatusBanner type={status.type} message={status.message} />
 
       <div className="space-y-3 rounded-xl border border-stone-200 bg-white p-3">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
           {canWrite ? (
             <button
               type="button"
-              className={btnPrimary}
+              className={`${btnPrimary} shrink-0`}
               onClick={openCreate}
               disabled={!tenantSlug}
             >
@@ -911,7 +926,7 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
           {canWrite ? (
             <button
               type="button"
-              className={btnSecondary}
+              className={`${btnSecondary} shrink-0`}
               onClick={() => {
                 setBulkFile(null)
                 setBulkOpen(true)
@@ -922,37 +937,35 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
               Bulk upload
             </button>
           ) : null}
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:min-w-[240px]">
-            <input
-              className={`${fieldClass} min-w-0 flex-1 sm:max-w-xs`}
-              placeholder="Search employees by name, ID, or city…"
-              aria-label="Search employees"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  setPage(1)
-                  setSearch(searchInput.trim())
-                }
-              }}
-            />
-            <button
-              type="button"
-              className={btnPrimary}
-              onClick={() => {
+          <input
+            className={`${fieldClass} !w-[220px] shrink-0 sm:!w-[260px]`}
+            placeholder="Search employees by name, ID, or city…"
+            aria-label="Search employees"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
                 setPage(1)
                 setSearch(searchInput.trim())
-              }}
-              disabled={!tenantSlug}
-            >
-              <FiSearch className="h-4 w-4" aria-hidden />
-              Search
-            </button>
-          </div>
-          <label className="inline-flex items-center gap-2 text-sm text-stone-600">
+              }
+            }}
+          />
+          <button
+            type="button"
+            className={`${btnPrimary} shrink-0`}
+            onClick={() => {
+              setPage(1)
+              setSearch(searchInput.trim())
+            }}
+            disabled={!tenantSlug}
+          >
+            <FiSearch className="h-4 w-4" aria-hidden />
+            Search
+          </button>
+          <label className="inline-flex shrink-0 items-center gap-2 text-sm text-stone-600">
             <span className="whitespace-nowrap">Rows</span>
             <select
-              className={`${fieldClass} w-auto min-w-[72px]`}
+              className={`${fieldClass} !w-auto min-w-[72px]`}
               value={pageSize}
               onChange={(e) => {
                 setPage(1)
@@ -967,22 +980,56 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
               ))}
             </select>
           </label>
+        </div>
+
+        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto border-t border-stone-100 pt-3">
           <select
-            className={`${fieldClass} w-auto min-w-[120px]`}
+            className={`${fieldClass} !w-auto min-w-[130px] shrink-0`}
             value={activeFilter}
             onChange={(e) => {
               setPage(1)
               setActiveFilter(e.target.value)
             }}
-            aria-label="Filter employees"
+            aria-label="Filter by status"
           >
-            <option value="ALL">All</option>
+            <option value="ALL">All statuses</option>
             <option value="ACTIVE">Active</option>
             <option value="INACTIVE">Inactive</option>
           </select>
+          <select
+            className={`${fieldClass} !w-auto min-w-[140px] shrink-0`}
+            value={categoryFilter}
+            onChange={(e) => {
+              setPage(1)
+              setCategoryFilter(e.target.value)
+            }}
+            aria-label="Filter by category"
+          >
+            <option value="">All categories</option>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          <select
+            className={`${fieldClass} !w-auto min-w-[180px] shrink-0`}
+            value={ordering}
+            onChange={(e) => {
+              setPage(1)
+              setOrdering(e.target.value)
+            }}
+            aria-label="Sort employees"
+          >
+            {ORDERING_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                Sort · {opt.label}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
-            className={btnPrimary}
+            className={`${btnPrimary} shrink-0`}
             onClick={exportPdf}
             disabled={!rows.length}
           >
@@ -991,19 +1038,21 @@ const EmployeesPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
           </button>
           <button
             type="button"
-            className="sc-btn inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/35 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0"
+            className="sc-btn inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/35 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0"
             onClick={downloadCsv}
             disabled={!rows.length}
           >
             Export Excel
           </button>
-          <ColumnChooser
-            columns={EMPLOYEE_COLUMNS}
-            visibleIds={visibleIds}
-            onToggle={(id) => toggleColumn(id, { minVisible: 2 })}
-            onShowAll={showAll}
-            onShowDefault={showDefault}
-          />
+          <div className="shrink-0">
+            <ColumnChooser
+              columns={EMPLOYEE_COLUMNS}
+              visibleIds={visibleIds}
+              onToggle={(id) => toggleColumn(id, { minVisible: 2 })}
+              onShowAll={showAll}
+              onShowDefault={showDefault}
+            />
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-stone-100 pt-3">

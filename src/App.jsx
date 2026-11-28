@@ -19,7 +19,7 @@ import Login from './pages/Login'
 import DocumentManagerPage from './pages/DocumentManagerPage'
 import ModulePlaceholder from './pages/ModulePlaceholder'
 import MyTenants from './pages/MyTenants'
-import CustomersPage from './pages/CustomersPage'
+import PatientsPage from './pages/PatientsPage'
 import Profile from './pages/Profile'
 import QuoteEditorPage from './pages/QuoteEditorPage'
 import InvoiceCreatePage from './pages/InvoiceCreatePage'
@@ -119,7 +119,7 @@ const App = () => (
               <Route path="ops/staff/payroll" element={<PayrollPage />} />
               <Route path="ops/staff/payouts" element={<StaffPayoutsPage />} />
               <Route path="ops/staff/for-hire" element={<StaffForHirePage />} />
-              <Route path="ops/customers" element={<CustomersPage />} />
+              <Route path="ops/customers" element={<PatientsPage />} />
               <Route path="ops/bookings" element={<BookingsPage />} />
               <Route path="ops/customer-lobby" element={<ModulePlaceholder />} />
               <Route path="ops/locations" element={<LocationsPage />} />

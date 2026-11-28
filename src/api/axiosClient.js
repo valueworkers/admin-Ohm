@@ -28,11 +28,13 @@ const setHeader = (headers, key, value) => {
 
 const isRolesApiRequest = (config) => {
   const url = String(config?.url || '')
-  // Groups/permissions = Roles UI. Super Admin: no X-Tenant. Tenant Admin: auto X-Tenant.
+  // Accounts → Groups/Permissions (/api/auth/groups|permissions). SA omits X-Tenant.
   return (
     url.includes('api/roles') ||
     url.includes('api/role-assignments') ||
+    url.includes('api/auth/groups') ||
     url.includes('api/groups') ||
+    url.includes('api/auth/permissions') ||
     url.includes('api/permissions')
   )
 }
@@ -115,7 +117,9 @@ const isSessionSafeUrl = (url) => {
   return (
     u.includes('api/roles') ||
     u.includes('api/role-assignments') ||
+    u.includes('api/auth/groups') ||
     u.includes('api/groups') ||
+    u.includes('api/auth/permissions') ||
     u.includes('api/permissions') ||
     u.includes('api/settings/') ||
     u.includes('api/catalog/') ||

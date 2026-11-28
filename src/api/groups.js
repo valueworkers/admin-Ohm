@@ -14,11 +14,31 @@ const asList = (data) => {
 
 const unwrap = (data) => data?.data || data
 
+/**
+ * Accounts → Groups / Permissions.
+ * Super Admin (public schema): omit X-Tenant.
+ * Tenant workspace: send X-Tenant = tenant slug.
+ */
+const tenantOpts = (tenantSlug) => {
+  const slug = String(tenantSlug || '').trim()
+  return slug ? { xTenant: slug } : {}
+}
+
 const requireId = (id, label) => {
   const v = String(id ?? '').trim()
   if (!v) throw new Error(`${label} id is required.`)
   return v
 }
+
+const toPermissionIds = (list = []) =>
+  (list || [])
+    .map((p) => {
+      if (typeof p === 'number') return p
+      if (typeof p === 'string' && /^\d+$/.test(p)) return Number(p)
+      const id = p?.id ?? p?.pk
+      return id != null && id !== '' ? Number(id) : null
+    })
+    .filter((id) => Number.isFinite(id))
 
 export const normalizePermission = (row, fallbackCode = '') => {
   if (typeof row === 'string' || typeof row === 'number') {
@@ -29,50 +49,71 @@ export const normalizePermission = (row, fallbackCode = '') => {
       name: code,
       description: '',
       contentType: '',
+      app_label: '',
+      model: '',
     }
   }
   if (row == null || typeof row !== 'object') {
-    return { id: null, code: fallbackCode, name: fallbackCode, description: '', contentType: '' }
+    return {
+      id: null,
+      code: fallbackCode,
+      name: fallbackCode,
+      description: '',
+      contentType: '',
+      app_label: '',
+      model: '',
+    }
   }
+  const appLabel = String(
+    row.app_label ||
+      (typeof row.content_type === 'object' ? row.content_type?.app_label : '') ||
+      '',
+  ).trim()
+  const model = String(
+    row.model ||
+      (typeof row.content_type === 'object' ? row.content_type?.model : '') ||
+      '',
+  ).trim()
   const code = String(
     row.codename || row.code || row.key || row.slug || row.id || fallbackCode || '',
   ).trim()
   const contentType =
-    typeof row.content_type === 'object'
+    [appLabel, model].filter(Boolean).join('.') ||
+    (typeof row.content_type === 'object'
       ? String(row.content_type?.app_label || row.content_type?.model || '')
-      : String(row.content_type || row.app_label || '')
+      : String(row.content_type || ''))
   return {
     id: row.id ?? row.pk ?? null,
     code,
     name: String(row.name || row.label || row.title || code).trim() || code,
     description: String(row.description || row.help_text || '').trim(),
     contentType,
+    app_label: appLabel,
+    model,
   }
 }
 
 const permissionIds = (row = {}) => {
   const raw = row.permissions ?? row.permission_ids ?? row.permission_details ?? []
   if (!Array.isArray(raw)) return []
-  return raw
-    .map((p) => {
-      if (typeof p === 'number') return p
-      if (typeof p === 'string' && /^\d+$/.test(p)) return Number(p)
-      const id = p?.id ?? p?.pk
-      return id != null && id !== '' ? Number(id) : null
-    })
-    .filter((id) => Number.isFinite(id))
+  return toPermissionIds(raw)
 }
 
 export const normalizeGroup = (row = {}) => {
-  const perms = Array.isArray(row.permissions)
-    ? row.permissions.map((p) => normalizePermission(p))
-    : permissionIds(row).map((id) => normalizePermission(id))
+  const rawPerms = Array.isArray(row.permissions)
+    ? row.permissions
+    : Array.isArray(row.permission_details)
+      ? row.permission_details
+      : permissionIds(row)
+  const perms = rawPerms.map((p) => normalizePermission(p))
   return {
     ...row,
     id: row.id ?? row.pk ?? null,
     name: String(row.name || '').trim(),
     permissions: perms,
-    permissionIds: permissionIds(row),
+    permissionIds: permissionIds(row).length
+      ? permissionIds(row)
+      : toPermissionIds(perms),
     userCount: Number(row.user_count ?? row.users_count ?? row.member_count ?? NaN),
   }
 }
@@ -120,7 +161,6 @@ const collectPermissionRows = (node, label = '', depth = 0) => {
     return [normalizePermission(node, label)]
   }
 
-  // Leaf permission row
   if (
     node.id != null ||
     node.pk != null ||
@@ -133,9 +173,14 @@ const collectPermissionRows = (node, label = '', depth = 0) => {
 
   if (Array.isArray(node.results)) return collectPermissionRows(node.results, label, depth + 1)
   if (Array.isArray(node.permissions)) {
-    return collectPermissionRows(node.permissions, label || node.name || node.app_label || '', depth + 1)
+    return collectPermissionRows(
+      node.permissions,
+      label || node.name || node.app_label || node.model || '',
+      depth + 1,
+    )
   }
   if (Array.isArray(node.items)) return collectPermissionRows(node.items, label, depth + 1)
+  if (Array.isArray(node.models)) return collectPermissionRows(node.models, label, depth + 1)
   if (Array.isArray(node.groups)) return collectPermissionRows(node.groups, label, depth + 1)
 
   const skip = new Set([
@@ -165,7 +210,7 @@ export const flattenPermissions = (data) =>
 export const groupPermissionsByApp = (list = []) => {
   const map = new Map()
   for (const p of list) {
-    const key = p.contentType || 'other'
+    const key = p.contentType || p.app_label || 'other'
     if (!map.has(key)) map.set(key, [])
     map.get(key).push(p)
   }
@@ -179,86 +224,18 @@ export const groupPermissionsByApp = (list = []) => {
     }))
 }
 
-/** GET /api/groups/ */
-export const fetchGroups = async () => {
-  const { data } = await api.get('api/groups/')
-  return asList(data).map(normalizeGroup).filter((g) => g.id != null)
-}
-
-/** GET /api/groups/:id/ */
-export const fetchGroupById = async (groupId) => {
-  const id = requireId(groupId, 'Group')
-  const { data } = await api.get(`api/groups/${id}/`)
-  return normalizeGroup(unwrap(data))
-}
-
-/** POST /api/groups/ */
-export const createGroup = async ({ name, permissions = [] }) => {
-  const { data } = await api.post('api/groups/', {
-    name: String(name || '').trim(),
-    permissions: (permissions || []).map(Number).filter((n) => Number.isFinite(n)),
-  })
-  return normalizeGroup(unwrap(data))
-}
-
-/** PATCH /api/groups/:id/ */
-export const updateGroup = async (groupId, { name, permissions } = {}) => {
-  const id = requireId(groupId, 'Group')
-  const body = {}
-  if (name != null) body.name = String(name).trim()
-  if (permissions != null) {
-    body.permissions = permissions.map(Number).filter((n) => Number.isFinite(n))
-  }
-  const { data } = await api.patch(`api/groups/${id}/`, body)
-  return normalizeGroup(unwrap(data))
-}
-
-/** DELETE /api/groups/:id/ */
-export const deleteGroup = async (groupId) => {
-  const id = requireId(groupId, 'Group')
-  await api.delete(`api/groups/${id}/`)
-  return { id }
-}
-
-/** GET /api/groups/:id/users/ */
-export const fetchGroupMembers = async (groupId) => {
-  const id = requireId(groupId, 'Group')
-  const { data } = await api.get(`api/groups/${id}/users/`)
-  return asList(data).map(normalizeGroupMember).filter((m) => m.id)
-}
-
-/** POST /api/groups/:id/users/ */
-export const addGroupMembers = async (groupId, userIds = []) => {
-  const id = requireId(groupId, 'Group')
-  const ids = (userIds || []).map((u) => (Number.isFinite(Number(u)) ? Number(u) : u)).filter(Boolean)
-  const { data } = await api.post(`api/groups/${id}/users/`, {
-    user_ids: ids,
-    users: ids,
-  })
-  return unwrap(data)
-}
-
-/** DELETE /api/groups/:id/users/ — remove one member */
-export const removeGroupMember = async (groupId, userId) => {
-  const id = requireId(groupId, 'Group')
-  const uid = requireId(userId, 'User')
-  await api.delete(`api/groups/${id}/users/`, {
-    params: { user: uid, user_id: uid },
-  })
-  return { id, userId: uid }
-}
-
-/** GET /api/permissions/ — follows pagination so the full catalog is returned. */
-export const fetchPermissions = async () => {
+const fetchAllPages = async (path, tenantSlug, extraParams = {}) => {
+  const opts = tenantOpts(tenantSlug)
   const all = []
   let page = 1
   let guard = 0
   while (guard < 50) {
     guard += 1
-    const { data } = await api.get('api/permissions/', {
-      params: { page, page_size: 100 },
+    const { data } = await api.get(path, {
+      params: { page, page_size: 100, ...extraParams },
+      ...opts,
     })
-    const batch = flattenPermissions(data)
+    const batch = asList(data)
     if (!batch.length) break
     all.push(...batch)
 
@@ -271,11 +248,116 @@ export const fetchPermissions = async () => {
     }
     break
   }
-  return dedupePermissions(all)
+  return all
 }
 
-/** GET /api/permissions/grouped/ */
-export const fetchPermissionsGrouped = async () => {
-  const { data } = await api.get('api/permissions/grouped/')
+/** GET /api/auth/groups/ */
+export const fetchGroups = async (tenantSlug) => {
+  const rows = await fetchAllPages('api/auth/groups/', tenantSlug)
+  return rows.map(normalizeGroup).filter((g) => g.id != null)
+}
+
+/** GET /api/auth/groups/:id/ */
+export const fetchGroupById = async (tenantSlug, groupId) => {
+  const id = requireId(groupId, 'Group')
+  const { data } = await api.get(`api/auth/groups/${id}/`, tenantOpts(tenantSlug))
+  return normalizeGroup(unwrap(data))
+}
+
+/** POST /api/auth/groups/ */
+export const createGroup = async (tenantSlug, { name, permissions = [] } = {}) => {
+  const { data } = await api.post(
+    'api/auth/groups/',
+    {
+      name: String(name || '').trim(),
+      permissions: toPermissionIds(permissions),
+    },
+    tenantOpts(tenantSlug),
+  )
+  return normalizeGroup(unwrap(data))
+}
+
+/** PATCH /api/auth/groups/:id/ */
+export const updateGroup = async (tenantSlug, groupId, { name, permissions } = {}) => {
+  const id = requireId(groupId, 'Group')
+  const { data } = await api.patch(
+    `api/auth/groups/${id}/`,
+    {
+      name: String(name || '').trim(),
+      permissions: toPermissionIds(permissions),
+    },
+    tenantOpts(tenantSlug),
+  )
+  return normalizeGroup(unwrap(data))
+}
+
+/** PUT /api/auth/groups/:id/ */
+export const replaceGroup = async (tenantSlug, groupId, { name, permissions } = {}) => {
+  const id = requireId(groupId, 'Group')
+  const { data } = await api.put(
+    `api/auth/groups/${id}/`,
+    {
+      name: String(name || '').trim(),
+      permissions: toPermissionIds(permissions),
+    },
+    tenantOpts(tenantSlug),
+  )
+  return normalizeGroup(unwrap(data))
+}
+
+/** DELETE /api/auth/groups/:id/ */
+export const deleteGroup = async (tenantSlug, groupId) => {
+  const id = requireId(groupId, 'Group')
+  await api.delete(`api/auth/groups/${id}/`, tenantOpts(tenantSlug))
+  return { id }
+}
+
+/** GET /api/auth/groups/:id/users/ */
+export const fetchGroupMembers = async (tenantSlug, groupId) => {
+  const id = requireId(groupId, 'Group')
+  const { data } = await api.get(`api/auth/groups/${id}/users/`, tenantOpts(tenantSlug))
+  return asList(data).map(normalizeGroupMember).filter((m) => m.id)
+}
+
+/** POST /api/auth/groups/:id/users/ — { user_ids: [] } */
+export const addGroupMembers = async (tenantSlug, groupId, userIds = []) => {
+  const id = requireId(groupId, 'Group')
+  const ids = (userIds || [])
+    .map((u) => (Number.isFinite(Number(u)) ? Number(u) : u))
+    .filter((v) => v !== '' && v != null)
+  const { data } = await api.post(
+    `api/auth/groups/${id}/users/`,
+    { user_ids: ids },
+    tenantOpts(tenantSlug),
+  )
+  return unwrap(data)
+}
+
+/** DELETE /api/auth/groups/:id/users/?user_id= */
+export const removeGroupMember = async (tenantSlug, groupId, userId) => {
+  const id = requireId(groupId, 'Group')
+  const uid = requireId(userId, 'User')
+  await api.delete(`api/auth/groups/${id}/users/`, {
+    params: { user_id: uid },
+    ...tenantOpts(tenantSlug),
+  })
+  return { id, userId: uid }
+}
+
+/** GET /api/auth/permissions/ */
+export const fetchPermissions = async (tenantSlug, { search } = {}) => {
+  const rows = await fetchAllPages(
+    'api/auth/permissions/',
+    tenantSlug,
+    search ? { search } : {},
+  )
+  return dedupePermissions(
+    rows.map((row) => normalizePermission(row)).filter((p) => p.id != null),
+  )
+}
+
+/** GET /api/auth/permissions/grouped/ */
+export const fetchPermissionsGrouped = async (tenantSlug) => {
+  const { data } = await api.get('api/auth/permissions/grouped/', tenantOpts(tenantSlug))
   return flattenPermissions(data)
 }

@@ -48,7 +48,7 @@ const addressFromRow = (row = {}) => {
   }
 }
 
-/** Care location — GET/POST /api/care/locations/ */
+/** Billing location — /api/billing/locations/ */
 export const normalizeLocation = (row = {}) => {
   const address = addressFromRow(row)
   return {
@@ -88,7 +88,7 @@ export const buildLocationBody = (form = {}) => ({
 /** API package_type: IN_HOUSE | CLIENT_SIDE | OPD */
 export const PACKAGE_TYPES = ['IN_HOUSE', 'CLIENT_SIDE', 'OPD']
 
-/** Care package — GET/POST /api/care/packages/ (resource target) */
+/** Billing package — /api/billing/packages/ (resource target) */
 export const normalizePackage = (row = {}) => {
   const rawType = String(row.package_type || 'IN_HOUSE').toUpperCase()
   const package_type = PACKAGE_TYPES.includes(rawType) ? rawType : rawType || 'IN_HOUSE'
@@ -125,49 +125,67 @@ export const buildPackageBody = (form = {}) => {
   }
 }
 
-/** GET /api/care/locations/ */
+/** GET /api/billing/locations/ */
 export const fetchLocations = async (tenantSlug, { page = 1, pageSize = 100 } = {}) => {
-  const { data } = await api.get('api/care/locations/', {
+  const { data } = await api.get('api/billing/locations/', {
     params: { page, page_size: pageSize },
     ...tenantOpts(tenantSlug),
   })
   return asList(data).map(normalizeLocation)
 }
 
-/** POST /api/care/locations/ */
+/** POST /api/billing/locations/ */
 export const createLocation = async (tenantSlug, form) => {
   const { data } = await api.post(
-    'api/care/locations/',
+    'api/billing/locations/',
     buildLocationBody(form),
     tenantOpts(tenantSlug),
   )
   return normalizeLocation(unwrap(data))
 }
 
-/** PATCH /api/care/locations/:id/ */
+/** GET /api/billing/locations/:id/ */
+export const fetchLocation = async (tenantSlug, locationId) => {
+  const id = requireId(locationId, 'Location')
+  const { data } = await api.get(`api/billing/locations/${id}/`, tenantOpts(tenantSlug))
+  return normalizeLocation(unwrap(data))
+}
+
+/** PATCH /api/billing/locations/:id/ */
 export const updateLocation = async (tenantSlug, locationId, form) => {
   const id = requireId(locationId, 'Location')
   const { data } = await api.patch(
-    `api/care/locations/${id}/`,
+    `api/billing/locations/${id}/`,
     buildLocationBody(form),
     tenantOpts(tenantSlug),
   )
   return normalizeLocation(unwrap(data))
 }
 
-/** DELETE /api/care/locations/:id/ */
+/** PUT /api/billing/locations/:id/ */
+export const replaceLocation = async (tenantSlug, locationId, form) => {
+  const id = requireId(locationId, 'Location')
+  const { data } = await api.put(
+    `api/billing/locations/${id}/`,
+    buildLocationBody(form),
+    tenantOpts(tenantSlug),
+  )
+  return normalizeLocation(unwrap(data))
+}
+
+/** DELETE /api/billing/locations/:id/ */
 export const deleteLocation = async (tenantSlug, locationId) => {
   const id = requireId(locationId, 'Location')
-  await api.delete(`api/care/locations/${id}/`, tenantOpts(tenantSlug))
+  await api.delete(`api/billing/locations/${id}/`, tenantOpts(tenantSlug))
   return { id }
 }
 
-/** GET /api/care/packages/ */
+/** GET /api/billing/packages/ */
 export const fetchPackages = async (
   tenantSlug,
   { page = 1, pageSize = 100, packageType, period } = {},
 ) => {
-  const { data } = await api.get('api/care/packages/', {
+  const { data } = await api.get('api/billing/packages/', {
     params: cleanParams({
       page,
       page_size: pageSize,
@@ -179,30 +197,48 @@ export const fetchPackages = async (
   return asList(data).map(normalizePackage)
 }
 
-/** POST /api/care/packages/ */
+/** POST /api/billing/packages/ */
 export const createPackage = async (tenantSlug, form) => {
   const { data } = await api.post(
-    'api/care/packages/',
+    'api/billing/packages/',
     buildPackageBody(form),
     tenantOpts(tenantSlug),
   )
   return normalizePackage(unwrap(data))
 }
 
-/** PATCH /api/care/packages/:id/ */
+/** GET /api/billing/packages/:id/ */
+export const fetchPackage = async (tenantSlug, packageId) => {
+  const id = requireId(packageId, 'Package')
+  const { data } = await api.get(`api/billing/packages/${id}/`, tenantOpts(tenantSlug))
+  return normalizePackage(unwrap(data))
+}
+
+/** PATCH /api/billing/packages/:id/ */
 export const updatePackage = async (tenantSlug, packageId, form) => {
   const id = requireId(packageId, 'Package')
   const { data } = await api.patch(
-    `api/care/packages/${id}/`,
+    `api/billing/packages/${id}/`,
     buildPackageBody(form),
     tenantOpts(tenantSlug),
   )
   return normalizePackage(unwrap(data))
 }
 
-/** DELETE /api/care/packages/:id/ */
+/** PUT /api/billing/packages/:id/ */
+export const replacePackage = async (tenantSlug, packageId, form) => {
+  const id = requireId(packageId, 'Package')
+  const { data } = await api.put(
+    `api/billing/packages/${id}/`,
+    buildPackageBody(form),
+    tenantOpts(tenantSlug),
+  )
+  return normalizePackage(unwrap(data))
+}
+
+/** DELETE /api/billing/packages/:id/ */
 export const deletePackage = async (tenantSlug, packageId) => {
   const id = requireId(packageId, 'Package')
-  await api.delete(`api/care/packages/${id}/`, tenantOpts(tenantSlug))
+  await api.delete(`api/billing/packages/${id}/`, tenantOpts(tenantSlug))
   return { id }
 }

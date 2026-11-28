@@ -532,7 +532,7 @@ const PatientsPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
       <PageHeader
         eyebrow={eyebrow || access.tenant?.name || 'Organization'}
         title="Customer Master"
-        description="Billing patients and their documents for this tenant."
+        description="Patients from Billing APIs for this tenant."
         actions={
           canWrite ? (
             <button
@@ -552,15 +552,13 @@ const PatientsPage = ({ canWrite: canWriteProp, eyebrow } = {}) => {
         }
       />
 
-      {tenantSlug ? (
-        <StatusBanner type="info" message={`X-Tenant: ${tenantSlug}`} />
-      ) : (
+      {!tenantSlug ? (
         <StatusBanner
           type="warning"
           message="Select or activate a tenant first so X-Tenant can be sent."
         />
-      )}
-      <StatusBanner type={status.type} message={status.message} />
+      ) : null}
+      {status.message ? <StatusBanner type={status.type} message={status.message} /> : null}
 
       <div className="flex flex-col gap-3 rounded-xl border border-stone-200 bg-white p-3 shadow-sm sm:flex-row sm:flex-wrap sm:items-end md:p-4">
         <label className="block min-w-0 flex-1 sm:min-w-[12rem]">

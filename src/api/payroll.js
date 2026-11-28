@@ -120,16 +120,28 @@ export const normalizeSalaryReport = (row = {}) => {
 }
 
 export const fetchEmployeePayroll = async (tenantSlug, params = {}) => {
+  const isActive =
+    params.isActive === true || params.isActive === 'true'
+      ? true
+      : params.isActive === false || params.isActive === 'false'
+        ? false
+        : undefined
   const { data } = await api.get('api/payroll/employee-payroll/', {
     ...tenantOpts(tenantSlug),
     params: cleanParams({
       page: params.page || 1,
       page_size: params.pageSize || 20,
       search: params.search,
+      q: params.search,
       ordering: params.ordering,
+      is_active: isActive,
+      category: params.category,
     }),
   })
-  const results = asList(data).map(normalizeEmployeePayroll).filter((r) => r.id)
+  let results = asList(data).map(normalizeEmployeePayroll).filter((r) => r.id)
+  // Enforce status locally if API ignores is_active.
+  if (isActive === true) results = results.filter((r) => r.isActive !== false)
+  if (isActive === false) results = results.filter((r) => r.isActive === false)
   return {
     results,
     count: data?.count ?? results.length,

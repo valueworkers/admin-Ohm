@@ -45,8 +45,9 @@ export const isSuperAdminSession = () => {
 }
 
 /**
- * Value for X-Tenant on roles APIs (Tenant Admin only).
- * Super Admin must not send X-Tenant — returns ''.
+ * Value for X-Tenant on Accounts → Groups / Permissions (Roles UI).
+ * Super Admin (public schema): '' → omit X-Tenant.
+ * Tenant Admin: JWT schema / stored tenant slug.
  */
 export const resolveRolesTenantSlug = () => {
   if (isSuperAdminSession()) return ''
@@ -61,11 +62,11 @@ export const resolveRolesTenantSlug = () => {
     if (selectedId && Array.isArray(tenants)) {
       const row = tenants.find((t) => String(t.id) === String(selectedId))
       const slug = slugFromTenantRow(row)
-      if (slug) return slug
+      if (slug && slug !== 'public') return slug
     }
     if (Array.isArray(tenants) && tenants.length === 1) {
       const slug = slugFromTenantRow(tenants[0])
-      if (slug) return slug
+      if (slug && slug !== 'public') return slug
     }
     const rawUser = localStorage.getItem('authUser')
     const user = rawUser ? JSON.parse(rawUser) : null

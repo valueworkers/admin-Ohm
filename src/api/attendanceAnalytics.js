@@ -122,13 +122,25 @@ export const normalizeSalaryAnalysisRow = (row = {}, monthKey) => {
     row.name ||
     'Employee'
 
-  const statusBool = row.status
-  const status =
-    typeof statusBool === 'boolean'
-      ? statusBool
-        ? 'Active'
-        : 'Terminated'
-      : String(row.current_status || row.status || 'Active')
+  // Prefer explicit current_status / is_active / is_terminated over boolean status.
+  const statusLabel = String(
+    row.current_status ||
+      (typeof row.status === 'string' ? row.status : '') ||
+      '',
+  ).trim()
+  const terminated =
+    row.is_terminated === true ||
+    row.is_active === false ||
+    (typeof row.status === 'boolean' && row.status === false) ||
+    /termin/i.test(statusLabel) ||
+    /inactive/i.test(statusLabel)
+  const status = terminated
+    ? statusLabel && /termin/i.test(statusLabel)
+      ? statusLabel
+      : 'Terminated'
+    : statusLabel && !/termin|inactive/i.test(statusLabel)
+      ? statusLabel
+      : 'Active'
 
   return {
     id: String(row.id ?? row.user ?? row.user_id ?? ''),
@@ -144,7 +156,7 @@ export const normalizeSalaryAnalysisRow = (row = {}, monthKey) => {
     absentDays: num(period?.total_unpaid_days),
     attendancePct: num(period?.attendance_pct),
     status,
-    isActive: statusBool !== false && !String(status).toLowerCase().includes('termin'),
+    isActive: !terminated,
     raw: row,
   }
 }
@@ -207,12 +219,21 @@ export const mergeAttendanceSalaryRows = (attendanceRows = [], salaryRows = [], 
   return merged
 }
 
-const PAGE_SIZE = 20
+/** Backend caps page_size at 100; "all" walks pages. */
+export const ATTENDANCE_PAGE_SIZES = [20, 40, 60, 'all']
+const MAX_PAGE_SIZE = 100
 
-const fetchPage = async (path, params, tenantSlug) => {
+const resolvePageSize = (pageSize) => {
+  if (pageSize === 'all' || pageSize === 'ALL') return 'all'
+  const n = Number(pageSize)
+  if (!Number.isFinite(n) || n <= 0) return 20
+  return Math.min(Math.floor(n), MAX_PAGE_SIZE)
+}
+
+const fetchPage = async (path, params, tenantSlug, pageSize = 20) => {
   const { data } = await api.get(path, {
     ...tenantOpts(tenantSlug),
-    params: { ...params, page_size: PAGE_SIZE },
+    params: { ...params, page_size: pageSize },
   })
   const payload = unwrap(data)
   return {
@@ -224,55 +245,110 @@ const fetchPage = async (path, params, tenantSlug) => {
   }
 }
 
+const fetchAllPages = async (path, baseParams, tenantSlug) => {
+  const all = []
+  let page = 1
+  let count = 0
+  let summary = null
+  let guard = 0
+  while (guard < 100) {
+    guard += 1
+    const batch = await fetchPage(path, { ...baseParams, page }, tenantSlug, MAX_PAGE_SIZE)
+    all.push(...batch.rows)
+    count = batch.count || all.length
+    if (batch.summary) summary = batch.summary
+    if (!batch.next || !batch.rows.length || all.length >= count) break
+    page += 1
+  }
+  return { rows: all, count, next: null, previous: null, summary }
+}
+
 /**
  * GET /api/analytics/attendance/
  * Results: { user, attendance: { "Nov'2026": { "01": "P" } } }
+ * Pass is_active true|false to filter employees server-side.
  */
+const activeQuery = (isActive) => {
+  if (isActive === true || isActive === 'true') return { is_active: true }
+  if (isActive === false || isActive === 'false') return { is_active: false }
+  return {}
+}
+
 export const fetchAttendanceAnalysis = async (
   tenantSlug,
-  { month, userId, page = 1 } = {},
+  { month, userId, page = 1, pageSize = 20, isActive } = {},
 ) => {
   const bounds = monthBounds(month)
-  const { rows: rawRows, count, next, previous } = await fetchPage(
-    'api/analytics/attendance/',
-    cleanParams({
-      month: bounds.monthKey,
-      months: bounds.monthKey,
-      year: bounds.year,
-      start_date: bounds.startDate,
-      end_date: bounds.endDate,
-      user_id: userId,
-      page,
-    }),
-    tenantSlug,
-  )
-  const rows = rawRows.map((r) => normalizeAttendanceAnalysisRow(r, bounds.monthKey))
-  return { ...bounds, rows, count, next, previous, page, pageSize: PAGE_SIZE }
+  const size = resolvePageSize(pageSize)
+  const baseParams = cleanParams({
+    month: bounds.monthKey,
+    months: bounds.monthKey,
+    year: bounds.year,
+    start_date: bounds.startDate,
+    end_date: bounds.endDate,
+    user_id: userId,
+    ...activeQuery(isActive),
+  })
+  const result =
+    size === 'all'
+      ? await fetchAllPages('api/analytics/attendance/', baseParams, tenantSlug)
+      : await fetchPage(
+          'api/analytics/attendance/',
+          { ...baseParams, page },
+          tenantSlug,
+          size,
+        )
+  const rows = result.rows.map((r) => normalizeAttendanceAnalysisRow(r, bounds.monthKey))
+  return {
+    ...bounds,
+    rows,
+    count: result.count,
+    next: result.next,
+    previous: result.previous,
+    page: size === 'all' ? 1 : page,
+    pageSize: size,
+  }
 }
 
 /**
  * GET /api/analytics/salary/
  * Results: employee + periods[] for the month
+ * Pass is_active true|false to filter employees server-side.
  */
 export const fetchSalaryAnalysis = async (
   tenantSlug,
-  { month, userId, period = 'monthly', page = 1 } = {},
+  { month, userId, period = 'monthly', page = 1, pageSize = 20, isActive } = {},
 ) => {
   const bounds = monthBounds(month)
-  const { rows: rawRows, count, next, previous, summary } = await fetchPage(
-    'api/analytics/salary/',
-    cleanParams({
-      month: bounds.monthKey,
-      months: bounds.monthKey,
-      year: bounds.year,
-      period,
-      start_date: bounds.startDate,
-      end_date: bounds.endDate,
-      user_id: userId,
-      page,
-    }),
-    tenantSlug,
-  )
-  const rows = rawRows.map((r) => normalizeSalaryAnalysisRow(r, bounds.monthKey))
-  return { ...bounds, rows, count, next, previous, summary, page, pageSize: PAGE_SIZE }
+  const size = resolvePageSize(pageSize)
+  const baseParams = cleanParams({
+    month: bounds.monthKey,
+    months: bounds.monthKey,
+    year: bounds.year,
+    period,
+    start_date: bounds.startDate,
+    end_date: bounds.endDate,
+    user_id: userId,
+    ...activeQuery(isActive),
+  })
+  const result =
+    size === 'all'
+      ? await fetchAllPages('api/analytics/salary/', baseParams, tenantSlug)
+      : await fetchPage(
+          'api/analytics/salary/',
+          { ...baseParams, page },
+          tenantSlug,
+          size,
+        )
+  const rows = result.rows.map((r) => normalizeSalaryAnalysisRow(r, bounds.monthKey))
+  return {
+    ...bounds,
+    rows,
+    count: result.count,
+    next: result.next,
+    previous: result.previous,
+    summary: result.summary,
+    page: size === 'all' ? 1 : page,
+    pageSize: size,
+  }
 }

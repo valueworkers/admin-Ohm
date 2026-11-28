@@ -78,7 +78,7 @@ export const buildPatientDocumentFormData = (form = {}, { requireFiles = false }
   return fd
 }
 
-/** GET /api/care/patient-documents/ */
+/** GET /api/billing/patient-documents/ */
 export const fetchPatientDocuments = async (
   tenantSlug,
   { page = 1, pageSize = 100, patient, search } = {},
@@ -86,7 +86,7 @@ export const fetchPatientDocuments = async (
   const params = { page, page_size: pageSize }
   if (patient) params.patient = patient
   if (search) params.search = search
-  const { data } = await api.get('api/care/patient-documents/', {
+  const { data } = await api.get('api/billing/patient-documents/', {
     params,
     ...tenantOpts(tenantSlug),
   })
@@ -94,30 +94,54 @@ export const fetchPatientDocuments = async (
   return { count: Number(data?.count) || results.length, results }
 }
 
-/** GET /api/care/patient-documents/:id/ */
+/** GET /api/billing/patient-documents/:id/ */
 export const fetchPatientDocument = async (tenantSlug, documentId) => {
   const id = requireId(documentId, 'Document')
   const { data } = await api.get(
-    `api/care/patient-documents/${id}/`,
+    `api/billing/patient-documents/${id}/`,
     tenantOpts(tenantSlug),
   )
   return normalizePatientDocument(unwrap(data))
 }
 
-/** POST /api/care/patient-documents/ — multipart form-data */
+/** POST /api/billing/patient-documents/ — multipart form-data */
 export const createPatientDocument = async (tenantSlug, form) => {
   const body = buildPatientDocumentFormData(form, { requireFiles: true })
   const { data } = await api.post(
-    'api/care/patient-documents/',
+    'api/billing/patient-documents/',
     body,
     tenantOpts(tenantSlug),
   )
   return normalizePatientDocument(unwrap(data))
 }
 
-/** DELETE /api/care/patient-documents/:id/ */
+/** PATCH /api/billing/patient-documents/:id/ */
+export const updatePatientDocument = async (tenantSlug, documentId, form) => {
+  const id = requireId(documentId, 'Document')
+  const body = buildPatientDocumentFormData(form, { requireFiles: false })
+  const { data } = await api.patch(
+    `api/billing/patient-documents/${id}/`,
+    body,
+    tenantOpts(tenantSlug),
+  )
+  return normalizePatientDocument(unwrap(data))
+}
+
+/** PUT /api/billing/patient-documents/:id/ */
+export const replacePatientDocument = async (tenantSlug, documentId, form) => {
+  const id = requireId(documentId, 'Document')
+  const body = buildPatientDocumentFormData(form, { requireFiles: false })
+  const { data } = await api.put(
+    `api/billing/patient-documents/${id}/`,
+    body,
+    tenantOpts(tenantSlug),
+  )
+  return normalizePatientDocument(unwrap(data))
+}
+
+/** DELETE /api/billing/patient-documents/:id/ */
 export const deletePatientDocument = async (tenantSlug, documentId) => {
   const id = requireId(documentId, 'Document')
-  await api.delete(`api/care/patient-documents/${id}/`, tenantOpts(tenantSlug))
+  await api.delete(`api/billing/patient-documents/${id}/`, tenantOpts(tenantSlug))
   return { id }
 }

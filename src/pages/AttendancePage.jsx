@@ -34,6 +34,21 @@ import {
   labelClass,
 } from '../utils/ui'
 
+const EMP_STATUS_FILTERS = [
+  { value: 'ALL', label: 'All' },
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'TERMINATED', label: 'Terminated' },
+]
+
+const EMP_ORDERING_OPTIONS = [
+  { value: 'first_name', label: 'First name A–Z' },
+  { value: '-first_name', label: 'First name Z–A' },
+  { value: 'last_name', label: 'Last name A–Z' },
+  { value: '-last_name', label: 'Last name Z–A' },
+  { value: 'employee_profile__employee_id', label: 'Emp ID A–Z' },
+  { value: '-employee_profile__employee_id', label: 'Emp ID Z–A' },
+]
+
 const STATUS_TONE = {
   present: {
     chip: 'text-emerald-700',
@@ -139,6 +154,8 @@ const AttendancePage = () => {
   const [employeeCount, setEmployeeCount] = useState(0)
   const [hasEmployeeNext, setHasEmployeeNext] = useState(false)
   const [hasEmployeePrevious, setHasEmployeePrevious] = useState(false)
+  const [employeeStatusFilter, setEmployeeStatusFilter] = useState('ACTIVE')
+  const [employeeOrdering, setEmployeeOrdering] = useState('first_name')
   const [selectedId, setSelectedId] = useState('')
   const [statuses, setStatuses] = useState([])
   const [records, setRecords] = useState([])
@@ -250,20 +267,35 @@ const AttendancePage = () => {
     setLoadError('')
     try {
       const q = employeeSearchApplied.trim()
+      const isActive =
+        employeeStatusFilter === 'ACTIVE'
+          ? 'true'
+          : employeeStatusFilter === 'TERMINATED'
+            ? 'false'
+            : undefined
       const data = await fetchEmployees(tenantSlug, {
         page: employeePage,
         pageSize: employeePageSize,
-        ordering: 'first_name',
+        ordering: employeeOrdering || 'first_name',
         search: q || undefined,
         q: q || undefined,
+        isActive,
       })
-      setEmployees(data.results)
-      setEmployeeCount(data.count)
+      let list = data.results
+      if (employeeStatusFilter === 'ACTIVE') {
+        list = list.filter((e) => !e.is_terminated && e.is_active !== false)
+      } else if (employeeStatusFilter === 'TERMINATED') {
+        list = list.filter((e) => e.is_terminated || e.is_active === false)
+      }
+      setEmployees(list)
+      setEmployeeCount(
+        employeeStatusFilter === 'ALL' ? data.count : list.length || data.count,
+      )
       setHasEmployeeNext(Boolean(data.next))
       setHasEmployeePrevious(Boolean(data.previous) || employeePage > 1)
       setSelectedId((prev) => {
-        if (prev && data.results.some((e) => e.id === prev)) return prev
-        return data.results[0]?.id || ''
+        if (prev && list.some((e) => e.id === prev)) return prev
+        return list[0]?.id || ''
       })
     } catch (err) {
       setEmployees([])
@@ -275,7 +307,14 @@ const AttendancePage = () => {
     } finally {
       setLoadingEmployees(false)
     }
-  }, [tenantSlug, employeeSearchApplied, employeePage, employeePageSize])
+  }, [
+    tenantSlug,
+    employeeSearchApplied,
+    employeePage,
+    employeePageSize,
+    employeeStatusFilter,
+    employeeOrdering,
+  ])
 
   const onEmployeeSearchChange = (value) => {
     setEmployeeSearch(value)
@@ -532,8 +571,8 @@ const AttendancePage = () => {
 
           <div className="grid min-h-[28rem] lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)]">
             <aside className="border-b border-stone-200 lg:border-b-0 lg:border-r">
-              <div className="space-y-2 border-b border-stone-100 px-4 py-3">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-stone-400">
+              <div className="space-y-2 border-b border-stone-100 px-3 py-3">
+                <p className="px-1 text-[11px] font-bold uppercase tracking-wide text-stone-400">
                   Employees
                 </p>
                 <label className="relative block">
@@ -551,6 +590,40 @@ const AttendancePage = () => {
                     aria-label="Search employees"
                   />
                 </label>
+                <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto">
+                  <select
+                    className={`${fieldClass} !w-auto min-w-[96px] shrink-0 !py-1.5 !text-xs`}
+                    value={employeeStatusFilter}
+                    onChange={(e) => {
+                      setEmployeePage(1)
+                      setEmployeeStatusFilter(e.target.value)
+                    }}
+                    aria-label="Filter employees by status"
+                    disabled={loadingEmployees}
+                  >
+                    {EMP_STATUS_FILTERS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className={`${fieldClass} !w-auto min-w-[120px] shrink-0 !py-1.5 !text-xs`}
+                    value={employeeOrdering}
+                    onChange={(e) => {
+                      setEmployeePage(1)
+                      setEmployeeOrdering(e.target.value)
+                    }}
+                    aria-label="Sort employees"
+                    disabled={loadingEmployees}
+                  >
+                    {EMP_ORDERING_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        Sort · {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               {loadingEmployees ? (
                 <div className="p-4">

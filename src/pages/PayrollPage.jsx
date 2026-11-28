@@ -38,6 +38,22 @@ import {
 } from '../utils/ui'
 
 const PAGE_SIZES = [10, 20, 50, 100]
+const CATEGORIES = ['REGULAR', 'CLINICAL', 'ADMIN', 'CONTRACT']
+const STATUS_FILTERS = [
+  { value: 'ALL', label: 'All statuses' },
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'INACTIVE', label: 'Inactive' },
+]
+const ORDERING_OPTIONS = [
+  { value: 'first_name', label: 'Name A–Z' },
+  { value: '-first_name', label: 'Name Z–A' },
+  { value: 'employee_id', label: 'Emp ID A–Z' },
+  { value: '-employee_id', label: 'Emp ID Z–A' },
+  { value: 'basic_salary', label: 'Basic (low→high)' },
+  { value: '-basic_salary', label: 'Basic (high→low)' },
+  { value: 'recent_payment', label: 'Recent pay (low→high)' },
+  { value: '-recent_payment', label: 'Recent pay (high→low)' },
+]
 
 const PAYROLL_COLUMNS = [
   { id: 'name', label: 'Employee name' },
@@ -176,6 +192,9 @@ const PayrollPage = () => {
   const [count, setCount] = useState(0)
   const [hasNext, setHasNext] = useState(false)
   const [hasPrevious, setHasPrevious] = useState(false)
+  const [statusFilter, setStatusFilter] = useState('ACTIVE')
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [ordering, setOrdering] = useState('first_name')
 
   const [history, setHistory] = useState({
     open: false,
@@ -247,13 +266,26 @@ const PayrollPage = () => {
     setLoading(true)
     setLoadError('')
     try {
+      const isActive =
+        statusFilter === 'ACTIVE' ? true : statusFilter === 'INACTIVE' ? false : undefined
       const data = await fetchEmployeePayroll(tenantSlug, {
         page,
         pageSize,
         search: searchApplied,
+        ordering,
+        isActive,
+        category: categoryFilter || undefined,
       })
-      setRows(data.results)
-      setCount(data.count)
+      let list = data.results
+      if (statusFilter === 'ACTIVE') list = list.filter((r) => r.isActive !== false)
+      if (statusFilter === 'INACTIVE') list = list.filter((r) => r.isActive === false)
+      if (categoryFilter) {
+        list = list.filter(
+          (r) => String(r.category || '').toUpperCase() === categoryFilter.toUpperCase(),
+        )
+      }
+      setRows(list)
+      setCount(statusFilter === 'ALL' && !categoryFilter ? data.count : list.length || data.count)
       setHasNext(Boolean(data.next))
       setHasPrevious(Boolean(data.previous) || page > 1)
     } catch (err) {
@@ -265,7 +297,7 @@ const PayrollPage = () => {
     } finally {
       setLoading(false)
     }
-  }, [tenantSlug, page, pageSize, searchApplied])
+  }, [tenantSlug, page, pageSize, searchApplied, statusFilter, categoryFilter, ordering])
 
   useEffect(() => {
     load()
@@ -745,12 +777,12 @@ const PayrollPage = () => {
       {status.message ? <StatusBanner type={status.type || 'info'} message={status.message} /> : null}
 
       <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-stone-100 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-          <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-            <div className="relative min-w-0 w-full sm:max-w-xs">
+        <div className="space-y-2 border-b border-stone-100 px-4 py-3">
+          <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
+            <div className="relative shrink-0">
               <FiSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
               <input
-                className={`${fieldClass} !py-1.5 pl-9`}
+                className={`${fieldClass} !w-[220px] !py-1.5 pl-9 sm:!w-[260px]`}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => {
@@ -766,16 +798,16 @@ const PayrollPage = () => {
             </div>
             <button
               type="button"
-              className={`${btnPrimary} !min-h-0 !bg-violet-600 !px-3 !py-1.5 hover:!bg-violet-700 focus-visible:!ring-violet-600/30`}
+              className={`${btnPrimary} !min-h-0 shrink-0 !bg-violet-600 !px-3 !py-1.5 hover:!bg-violet-700 focus-visible:!ring-violet-600/30`}
               onClick={runSearch}
               disabled={!tenantSlug || loading}
             >
               Search
             </button>
-            <label className="flex items-center gap-2 text-sm text-stone-600">
+            <label className="inline-flex shrink-0 items-center gap-2 text-sm text-stone-600">
               <span className="whitespace-nowrap">Rows</span>
               <select
-                className={`${fieldClass} w-auto !py-1.5`}
+                className={`${fieldClass} !w-auto !py-1.5`}
                 value={pageSize}
                 onChange={(e) => {
                   setPage(1)
@@ -790,21 +822,74 @@ const PayrollPage = () => {
                 ))}
               </select>
             </label>
-            <ColumnChooser
-              columns={PAYROLL_COLUMNS}
-              visibleIds={visibleIds}
-              onToggle={(id) => toggleColumn(id, { minVisible: 2 })}
-              onShowAll={showAll}
-              onShowDefault={showDefault}
-            />
+            <div className="shrink-0">
+              <ColumnChooser
+                columns={PAYROLL_COLUMNS}
+                visibleIds={visibleIds}
+                onToggle={(id) => toggleColumn(id, { minVisible: 2 })}
+                onShowAll={showAll}
+                onShowDefault={showDefault}
+              />
+            </div>
             <button
               type="button"
-              className="sc-btn inline-flex min-h-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/35 disabled:cursor-not-allowed disabled:opacity-60"
+              className="sc-btn inline-flex min-h-0 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/35 disabled:cursor-not-allowed disabled:opacity-60"
               onClick={exportOverview}
               disabled={!rows.length}
             >
               Export Excel
             </button>
+          </div>
+          <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
+            <select
+              className={`${fieldClass} !w-auto min-w-[130px] shrink-0 !py-1.5`}
+              value={statusFilter}
+              onChange={(e) => {
+                setPage(1)
+                setStatusFilter(e.target.value)
+              }}
+              aria-label="Filter by status"
+              disabled={!tenantSlug || loading}
+            >
+              {STATUS_FILTERS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <select
+              className={`${fieldClass} !w-auto min-w-[140px] shrink-0 !py-1.5`}
+              value={categoryFilter}
+              onChange={(e) => {
+                setPage(1)
+                setCategoryFilter(e.target.value)
+              }}
+              aria-label="Filter by category"
+              disabled={!tenantSlug || loading}
+            >
+              <option value="">All categories</option>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            <select
+              className={`${fieldClass} !w-auto min-w-[180px] shrink-0 !py-1.5`}
+              value={ordering}
+              onChange={(e) => {
+                setPage(1)
+                setOrdering(e.target.value)
+              }}
+              aria-label="Sort payroll"
+              disabled={!tenantSlug || loading}
+            >
+              {ORDERING_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  Sort · {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 

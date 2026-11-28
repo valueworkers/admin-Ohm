@@ -217,12 +217,12 @@ export const buildUpdateEmployeeBody = (form = {}) => {
   }
 }
 
-/** GET /api/employees/ */
+/** GET /api/auth/employees/ — Accounts → Employees */
 export const fetchEmployees = async (
   tenantSlug,
   { page = 1, pageSize = 100, q, search, isActive, category, ordering } = {},
 ) => {
-  const { data } = await api.get('api/employees/', {
+  const { data } = await api.get('api/auth/employees/', {
     params: cleanParams({
       page,
       page_size: pageSize,
@@ -243,35 +243,53 @@ export const fetchEmployees = async (
   }
 }
 
-/** GET /api/employees/:id/ */
+/** GET /api/auth/employees/:id/ */
 export const fetchEmployee = async (tenantSlug, userId) => {
   const id = requireId(userId, 'Employee')
-  const { data } = await api.get(`api/employees/${id}/`, tenantOpts(tenantSlug))
+  const { data } = await api.get(`api/auth/employees/${id}/`, tenantOpts(tenantSlug))
   return normalizeEmployee(unwrap(data))
 }
 
-/** POST /api/employees/ */
+/** POST /api/auth/employees/ */
 export const createEmployee = async (tenantSlug, form) => {
   const { data } = await api.post(
-    'api/employees/',
+    'api/auth/employees/',
     buildCreateEmployeeBody(form),
     tenantOpts(tenantSlug),
   )
   return normalizeEmployee(unwrap(data))
 }
 
-/** PATCH /api/employees/:id/ */
+/** PATCH /api/auth/employees/:id/ */
 export const updateEmployee = async (tenantSlug, userId, form) => {
   const id = requireId(userId, 'Employee')
   const { data } = await api.patch(
-    `api/employees/${id}/`,
+    `api/auth/employees/${id}/`,
     buildUpdateEmployeeBody(form),
     tenantOpts(tenantSlug),
   )
   return normalizeEmployee(unwrap(data))
 }
 
-/** POST /api/employees/:id/terminate/ */
+/** PUT /api/auth/employees/:id/ */
+export const replaceEmployee = async (tenantSlug, userId, form) => {
+  const id = requireId(userId, 'Employee')
+  const { data } = await api.put(
+    `api/auth/employees/${id}/`,
+    buildUpdateEmployeeBody(form),
+    tenantOpts(tenantSlug),
+  )
+  return normalizeEmployee(unwrap(data))
+}
+
+/** DELETE /api/auth/employees/:id/ */
+export const deleteEmployee = async (tenantSlug, userId) => {
+  const id = requireId(userId, 'Employee')
+  await api.delete(`api/auth/employees/${id}/`, tenantOpts(tenantSlug))
+  return { id }
+}
+
+/** POST /api/auth/employees/:id/terminate/ */
 export const terminateEmployee = async (tenantSlug, userId, payload) => {
   const id = requireId(userId, 'Employee')
   const body = {
@@ -280,29 +298,33 @@ export const terminateEmployee = async (tenantSlug, userId, payload) => {
     last_working_day: String(payload.last_working_day || '').trim(),
   }
   const { data } = await api.post(
-    `api/employees/${id}/terminate/`,
+    `api/auth/employees/${id}/terminate/`,
     body,
     tenantOpts(tenantSlug),
   )
   return normalizeEmployee(unwrap(data))
 }
 
-/** POST /api/employees/:id/termination-revoke/ */
+/** POST /api/auth/employees/:id/termination-revoke/ */
 export const revokeEmployeeTermination = async (tenantSlug, userId, { rehired = true } = {}) => {
   const id = requireId(userId, 'Employee')
   const { data } = await api.post(
-    `api/employees/${id}/termination-revoke/`,
+    `api/auth/employees/${id}/termination-revoke/`,
     { rehired: Boolean(rehired) },
     tenantOpts(tenantSlug),
   )
   return normalizeEmployee(unwrap(data))
 }
 
-/** POST /api/employees-bulk-upload/ — multipart .xlsx/.xlsm */
+/** POST /api/auth/employees-bulk-upload/ — multipart .xlsx/.xlsm */
 export const bulkUploadEmployees = async (tenantSlug, file) => {
   if (!file) throw new Error('Excel file is required.')
   const body = new FormData()
   body.append('file', file)
-  const { data } = await api.post('api/employees-bulk-upload/', body, tenantOpts(tenantSlug))
+  const { data } = await api.post(
+    'api/auth/employees-bulk-upload/',
+    body,
+    tenantOpts(tenantSlug),
+  )
   return unwrap(data)
 }

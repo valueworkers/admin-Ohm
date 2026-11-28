@@ -1,6 +1,6 @@
 import api from './axiosClient'
 import { normalizeUom } from '../features/billing/gstLines'
-import { fetchPatients, normalizePatient } from './patients'
+import { fetchPatientsDropdown, normalizePatient } from './patients'
 
 export { normalizePatient, patientFullName as patientDisplayName } from './patients'
 

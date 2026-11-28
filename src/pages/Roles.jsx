@@ -18,12 +18,9 @@ import Modal from '../components/ui/Modal'
 import PageHeader from '../components/ui/PageHeader'
 import StatusBanner from '../components/ui/StatusBanner'
 import { EmptyState, ErrorState, LoadingState, Panel } from '../components/ui/PageState'
-import { fetchMyTenants } from '../api/myTenants'
 import { useAccess } from '../hooks/useAccess'
-import { getAuthUser, isSuperAdmin } from '../utils/auth'
 import { apiErrorMessage } from '../utils/errors'
 import { resolveRolesTenantSlug } from '../utils/tenantHeader'
-import { saveStoredTenants, setSelectedTenantId } from '../utils/tenants'
 import {
   btnGhost,
   btnPrimary,
@@ -50,8 +47,9 @@ const toForm = (group = {}) => ({
 })
 
 const Roles = () => {
-  const { isSuperAdmin: superAdmin, tenant, user } = useAccess()
+  const { isSuperAdmin: superAdmin } = useAccess()
   const [tab, setTab] = useState('roles')
+  // Super Admin manages platform groups only (no X-Tenant). Members need a tenant schema.
   const visibleTabs = superAdmin ? TABS.filter((t) => t.id === 'roles') : TABS
 
   useEffect(() => {
@@ -80,66 +78,22 @@ const Roles = () => {
   const [addUserId, setAddUserId] = useState('')
   const [removeTarget, setRemoveTarget] = useState(null)
 
-  const tenantSlug =
-    resolveRolesTenantSlug() ||
-    tenant?.schema_name ||
-    tenant?.slug ||
-    user?.tenant_slug ||
-    user?.schema_name ||
-    ''
-
+  // SA → '' (omit X-Tenant). Tenant → slug required.
+  const tenantSlug = resolveRolesTenantSlug()
   const canUseApi = superAdmin || Boolean(tenantSlug)
-
-  const ensureTenantSlug = useCallback(async () => {
-    if (isSuperAdmin(getAuthUser())) return true
-    if (resolveRolesTenantSlug()) return true
-    try {
-      const auth = getAuthUser()
-      const list = await fetchMyTenants()
-      saveStoredTenants(list)
-      const preferred =
-        list.find((t) => String(t.id) === String(auth?.tenant_id)) ||
-        list.find((t) => String(t.status).toLowerCase() === 'active') ||
-        list[0] ||
-        null
-      if (preferred?.id != null) {
-        setSelectedTenantId(preferred.id)
-        const slug = preferred.schema_name || preferred.slug || ''
-        if (slug && auth) {
-          localStorage.setItem(
-            'authUser',
-            JSON.stringify({
-              ...auth,
-              tenant_id: preferred.id,
-              tenant_slug: slug,
-              schema_name: slug,
-            }),
-          )
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return Boolean(resolveRolesTenantSlug())
-  }, [])
 
   const loadGroups = useCallback(async () => {
     const gen = ++loadGen.current
     setLoading(true)
     setError('')
     try {
-      const asSuper = isSuperAdmin(getAuthUser())
-      if (!asSuper) {
-        const ok = await ensureTenantSlug()
-        if (gen !== loadGen.current) return
-        if (!ok) {
-          setGroups([])
-          setError('Select or activate a tenant first so X-Tenant (slug) can be sent.')
-          return
-        }
+      if (!superAdmin && !tenantSlug) {
+        setGroups([])
+        setError('Activate a tenant first so X-Tenant can be sent.')
+        return
       }
 
-      const list = await fetchGroups()
+      const list = await fetchGroups(tenantSlug)
       if (gen !== loadGen.current) return
       setGroups(list)
       setMemberGroupId((prev) => prev || (list[0]?.id != null ? String(list[0].id) : ''))
@@ -150,7 +104,7 @@ const Roles = () => {
     } finally {
       if (gen === loadGen.current) setLoading(false)
     }
-  }, [ensureTenantSlug])
+  }, [superAdmin, tenantSlug])
 
   useEffect(() => {
     loadGroups()
@@ -160,16 +114,19 @@ const Roles = () => {
   }, [loadGroups])
 
   const loadPermissionCatalog = useCallback(async () => {
+    if (!superAdmin && !tenantSlug) {
+      setPermissions([])
+      setPermsError('Activate a tenant first so X-Tenant can be sent.')
+      return
+    }
     setPermsLoading(true)
     setPermsError('')
     setPermissions([])
     try {
-      // Flat list follows pagination so we get the full catalog.
-      let list = await fetchPermissions()
-      if (!list.length) list = await fetchPermissionsGrouped()
-      // Merge grouped in case it includes extras the flat list missed.
+      let list = await fetchPermissions(tenantSlug)
+      if (!list.length) list = await fetchPermissionsGrouped(tenantSlug)
       try {
-        const grouped = await fetchPermissionsGrouped()
+        const grouped = await fetchPermissionsGrouped(tenantSlug)
         if (grouped.length) {
           const byId = new Map()
           for (const p of [...list, ...grouped]) {
@@ -185,7 +142,7 @@ const Roles = () => {
       if (!list.length) setPermsError('Permissions API returned an empty list.')
     } catch (err) {
       try {
-        const list = await fetchPermissionsGrouped()
+        const list = await fetchPermissionsGrouped(tenantSlug)
         setPermissions(list)
         if (!list.length) setPermsError('Permissions API returned an empty list.')
       } catch (err2) {
@@ -195,7 +152,7 @@ const Roles = () => {
     } finally {
       setPermsLoading(false)
     }
-  }, [])
+  }, [superAdmin, tenantSlug])
 
   const filteredPermissionGroups = useMemo(() => {
     const q = permSearch.trim().toLowerCase()
@@ -227,7 +184,7 @@ const Roles = () => {
     setForm(toForm(group))
     loadPermissionCatalog()
     try {
-      const full = await fetchGroupById(group.id)
+      const full = await fetchGroupById(tenantSlug, group.id)
       setEditTarget(full)
       setForm(toForm(full))
     } catch {
@@ -262,14 +219,18 @@ const Roles = () => {
       setStatus({ type: 'error', message: 'Role name is required.' })
       return
     }
+    if (!canUseApi) {
+      setStatus({ type: 'error', message: 'Activate a tenant first so X-Tenant can be sent.' })
+      return
+    }
     setSaving(true)
     setStatus({ type: '', message: '' })
     try {
       if (modalMode === 'create') {
-        await createGroup({ name, permissions })
+        await createGroup(tenantSlug, { name, permissions })
         setStatus({ type: 'success', message: `${name} created.` })
       } else {
-        await updateGroup(editTarget.id, { name, permissions })
+        await updateGroup(tenantSlug, editTarget.id, { name, permissions })
         setStatus({ type: 'success', message: `${name} updated.` })
       }
       closeModal()
@@ -282,11 +243,11 @@ const Roles = () => {
   }
 
   const confirmDelete = async () => {
-    if (!deleteTarget?.id) return
+    if (!deleteTarget?.id || !canUseApi) return
     setSaving(true)
     setStatus({ type: '', message: '' })
     try {
-      await deleteGroup(deleteTarget.id)
+      await deleteGroup(tenantSlug, deleteTarget.id)
       setStatus({ type: 'success', message: `${deleteTarget.name || 'Role'} deleted.` })
       setDeleteTarget(null)
       await loadGroups()
@@ -302,14 +263,14 @@ const Roles = () => {
 
   const loadMembers = useCallback(async () => {
     const gid = String(memberGroupId || '').trim()
-    if (!gid) {
+    if (!gid || !tenantSlug) {
       setMembers([])
       return
     }
     setMembersLoading(true)
     setStatus({ type: '', message: '' })
     try {
-      const list = await fetchGroupMembers(gid)
+      const list = await fetchGroupMembers(tenantSlug, gid)
       setMembers(list)
       if (!list.length) {
         setStatus({ type: 'info', message: 'No members in this role yet.' })
@@ -323,7 +284,7 @@ const Roles = () => {
     } finally {
       setMembersLoading(false)
     }
-  }, [memberGroupId])
+  }, [memberGroupId, tenantSlug])
 
   useEffect(() => {
     if (tab === 'members' && memberGroupId) loadMembers()
@@ -333,6 +294,10 @@ const Roles = () => {
     event.preventDefault()
     const gid = String(memberGroupId || '').trim()
     const uid = String(addUserId || '').trim()
+    if (!tenantSlug) {
+      setStatus({ type: 'error', message: 'Activate a tenant first so X-Tenant can be sent.' })
+      return
+    }
     if (!gid || !uid) {
       setStatus({ type: 'error', message: 'Select a role and enter a user id.' })
       return
@@ -340,7 +305,7 @@ const Roles = () => {
     setSaving(true)
     setStatus({ type: '', message: '' })
     try {
-      await addGroupMembers(gid, [uid])
+      await addGroupMembers(tenantSlug, gid, [uid])
       setAddUserId('')
       setStatus({ type: 'success', message: 'Member added.' })
       await loadMembers()
@@ -352,11 +317,11 @@ const Roles = () => {
   }
 
   const confirmRemoveMember = async () => {
-    if (!removeTarget?.id || !memberGroupId) return
+    if (!removeTarget?.id || !memberGroupId || !tenantSlug) return
     setSaving(true)
     setStatus({ type: '', message: '' })
     try {
-      await removeGroupMember(memberGroupId, removeTarget.id)
+      await removeGroupMember(tenantSlug, memberGroupId, removeTarget.id)
       setRemoveTarget(null)
       setStatus({ type: 'success', message: 'Member removed.' })
       await loadMembers()
@@ -377,8 +342,8 @@ const Roles = () => {
         title="Roles"
         description={
           superAdmin
-            ? 'Permission groups for the platform (no X-Tenant).'
-            : `Permission groups for ${tenantSlug || 'your tenant'} (X-Tenant required).`
+            ? 'Accounts → Groups (platform — no X-Tenant).'
+            : `Accounts → Groups for ${tenantSlug || 'your tenant'} (X-Tenant required).`
         }
         actions={
           <div className="flex flex-wrap gap-2">
@@ -391,7 +356,7 @@ const Roles = () => {
               <FiRefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden />
               Refresh
             </button>
-            {tab === 'roles' || superAdmin ? (
+            {tab === 'roles' ? (
               <button
                 type="button"
                 className={btnPrimary}
@@ -409,7 +374,7 @@ const Roles = () => {
       {!superAdmin && !canUseApi ? (
         <StatusBanner
           type="warning"
-          message="Select or activate a tenant first so requests can include X-Tenant (slug)."
+          message="Activate a tenant first so requests can include X-Tenant."
         />
       ) : null}
 
@@ -418,7 +383,10 @@ const Roles = () => {
       ) : null}
 
       {superAdmin ? (
-        <StatusBanner type="info" message="Super Admin — Groups & Permissions APIs without X-Tenant." />
+        <StatusBanner
+          type="info"
+          message="Super Admin — /api/auth/groups/ and /api/auth/permissions/ without X-Tenant."
+        />
       ) : null}
 
       {status.message ? <StatusBanner type={status.type} message={status.message} /> : null}
